@@ -514,3 +514,32 @@ struct SkillDefinitionParserTests {
         }
     }
 }
+
+// MARK: - Blender Skill Validation
+
+struct BlenderSkillValidationTests {
+
+    @Test func blenderSkillParsesSuccessfully() throws {
+        let skillPath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("skills/blender-fundamentals/SKILL.md")
+
+        guard FileManager.default.fileExists(atPath: skillPath.path) else {
+            return // Skip if file not found (CI may not have it)
+        }
+
+        let content = try String(contentsOf: skillPath, encoding: .utf8)
+        let skill = try SkillDefinition.parse(from: content)
+
+        #expect(skill.metadata.id == "blender-fundamentals")
+        #expect(skill.metadata.targetApp == "Blender")
+        #expect(skill.curriculumStages.count == 6)
+        #expect(skill.vocabularyEntries.count >= 10)
+        #expect(skill.metadata.pointingMode == .always)
+        #expect(skill.curriculumStages[0].name == "Getting Around")
+        #expect(skill.curriculumStages[5].name == "Your First Render")
+        #expect(skill.curriculumStages[5].nextStageName == nil)
+    }
+}
+}
