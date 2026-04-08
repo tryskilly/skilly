@@ -1,4 +1,4 @@
-// MARK: - SkillSight
+// MARK: - Skilly
 
 import Foundation
 
@@ -67,7 +67,7 @@ struct SkillMetadata: Codable, Sendable {
     /// Currently only "1.0" is supported.
     let formatVersion: String
 
-    /// Minimum version of the SkillSight runtime required to load this skill.
+    /// Minimum version of the Skilly runtime required to load this skill.
     let minRuntimeVersion: String
 
     // MARK: Attribution

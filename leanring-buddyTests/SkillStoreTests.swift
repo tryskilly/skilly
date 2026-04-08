@@ -1,4 +1,4 @@
-// MARK: - SkillSight
+// MARK: - Skilly
 // Tests for local disk persistence of skills, progress, and config.
 
 import Testing

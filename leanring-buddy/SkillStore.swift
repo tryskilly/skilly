@@ -1,4 +1,4 @@
-// MARK: - SkillSight
+// MARK: - Skilly
 // Local disk persistence for installed skills, learning progress, and
 // app configuration. All data stored under ~/.skillsight/ as JSON files.
 
@@ -17,7 +17,7 @@ struct SkillStoreConfig: Codable, Sendable {
 
 // MARK: - SkillStore
 
-/// Manages reading and writing all SkillSight data to the local file system.
+/// Manages reading and writing all Skilly data to the local file system.
 ///
 /// Directory layout:
 ///   ~/.skillsight/
@@ -36,7 +36,7 @@ final class SkillStore: Sendable {
     /// Path to the app-level config JSON file.
     private var configFilePath: String { "\(baseDirectoryPath)/config.json" }
 
-    /// Default base directory for all SkillSight data: ~/.skillsight/
+    /// Default base directory for all Skilly data: ~/.skillsight/
     static let defaultBaseDirectoryPath: String = {
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(homeDirectory)/.skillsight"

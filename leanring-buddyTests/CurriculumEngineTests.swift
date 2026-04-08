@@ -1,4 +1,4 @@
-// MARK: - SkillSight
+// MARK: - Skilly
 
 import Testing
 import Foundation

@@ -6,3 +6,32 @@ build/
 releases/
 .claude/
 coding-plans/
+
+# Fastlane (contains session cookies, credentials, Appfile with Apple ID)
+fastlane/
+
+# Certificates and signing (NEVER commit these)
+*.cer
+*.p12
+*.p8
+*.pem
+*.key
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+
+# SkillSight local data
+.skillsight/
+
+# Secrets / env
+.env
+.env.*
+
+# Xcode derived
+DerivedData/
+*.xcscmblueprint
+xcuserdata/
+
+# OS junk
+.omx/
+Thumbs.db

@@ -1,10 +1,10 @@
-# SkillSight Phase 1 Week 1 — Implementation Plan
+# Skilly Phase 1 Week 1 — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the SKILL.md parser, data models, SkillManager, SkillStore, prompt composer, prompt budget guard, and the Blender Fundamentals skill file — with full test coverage — so Week 2 can integrate into CompanionManager and run first pointing benchmarks.
 
-**Architecture:** All new code lives in `leanring-buddy/SkillSight/` subdirectory (new files only, zero modifications to existing Clicky files this week). Data models are plain Swift structs conforming to `Codable`. The parser is a line-by-line state machine that extracts YAML frontmatter and Markdown sections by heading level. Tests use Swift Testing framework (`import Testing`, `@Test`) matching the existing test convention in `leanring-buddyTests/`.
+**Architecture:** All new code lives in `leanring-buddy/Skilly/` subdirectory (new files only, zero modifications to existing Clicky files this week). Data models are plain Swift structs conforming to `Codable`. The parser is a line-by-line state machine that extracts YAML frontmatter and Markdown sections by heading level. Tests use Swift Testing framework (`import Testing`, `@Test`) matching the existing test convention in `leanring-buddyTests/`.
 
 **Tech Stack:** Swift 5.9+, Swift Testing framework, Foundation (no external dependencies)
 
@@ -224,7 +224,7 @@ Create `leanring-buddy/SkillMetadata.swift`:
 //  SkillMetadata.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Data model for the YAML frontmatter section of a SKILL.md file.
 //  Contains all metadata fields that the runtime needs to load,
 //  validate, and configure a teaching skill.
@@ -259,7 +259,7 @@ enum SkillParsingError: Error, CustomStringConvertible {
         case .missingRequiredField(let field):
             return "Required field '\(field)' is missing from SKILL.md frontmatter"
         case .unsupportedFormatVersion(let version):
-            return "Format version '\(version)' is not supported — please update SkillSight"
+            return "Format version '\(version)' is not supported — please update Skilly"
         case .invalidSkillId(let id):
             return "Skill ID '\(id)' is invalid — must be lowercase alphanumeric with hyphens only"
         case .invalidPointingMode(let mode):
@@ -583,7 +583,7 @@ Create `leanring-buddy/CurriculumStage.swift`:
 //  CurriculumStage.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  A single stage in a skill's curriculum. Parsed from an H3 heading
 //  block within the "## Curriculum" section of a SKILL.md file.
 //
@@ -732,7 +732,7 @@ Create `leanring-buddy/VocabularyEntry.swift`:
 //  VocabularyEntry.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  A single UI vocabulary entry parsed from an H3 heading block within
 //  the "## UI Vocabulary" section of a SKILL.md file. Contains a canonical
 //  element name and a description that helps Claude identify and reference
@@ -994,7 +994,7 @@ Create `leanring-buddy/SkillDefinition.swift`:
 //  SkillDefinition.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Complete skill definition parsed from a SKILL.md file. Contains metadata,
 //  teaching instructions, curriculum stages, and UI vocabulary entries.
 //
@@ -1337,7 +1337,7 @@ Create `leanring-buddy/SkillValidation.swift`:
 //  SkillValidation.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Safety validation for skill content. Scans teaching instructions for
 //  prompt injection patterns, enforces size limits, and validates metadata.
 //  Part of the defense-in-depth strategy described in PRD Section 9.
@@ -1622,7 +1622,7 @@ Create `leanring-buddy/SkillProgress.swift`:
 //  SkillProgress.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Per-skill learning progress model. Tracks current stage, completed stages,
 //  signal accumulation buffer, and manual override state. Persisted as JSON
 //  in ~/.skillsight/progress/{skill-id}.json.
@@ -1876,7 +1876,7 @@ Create `leanring-buddy/PromptBudget.swift`:
 //  PromptBudget.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Token budget guard for system prompt composition. Enforces hard ceilings
 //  on each prompt layer and progressively trims vocabulary entries when the
 //  skill content exceeds budget. See PRD Section 6.3.
@@ -2300,7 +2300,7 @@ Create `leanring-buddy/CurriculumEngine.swift`:
 //  CurriculumEngine.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Tracks the user's position in a skill's curriculum using passive signal
 //  detection. The curriculum informs prompt focus — it does not gate access.
 //  Owned by SkillManager, not a standalone singleton.
@@ -2691,7 +2691,7 @@ Create `leanring-buddy/SkillPromptComposer.swift`:
 //  SkillPromptComposer.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Composes the dynamic system prompt by layering:
 //  1. Base Clicky companion prompt (preserved from upstream)
 //  2. Active skill's Teaching Instructions section
@@ -3027,7 +3027,7 @@ Create `leanring-buddy/SkillStore.swift`:
 //  SkillStore.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Local disk persistence for installed skills, learning progress, and
 //  app configuration. All data stored under ~/.skillsight/ as JSON files.
 //  See PRD Section 14 for directory layout.
@@ -3183,7 +3183,7 @@ Create `leanring-buddy/SkillManager.swift`:
 //  SkillManager.swift
 //  leanring-buddy
 //
-//  MARK: - SkillSight
+//  MARK: - Skilly
 //  Central coordinator for the skill system. Loads skills from disk,
 //  tracks the active skill and its progress, provides composed system
 //  prompts to CompanionManager, and exposes state for the panel UI.
@@ -3221,7 +3221,7 @@ final class SkillManager: ObservableObject {
     func loadInstalledSkills() {
         do {
             installedSkills = try store.loadInstalledSkills()
-            print("🎯 SkillSight: Loaded \(installedSkills.count) installed skill(s)")
+            print("🎯 Skilly: Loaded \(installedSkills.count) installed skill(s)")
 
             // Restore previously active skill from config
             let config = try store.loadConfig()
@@ -3230,7 +3230,7 @@ final class SkillManager: ObservableObject {
                 activateSkill(skill)
             }
         } catch {
-            print("⚠️ SkillSight: Failed to load skills: \(error)")
+            print("⚠️ Skilly: Failed to load skills: \(error)")
         }
     }
 
@@ -3268,7 +3268,7 @@ final class SkillManager: ObservableObject {
                 activeSkillProgress = newProgress
             }
         } catch {
-            print("⚠️ SkillSight: Failed to load/create progress: \(error)")
+            print("⚠️ Skilly: Failed to load/create progress: \(error)")
             let firstStageId = skill.curriculumStages.first?.id ?? "unknown"
             activeSkillProgress = SkillProgress.createNew(
                 skillId: skill.metadata.id,
@@ -3280,7 +3280,7 @@ final class SkillManager: ObservableObject {
         // Persist active skill selection
         persistActiveSkillId(skill.metadata.id)
 
-        print("🎯 SkillSight: Activated skill '\(skill.metadata.name)' at stage '\(activeSkillProgress?.currentStageId ?? "unknown")'")
+        print("🎯 Skilly: Activated skill '\(skill.metadata.name)' at stage '\(activeSkillProgress?.currentStageId ?? "unknown")'")
     }
 
     func deactivateSkill() {
@@ -3289,7 +3289,7 @@ final class SkillManager: ObservableObject {
         isSkillPaused = false
         promptCache = SkillPromptComposer.PromptCache()
         persistActiveSkillId(nil)
-        print("🎯 SkillSight: Skill deactivated")
+        print("🎯 Skilly: Skill deactivated")
     }
 
     func pauseSkill() {
@@ -3345,7 +3345,7 @@ final class SkillManager: ObservableObject {
         // Invalidate prompt cache if stage changed
         if progress.currentStageId != previousStageId {
             promptCache = SkillPromptComposer.PromptCache()
-            print("🎯 SkillSight: Advanced to stage '\(progress.currentStageId)'")
+            print("🎯 Skilly: Advanced to stage '\(progress.currentStageId)'")
         }
     }
 
@@ -3403,7 +3403,7 @@ final class SkillManager: ObservableObject {
             config.activeSkillId = skillId
             try store.saveConfig(config)
         } catch {
-            print("⚠️ SkillSight: Failed to persist active skill: \(error)")
+            print("⚠️ Skilly: Failed to persist active skill: \(error)")
         }
     }
 }

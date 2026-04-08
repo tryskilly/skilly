@@ -32,7 +32,7 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
-    // MARK: - SkillSight
+    // MARK: - Skilly
     private let skillManager: SkillManager?
     private let panelWidth: CGFloat = 320
     private let panelHeight: CGFloat = 380
@@ -147,7 +147,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func createPanel() {
-        // MARK: - SkillSight — Pass skill manager to panel view
+        // MARK: - Skilly — Pass skill manager to panel view
         let companionPanelView = CompanionPanelView(companionManager: companionManager, skillManager: skillManager)
             .frame(width: panelWidth)
 

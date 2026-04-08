@@ -1,4 +1,4 @@
-// MARK: - SkillSight
+// MARK: - Skilly
 
 import Testing
 @testable import leanring_buddy
@@ -13,7 +13,7 @@ name: Xcode Debugger
 version: 1.2.3
 format_version: 1.0
 min_runtime_version: 1.0.0
-author: SkillSight Team
+author: Skilly Team
 license: MIT
 target_app: Xcode
 bundle_id: com.apple.dt.Xcode
@@ -45,7 +45,7 @@ struct SkillMetadataTests {
         #expect(parsedMetadata.version == "1.2.3")
         #expect(parsedMetadata.formatVersion == "1.0")
         #expect(parsedMetadata.minRuntimeVersion == "1.0.0")
-        #expect(parsedMetadata.author == "SkillSight Team")
+        #expect(parsedMetadata.author == "Skilly Team")
         #expect(parsedMetadata.license == "MIT")
         #expect(parsedMetadata.targetApp == "Xcode")
         #expect(parsedMetadata.bundleId == "com.apple.dt.Xcode")

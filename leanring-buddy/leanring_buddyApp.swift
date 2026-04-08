@@ -33,19 +33,19 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private let companionManager = CompanionManager()
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
-    // MARK: - SkillSight
+    // MARK: - Skilly
     private let skillManager = SkillManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("🎯 Clicky: Starting...")
-        print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+        print("🎯 Skilly: Starting...")
+        print("🎯 Skilly: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
         ClickyAnalytics.configure()
         ClickyAnalytics.trackAppOpened()
 
-        // MARK: - SkillSight — Inject skill manager into companion and panel
+        // MARK: - Skilly — Inject skill manager into companion and panel
         companionManager.setSkillManager(skillManager)
         skillManager.loadInstalledSkills()
 
@@ -72,9 +72,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if loginItemService.status != .enabled {
             do {
                 try loginItemService.register()
-                print("🎯 Clicky: Registered as login item")
+                print("🎯 Skilly: Registered as login item")
             } catch {
-                print("⚠️ Clicky: Failed to register as login item: \(error)")
+                print("⚠️ Skilly: Failed to register as login item: \(error)")
             }
         }
     }
@@ -90,7 +90,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         do {
             try updaterController.updater.start()
         } catch {
-            print("⚠️ Clicky: Sparkle updater failed to start: \(error)")
+            print("⚠️ Skilly: Sparkle updater failed to start: \(error)")
         }
     }
 }

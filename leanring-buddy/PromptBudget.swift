@@ -1,4 +1,4 @@
-// MARK: - SkillSight
+// MARK: - Skilly
 
 /// Namespace for token budget constants and helpers used when assembling the Claude system prompt.
 /// Keeps the total system prompt within `maxSystemPromptTokens` so we never waste context window space.

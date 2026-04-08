@@ -1,8 +1,9 @@
-// MARK: - SkillSight
+// MARK: - Skilly
 
+import Combine
 import SwiftUI
 
-/// Central coordinator for all SkillSight functionality.
+/// Central coordinator for all Skilly functionality.
 ///
 /// SkillManager owns the active skill state, delegates curriculum processing to
 /// CurriculumEngine, persists progress and config via SkillStore, and composes
