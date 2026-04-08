@@ -317,3 +317,200 @@ struct VocabularyEntryTests {
         #expect(parsedEntry.description == parsedEntry.description.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
+
+// MARK: - SkillDefinitionParserTests
+
+struct SkillDefinitionParserTests {
+
+    // MARK: Test Fixtures
+
+    /// A minimal but complete SKILL.md for testing all parser sections.
+    static let minimalSkillMarkdown = """
+    ---
+    id: test-skill
+    name: Test Skill
+    version: 1.0.0
+    format_version: 1.0
+    min_runtime_version: 1.0.0
+    author: tester
+    license: MIT
+    target_app: TestApp
+    bundle_id: com.test.app
+    platform: macOS
+    recommended_model: claude-sonnet-4-6
+    pointing_mode: always
+    category: test
+    tags:
+      - testing
+    difficulty: beginner
+    estimated_hours: 2
+    ---
+
+    # Test Skill
+
+    This is the skill description for marketplace listing.
+
+    ## Teaching Instructions
+
+    You are teaching TestApp basics.
+
+    ### Your Expertise
+
+    You know TestApp deeply.
+
+    ### Teaching Approach
+
+    Be patient and clear.
+
+    ## Curriculum
+
+    ### Stage 1: First Steps
+
+    Learn the basics.
+
+    **Goals:**
+    - Open the app
+    - Find the main menu
+
+    **Completion signals:** open, menu, basics
+
+    **Next:** Advanced Steps
+
+    ### Stage 2: Advanced Steps
+
+    Go deeper.
+
+    **Prerequisites:** First Steps
+
+    **Goals:**
+    - Use advanced feature
+
+    **Completion signals:** advanced, feature
+
+    **Next:** null
+
+    ## UI Vocabulary
+
+    ### Main Menu
+    The top menu bar of TestApp with File, Edit, View options.
+
+    ### Sidebar
+    The left panel showing project navigation and file tree.
+    """
+
+    // MARK: Test 1
+
+    @Test func parsesCompleteSkillFromMarkdown() throws {
+        let parsedDefinition = try SkillDefinition.parse(from: Self.minimalSkillMarkdown)
+
+        #expect(parsedDefinition.metadata.id == "test-skill")
+        #expect(parsedDefinition.metadata.name == "Test Skill")
+        #expect(parsedDefinition.skillDescription == "This is the skill description for marketplace listing.")
+    }
+
+    // MARK: Test 2
+
+    @Test func extractsTeachingInstructionsVerbatim() throws {
+        let parsedDefinition = try SkillDefinition.parse(from: Self.minimalSkillMarkdown)
+        let teachingInstructions = parsedDefinition.teachingInstructions
+
+        // The top-level prose must be present.
+        #expect(teachingInstructions.contains("You are teaching TestApp basics."))
+
+        // Nested H3 headings must be preserved verbatim inside the teaching instructions block.
+        #expect(teachingInstructions.contains("### Your Expertise"))
+        #expect(teachingInstructions.contains("### Teaching Approach"))
+
+        // Content under nested headings must also be preserved.
+        #expect(teachingInstructions.contains("Be patient and clear."))
+    }
+
+    // MARK: Test 3
+
+    @Test func parsesTwoCurriculumStages() throws {
+        let parsedDefinition = try SkillDefinition.parse(from: Self.minimalSkillMarkdown)
+        let stages = parsedDefinition.curriculumStages
+
+        #expect(stages.count == 2)
+
+        let firstStage = stages[0]
+        #expect(firstStage.name == "First Steps")
+        #expect(firstStage.goals.count == 2)
+        #expect(firstStage.nextStageName == "Advanced Steps")
+
+        let secondStage = stages[1]
+        #expect(secondStage.name == "Advanced Steps")
+        #expect(secondStage.prerequisites == "First Steps")
+        #expect(secondStage.nextStageName == nil)
+    }
+
+    // MARK: Test 4
+
+    @Test func parsesTwoVocabularyEntries() throws {
+        let parsedDefinition = try SkillDefinition.parse(from: Self.minimalSkillMarkdown)
+        let entries = parsedDefinition.vocabularyEntries
+
+        #expect(entries.count == 2)
+        #expect(entries[0].name == "Main Menu")
+        #expect(entries[1].name == "Sidebar")
+    }
+
+    // MARK: Test 5
+
+    @Test func rejectsMissingFrontmatter() {
+        // A document with no --- delimiters at all should fail with a SkillParsingError.
+        let markdownWithoutFrontmatter = """
+        # No Frontmatter Here
+
+        Just plain markdown content with no YAML block.
+
+        ## Teaching Instructions
+
+        Some instructions.
+        """
+
+        #expect(throws: SkillParsingError.self) {
+            try SkillDefinition.parse(from: markdownWithoutFrontmatter)
+        }
+    }
+
+    // MARK: Test 6
+
+    @Test func rejectsMissingTeachingInstructionsSection() {
+        // Valid frontmatter + Curriculum section, but no Teaching Instructions section.
+        let markdownMissingTeachingInstructions = """
+        ---
+        id: test-skill
+        name: Test Skill
+        version: 1.0.0
+        format_version: 1.0
+        min_runtime_version: 1.0.0
+        author: tester
+        license: MIT
+        target_app: TestApp
+        bundle_id: com.test.app
+        platform: macOS
+        category: test
+        ---
+
+        Skill description here.
+
+        ## Curriculum
+
+        ### Stage 1: Only Stage
+
+        Learn something.
+
+        **Goals:**
+        - Do the thing
+
+        **Completion signals:** done
+
+        **Next:** null
+        """
+
+        #expect(throws: SkillParsingError.self) {
+            try SkillDefinition.parse(from: markdownMissingTeachingInstructions)
+        }
+    }
+}
