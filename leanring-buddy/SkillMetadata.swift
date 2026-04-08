@@ -122,38 +122,42 @@ struct SkillMetadata: Codable, Sendable {
     /// Regex pattern that a valid skill ID must fully match.
     private static let validSkillIdPattern = "^[a-z0-9]+(-[a-z0-9]+)*$"
 
-    /// Parses a `SkillMetadata` instance from the YAML frontmatter found in the given string.
+    /// Parses a `SkillMetadata` instance from a YAML frontmatter string.
     ///
     /// The parser is intentionally simple: it handles flat `key: value` lines and
     /// single-level block sequences (`  - item`). Nested YAML objects are not supported.
     ///
-    /// - Parameter yamlString: The full text of a SKILL.md file (or just the frontmatter block).
+    /// Accepts either raw YAML content (no delimiters) or content wrapped in `---`
+    /// delimiters. When delimiters are present, only the content between them is parsed.
+    ///
+    /// - Parameter yamlString: The YAML frontmatter content, with or without `---` delimiters.
     /// - Returns: A fully validated `SkillMetadata` value.
-    /// - Throws: `SkillParsingError` if the frontmatter is absent, malformed, or fails validation.
+    /// - Throws: `SkillParsingError` if the content is malformed or fails validation.
     static func parse(from yamlString: String) throws -> SkillMetadata {
-        let frontmatterContent = try extractFrontmatterContent(from: yamlString)
+        let frontmatterContent = stripFrontmatterDelimitersIfPresent(yamlString)
         let keyValueMap = try buildKeyValueMap(from: frontmatterContent)
         return try buildAndValidateMetadata(from: keyValueMap)
     }
 
     // MARK: - Private Parsing Helpers
 
-    /// Extracts the raw text between the opening and closing `---` markers.
-    private static func extractFrontmatterContent(from yamlString: String) throws -> String {
+    /// Strips `---` delimiters if present, returning only the YAML content between them.
+    /// If no delimiters are found, returns the input as-is (assumes raw YAML content).
+    private static func stripFrontmatterDelimitersIfPresent(_ yamlString: String) -> String {
         let lines = yamlString.components(separatedBy: "\n")
 
-        // Find the first `---` line (the opening delimiter).
         guard let openingDelimiterIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
-            throw SkillParsingError.missingFrontmatter
+            // No delimiters found — treat entire string as raw YAML content
+            return yamlString
         }
 
-        // Find the closing `---` line, which must come after the opening one.
         let linesAfterOpening = lines[(openingDelimiterIndex + 1)...]
-        guard let closingDelimiterOffset = linesAfterOpening.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
-            throw SkillParsingError.missingFrontmatter
+        guard let closingDelimiterIndex = linesAfterOpening.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
+            // Only one delimiter found — treat content after it as YAML
+            return linesAfterOpening.joined(separator: "\n")
         }
 
-        let frontmatterLines = lines[(openingDelimiterIndex + 1)..<closingDelimiterOffset]
+        let frontmatterLines = lines[(openingDelimiterIndex + 1)..<closingDelimiterIndex]
         return frontmatterLines.joined(separator: "\n")
     }
 
