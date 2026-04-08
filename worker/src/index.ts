@@ -48,6 +48,10 @@ export default {
         if (url.pathname === "/auth/url") {
           return handleAuthURL(env);
         }
+        // WorkOS redirects here after auth → we redirect to the app's custom URL scheme
+        if (url.pathname === "/auth/callback") {
+          return handleAuthCallbackRedirect(url);
+        }
       }
     } catch (error) {
       console.error(`[${url.pathname}] Unhandled error:`, error);
@@ -66,11 +70,19 @@ export default {
 /**
  * GET /auth/url
  * Returns the WorkOS AuthKit authorization URL for the app to open in a browser.
+ * The redirect_uri points to this Worker's /auth/callback endpoint (a web URL),
+ * which then redirects to the app's skilly:// custom scheme.
  */
 function handleAuthURL(env: Env): Response {
+  // WorkOS requires a web URL as redirect_uri — custom schemes don't work directly.
+  // We use the Worker's own /auth/callback as the redirect target.
+  const workerCallbackURL = new URL("/auth/callback", env.WORKOS_REDIRECT_URI.startsWith("http")
+    ? env.WORKOS_REDIRECT_URI
+    : `https://skilly-proxy.eng-mohamedszaied.workers.dev/auth/callback`);
+
   const authURL = new URL("https://api.workos.com/user_management/authorize");
   authURL.searchParams.set("client_id", env.WORKOS_CLIENT_ID);
-  authURL.searchParams.set("redirect_uri", env.WORKOS_REDIRECT_URI);
+  authURL.searchParams.set("redirect_uri", workerCallbackURL.toString());
   authURL.searchParams.set("response_type", "code");
   authURL.searchParams.set("provider", "authkit");
 
@@ -78,6 +90,49 @@ function handleAuthURL(env: Env): Response {
     JSON.stringify({ url: authURL.toString() }),
     { status: 200, headers: { "content-type": "application/json" } }
   );
+}
+
+/**
+ * GET /auth/callback?code=XXX
+ * WorkOS redirects here after successful authentication.
+ * We redirect to the app's custom URL scheme: skilly://auth/callback?code=XXX
+ *
+ * Uses JavaScript window.location + a clickable fallback link because
+ * browsers block meta-refresh and 302 redirects to custom URL schemes.
+ */
+function handleAuthCallbackRedirect(url: URL): Response {
+  const code = url.searchParams.get("code");
+
+  if (!code) {
+    return new Response("Missing authorization code", { status: 400 });
+  }
+
+  const appURL = `skilly://auth/callback?code=${encodeURIComponent(code)}`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><title>Skilly — Signing in</title></head>
+<body style="font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #1a1a2e; color: #fff;">
+  <div style="text-align: center;">
+    <h2>Opening Skilly...</h2>
+    <p style="color: #888;">If nothing happens, <a href="${appURL}" style="color: #6C63FF;">click here to open Skilly</a>.</p>
+    <p id="status" style="color: #555; font-size: 12px; margin-top: 24px;">Redirecting...</p>
+  </div>
+  <script>
+    window.location.href = "${appURL}";
+    // Try to close the tab after a short delay
+    setTimeout(function() {
+      document.getElementById("status").textContent = "You can close this tab now.";
+      window.close();
+    }, 1500);
+  </script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
 }
 
 /**

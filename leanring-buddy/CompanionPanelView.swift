@@ -44,11 +44,21 @@ struct CompanionPanelView: View {
                     .padding(.horizontal, 16)
             }
 
-            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+            // Show sign-in button when not authenticated (regardless of onboarding state)
+            if companionManager.allPermissionsGranted && !(authManager?.isSignedIn ?? true) {
                 Spacer()
                     .frame(height: 16)
 
                 startButton
+                    .padding(.horizontal, 16)
+            }
+
+            // Show onboarding start button when authenticated but not yet onboarded
+            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && (authManager?.isSignedIn ?? true) {
+                Spacer()
+                    .frame(height: 16)
+
+                onboardingStartButton
                     .padding(.horizontal, 16)
             }
 
@@ -144,7 +154,7 @@ struct CompanionPanelView: View {
 
     @ViewBuilder
     private var permissionsCopySection: some View {
-        if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+        if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && (authManager?.isSignedIn ?? true) {
             Text("Hold Control+Option to talk.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
@@ -197,62 +207,62 @@ struct CompanionPanelView: View {
         }
     }
 
-    // MARK: - Sign In + Start Button
+    // MARK: - Sign In Button
 
     @ViewBuilder
     private var startButton: some View {
-        if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            if !(authManager?.isSignedIn ?? true) {
-                VStack(spacing: 8) {
-                    if let error = authManager?.authError {
-                        Text(error)
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Button(action: {
-                        authManager?.startSignIn()
-                    }) {
-                        HStack(spacing: 8) {
-                            if authManager?.isAuthenticating == true {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .scaleEffect(0.8)
-                            }
-                            Text(authManager?.isAuthenticating == true ? "Signing in..." : "Sign in to get started")
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                .fill(DS.Colors.accent)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .disabled(authManager?.isAuthenticating == true)
-                }
-            } else {
-                Button(action: {
-                    companionManager.triggerOnboarding()
-                }) {
-                    Text("Start")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+        VStack(spacing: 8) {
+            if let error = authManager?.authError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            Button(action: {
+                authManager?.startSignIn()
+            }) {
+                HStack(spacing: 8) {
+                    if authManager?.isAuthenticating == true {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.8)
+                    }
+                    Text(authManager?.isAuthenticating == true ? "Signing in..." : "Sign in to get started")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundColor(DS.Colors.textOnAccent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                        .fill(DS.Colors.accent)
+                )
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .disabled(authManager?.isAuthenticating == true)
         }
+    }
+
+    // MARK: - Onboarding Start Button
+
+    private var onboardingStartButton: some View {
+        Button(action: {
+            companionManager.triggerOnboarding()
+        }) {
+            Text("Start")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(DS.Colors.textOnAccent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                        .fill(DS.Colors.accent)
+                )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Permissions
@@ -720,7 +730,25 @@ struct CompanionPanelView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "play.circle")
                             .font(.system(size: 11, weight: .medium))
-                        Text("Watch Onboarding Again")
+                        Text("Replay Intro")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(DS.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+
+            if authManager?.isSignedIn == true {
+                Spacer()
+
+                Button(action: {
+                    authManager?.signOut()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Sign Out")
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundColor(DS.Colors.textTertiary)
