@@ -4,63 +4,8 @@ import Testing
 import Foundation
 @testable import leanring_buddy
 
-// MARK: - SkillDefinitionParserTests
-
-/// Shared test fixtures for SkillDefinition parsing tests.
-/// Defined here so CurriculumEngineTests can reference minimalSkillMarkdown.
-struct SkillDefinitionParserTests {
-
-    /// A minimal but complete SKILL.md fixture with two curriculum stages used across multiple test files.
-    ///
-    /// Stage 1: "First Steps" — signals: open, menu, basics. Next: "Advanced Steps"
-    /// Stage 2: "Advanced Steps" — signals: advanced, feature. Next: null
-    static let minimalSkillMarkdown = """
-    ---
-    id: test-skill
-    name: Test Skill
-    version: 1.0.0
-    format_version: 1.0
-    min_runtime_version: 1.0.0
-    author: Test Author
-    license: MIT
-    target_app: TestApp
-    bundle_id: com.example.testapp
-    platform: macOS
-    category: productivity
-    ---
-
-    A minimal skill for testing purposes.
-
-    ## Teaching Instructions
-
-    Help the user learn the basics and then advanced features.
-
-    ## Curriculum
-
-    ### Stage 1: First Steps
-
-    Get familiar with the basic controls and navigation.
-
-    **Goals:**
-    - Understand the menu
-    - Open the main view
-
-    **Completion signals:** open, menu, basics
-    **Next:** Advanced Steps
-
-    ### Stage 2: Advanced Steps
-
-    Explore advanced features and workflows.
-
-    **Goals:**
-    - Use advanced features
-
-    **Completion signals:** advanced, feature
-    **Next:** null
-    """
-}
-
 // MARK: - CurriculumEngineTests
+// Uses SkillDefinitionParserTests.minimalSkillMarkdown from SkillDefinitionTests.swift
 
 struct CurriculumEngineTests {
 
