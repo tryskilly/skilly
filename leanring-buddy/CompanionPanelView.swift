@@ -12,6 +12,8 @@ import SwiftUI
 
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
+    // MARK: - SkillSight
+    var skillManager: SkillManager?
     @State private var emailInput: String = ""
 
     var body: some View {
@@ -57,6 +59,21 @@ struct CompanionPanelView: View {
             //     showClickyCursorToggleRow
             //         .padding(.horizontal, 16)
             // }
+
+            // MARK: - SkillSight — Skill panel section
+            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted,
+               let skillManager {
+                Spacer()
+                    .frame(height: 12)
+
+                Divider()
+                    .background(DS.Colors.borderSubtle)
+                    .padding(.horizontal, 16)
+
+                SkillPanelSection(skillManager: skillManager)
+                    .padding(.top, 12)
+                    .padding(.horizontal, 16)
+            }
 
             if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
                 Spacer()

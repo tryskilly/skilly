@@ -32,11 +32,14 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
+    // MARK: - SkillSight
+    private let skillManager: SkillManager?
     private let panelWidth: CGFloat = 320
     private let panelHeight: CGFloat = 380
 
-    init(companionManager: CompanionManager) {
+    init(companionManager: CompanionManager, skillManager: SkillManager? = nil) {
         self.companionManager = companionManager
+        self.skillManager = skillManager
         super.init()
         createStatusItem()
 
@@ -144,7 +147,8 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func createPanel() {
-        let companionPanelView = CompanionPanelView(companionManager: companionManager)
+        // MARK: - SkillSight — Pass skill manager to panel view
+        let companionPanelView = CompanionPanelView(companionManager: companionManager, skillManager: skillManager)
             .frame(width: panelWidth)
 
         let hostingView = NSHostingView(rootView: companionPanelView)

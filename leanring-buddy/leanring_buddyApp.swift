@@ -33,6 +33,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private let companionManager = CompanionManager()
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
+    // MARK: - SkillSight
+    private let skillManager = SkillManager()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🎯 Clicky: Starting...")
         print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
@@ -42,7 +45,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         ClickyAnalytics.configure()
         ClickyAnalytics.trackAppOpened()
 
-        menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
+        // MARK: - SkillSight — Inject skill manager into companion and panel
+        companionManager.setSkillManager(skillManager)
+        skillManager.loadInstalledSkills()
+
+        menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager, skillManager: skillManager)
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:
         // either they haven't onboarded yet, or permissions were revoked.

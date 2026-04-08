@@ -62,6 +62,30 @@ final class CompanionManager: ObservableObject {
     private var onboardingMusicPlayer: AVAudioPlayer?
     private var onboardingMusicFadeTimer: Timer?
 
+    // MARK: - SkillSight
+
+    /// Optional skill manager — when set and a skill is active, the companion
+    /// uses a composed system prompt with domain teaching instructions instead
+    /// of the generic Clicky prompt. When nil or no skill active, original
+    /// Clicky behavior is preserved.
+    private var skillManager: SkillManager?
+
+    func setSkillManager(_ manager: SkillManager) {
+        self.skillManager = manager
+    }
+
+    /// Returns the skill-composed system prompt if a skill is active,
+    /// otherwise falls back to the base Clicky prompt.
+    private var composedSystemPrompt: String {
+        if let skillManager,
+           let composed = skillManager.composedSystemPrompt(basePrompt: Self.companionVoiceResponseSystemPrompt) {
+            return composed
+        }
+        return Self.companionVoiceResponseSystemPrompt
+    }
+
+    // MARK: - Clicky Core
+
     let buddyDictationManager = BuddyDictationManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
     let overlayWindowManager = OverlayWindowManager()
@@ -612,7 +636,7 @@ final class CompanionManager: ObservableObject {
 
                 let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                     images: labeledImages,
-                    systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                    systemPrompt: composedSystemPrompt,
                     conversationHistory: historyForAPI,
                     userPrompt: transcript,
                     onTextChunk: { _ in
@@ -660,23 +684,41 @@ final class CompanionManager: ObservableObject {
                     let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
                     let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
 
-                    // Scale from screenshot pixels to display points
-                    let displayLocalX = clampedX * (displayWidth / screenshotWidth)
-                    let displayLocalY = clampedY * (displayHeight / screenshotHeight)
+                    // MARK: - SkillSight — Edge-proximity confidence fallback
+                    // If the coordinate is within 5% of any screen edge, suppress
+                    // the cursor animation. A missed point is better than a wrong
+                    // point. The verbal response still plays via TTS; only the
+                    // cursor flight is skipped. See PRD Section 7.3.
+                    let edgeMarginFraction: CGFloat = 0.05
+                    let isNearLeftEdge = clampedX < screenshotWidth * edgeMarginFraction
+                    let isNearRightEdge = clampedX > screenshotWidth * (1 - edgeMarginFraction)
+                    let isNearTopEdge = clampedY < screenshotHeight * edgeMarginFraction
+                    let isNearBottomEdge = clampedY > screenshotHeight * (1 - edgeMarginFraction)
+                    let isNearScreenEdge = isNearLeftEdge || isNearRightEdge || isNearTopEdge || isNearBottomEdge
 
-                    // Convert from top-left origin (screenshot) to bottom-left origin (AppKit)
-                    let appKitY = displayHeight - displayLocalY
+                    if isNearScreenEdge {
+                        // Suppress pointing animation — coordinate is unreliable
+                        ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
+                        print("🎯 Element pointing suppressed (near screen edge): (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
+                    } else {
+                        // Scale from screenshot pixels to display points
+                        let displayLocalX = clampedX * (displayWidth / screenshotWidth)
+                        let displayLocalY = clampedY * (displayHeight / screenshotHeight)
 
-                    // Convert display-local coords to global screen coords
-                    let globalLocation = CGPoint(
-                        x: displayLocalX + displayFrame.origin.x,
-                        y: appKitY + displayFrame.origin.y
-                    )
+                        // Convert from top-left origin (screenshot) to bottom-left origin (AppKit)
+                        let appKitY = displayHeight - displayLocalY
 
-                    detectedElementScreenLocation = globalLocation
-                    detectedElementDisplayFrame = displayFrame
-                    ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-                    print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
+                        // Convert display-local coords to global screen coords
+                        let globalLocation = CGPoint(
+                            x: displayLocalX + displayFrame.origin.x,
+                            y: appKitY + displayFrame.origin.y
+                        )
+
+                        detectedElementScreenLocation = globalLocation
+                        detectedElementDisplayFrame = displayFrame
+                        ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
+                        print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
+                    }
                 } else {
                     print("🎯 Element pointing: \(parseResult.elementLabel ?? "no element")")
                 }
@@ -694,6 +736,15 @@ final class CompanionManager: ObservableObject {
                 }
 
                 print("🧠 Conversation history: \(conversationHistory.count) exchanges")
+
+                // MARK: - SkillSight — Post-response curriculum signal observation
+                // Fire BEFORE the history cap applies so no signals are lost.
+                // The curriculum engine's signal buffer is persisted separately
+                // from conversation history. See PRD Section 10.6.
+                skillManager?.didReceiveInteraction(
+                    transcript: transcript,
+                    assistantResponse: spokenText
+                )
 
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
 
