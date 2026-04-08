@@ -35,6 +35,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Skilly
     private let skillManager = SkillManager()
+    let authManager = AuthManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🎯 Skilly: Starting...")
@@ -45,11 +46,23 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         ClickyAnalytics.configure()
         ClickyAnalytics.trackAppOpened()
 
-        // MARK: - Skilly — Inject skill manager into companion and panel
+        // Inject skill manager into companion and panel
         companionManager.setSkillManager(skillManager)
         skillManager.loadInstalledSkills()
 
-        menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager, skillManager: skillManager)
+        // Register for skilly:// deep links (WorkOS auth callback)
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleURLEvent(_:withReply:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+
+        menuBarPanelManager = MenuBarPanelManager(
+            companionManager: companionManager,
+            skillManager: skillManager,
+            authManager: authManager
+        )
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:
         // either they haven't onboarded yet, or permissions were revoked.
@@ -77,6 +90,28 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
                 print("⚠️ Skilly: Failed to register as login item: \(error)")
             }
         }
+    }
+
+    // MARK: - Deep Link Handler (WorkOS Auth Callback)
+
+    @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: urlString),
+              url.scheme == "skilly",
+              url.host == "auth",
+              url.path == "/callback" || url.path == "callback" else {
+            return
+        }
+
+        // Extract the authorization code from the callback URL
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        guard let code = components?.queryItems?.first(where: { $0.name == "code" })?.value else {
+            print("⚠️ Skilly Auth: No code in callback URL")
+            return
+        }
+
+        print("🎯 Skilly Auth: Received auth callback with code")
+        authManager.handleAuthCallback(code: code)
     }
 
     private func startSparkleUpdater() {

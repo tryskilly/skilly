@@ -34,12 +34,14 @@ final class MenuBarPanelManager: NSObject {
     private let companionManager: CompanionManager
     // MARK: - Skilly
     private let skillManager: SkillManager?
+    private let authManager: AuthManager?
     private let panelWidth: CGFloat = 320
     private let panelHeight: CGFloat = 380
 
-    init(companionManager: CompanionManager, skillManager: SkillManager? = nil) {
+    init(companionManager: CompanionManager, skillManager: SkillManager? = nil, authManager: AuthManager? = nil) {
         self.companionManager = companionManager
         self.skillManager = skillManager
+        self.authManager = authManager
         super.init()
         createStatusItem()
 
@@ -147,8 +149,8 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func createPanel() {
-        // MARK: - Skilly — Pass skill manager to panel view
-        let companionPanelView = CompanionPanelView(companionManager: companionManager, skillManager: skillManager)
+        // MARK: - Skilly — Pass skill manager and auth manager to panel view
+        let companionPanelView = CompanionPanelView(companionManager: companionManager, skillManager: skillManager, authManager: authManager)
             .frame(width: panelWidth)
 
         let hostingView = NSHostingView(rootView: companionPanelView)

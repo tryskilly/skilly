@@ -14,6 +14,7 @@ struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
     // MARK: - Skilly
     var skillManager: SkillManager?
+    var authManager: AuthManager?
     @State private var emailInput: String = ""
 
     var body: some View {
@@ -148,12 +149,12 @@ struct CompanionPanelView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if companionManager.allPermissionsGranted && !companionManager.hasSubmittedEmail {
+        } else if companionManager.allPermissionsGranted && !(authManager?.isSignedIn ?? true) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Drop your email to get started.")
+                Text("Sign in to get started.")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("If I keep building this, I'll keep you in the loop.")
+                Text("Create an account to start learning with Skilly.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
             }
@@ -196,46 +197,43 @@ struct CompanionPanelView: View {
         }
     }
 
-    // MARK: - Email + Start Button
+    // MARK: - Sign In + Start Button
 
     @ViewBuilder
     private var startButton: some View {
         if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            if !companionManager.hasSubmittedEmail {
+            if !(authManager?.isSignedIn ?? true) {
                 VStack(spacing: 8) {
-                    TextField("Enter your email", text: $emailInput)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .fill(Color.white.opacity(0.08))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                        )
+                    if let error = authManager?.authError {
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     Button(action: {
-                        companionManager.submitEmail(emailInput)
+                        authManager?.startSignIn()
                     }) {
-                        Text("Submit")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                    .fill(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                          ? DS.Colors.accent.opacity(0.4)
-                                          : DS.Colors.accent)
-                            )
+                        HStack(spacing: 8) {
+                            if authManager?.isAuthenticating == true {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .scaleEffect(0.8)
+                            }
+                            Text(authManager?.isAuthenticating == true ? "Signing in..." : "Sign in to get started")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundColor(DS.Colors.textOnAccent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                                .fill(DS.Colors.accent)
+                        )
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
-                    .disabled(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(authManager?.isAuthenticating == true)
                 }
             } else {
                 Button(action: {

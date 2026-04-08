@@ -11,10 +11,21 @@
 	<key>VoiceTranscriptionProvider</key>
 	<string>assemblyai</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Clicky uses your microphone so you can talk to it</string>
+	<string>Skilly uses your microphone so you can talk to it</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Clicky needs screen recording access to see your screen and help you.</string>
+	<string>Skilly needs screen recording access to see your screen and help you learn.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Clicky uses speech recognition to transcribe your voice when you talk to it</string>
+	<string>Skilly uses speech recognition to transcribe your voice when you talk to it</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.tryskilly.skilly</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>skilly</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
