@@ -1025,6 +1025,9 @@ final class CompanionManager: ObservableObject {
 
                 guard !Task.isCancelled else { return }
 
+                // Clear any stale audio from previous interaction
+                openAIRealtimeClient.clearAudioBuffer()
+
                 // Capture and send screenshot immediately
                 let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
                 if let cursorScreen = allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures.first {
