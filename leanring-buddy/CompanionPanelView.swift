@@ -112,21 +112,19 @@ struct CompanionPanelView: View {
 
     private var panelHeader: some View {
         HStack {
-            HStack(spacing: 8) {
-                // Animated status dot
-                Circle()
-                    .fill(statusDotColor)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: statusDotColor.opacity(0.6), radius: 4)
+            HStack(spacing: 6) {
+                // Skilly logo icon
+                Image("SkillyCursor")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 14, height: 14)
 
                 Text("Skilly")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
             }
 
             Spacer()
-
-            Text(statusText)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textTertiary)
 

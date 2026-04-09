@@ -317,7 +317,8 @@ struct BlueCursorView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 20, height: 20)
-                .rotationEffect(.degrees(triangleRotationDegrees))
+                // No rotation — the logo PNG has the correct direction built in.
+                // The old Triangle shape needed rotation; the logo image does not.
                 .shadow(color: DS.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
                 .opacity(buddyIsVisibleOnThisScreen && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
