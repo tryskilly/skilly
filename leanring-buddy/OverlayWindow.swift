@@ -54,6 +54,9 @@ class OverlayWindow: NSWindow {
 
 // MARK: - Skilly — Cursor arrow shape (replaces Clicky triangle)
 // Matches the Skilly amber cursor logo — a stylized pointer arrow.
+// The shape points UP at 0° rotation. The overlay applies -35° rotation
+// by default (see triangleRotationDegrees) which tilts it to match
+// the classic macOS cursor angle.
 
 struct Triangle: Shape {
     func path(in rect: CGRect) -> Path {
@@ -61,15 +64,18 @@ struct Triangle: Shape {
         let w = rect.width
         let h = rect.height
 
-        // Cursor arrow pointing up-left with a notch on the right side.
-        // Coordinates normalized to the bounding rect.
-        path.move(to: CGPoint(x: w * 0.10, y: h * 0.05))   // tip (top-left)
-        path.addLine(to: CGPoint(x: w * 0.10, y: h * 0.85)) // bottom-left
-        path.addLine(to: CGPoint(x: w * 0.38, y: h * 0.62)) // notch inner
-        path.addLine(to: CGPoint(x: w * 0.68, y: h * 0.92)) // tail end bottom
-        path.addLine(to: CGPoint(x: w * 0.90, y: h * 0.72)) // tail end right
-        path.addLine(to: CGPoint(x: w * 0.58, y: h * 0.42)) // notch outer
-        path.addLine(to: CGPoint(x: w * 0.82, y: h * 0.18)) // right wing
+        // Classic macOS cursor arrow shape pointing UP (tip at top-center).
+        // The overlay's -35° default rotation tilts it to the correct angle.
+        let tipX = w * 0.50
+        let tipY = h * 0.0
+
+        path.move(to: CGPoint(x: tipX, y: tipY))                // tip (top)
+        path.addLine(to: CGPoint(x: w * 0.85, y: h * 0.75))     // right edge
+        path.addLine(to: CGPoint(x: w * 0.62, y: h * 0.62))     // notch right
+        path.addLine(to: CGPoint(x: w * 0.72, y: h * 1.0))      // tail right
+        path.addLine(to: CGPoint(x: w * 0.28, y: h * 1.0))      // tail left
+        path.addLine(to: CGPoint(x: w * 0.38, y: h * 0.62))     // notch left
+        path.addLine(to: CGPoint(x: w * 0.15, y: h * 0.75))     // left edge
         path.closeSubpath()
         return path
     }
