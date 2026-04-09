@@ -89,6 +89,11 @@ final class CompanionManager: ObservableObject {
     let buddyDictationManager = BuddyDictationManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
     let overlayWindowManager = OverlayWindowManager()
+
+    // MARK: - Skilly — Streaming TTS
+    private lazy var streamingTTSQueue: StreamingTTSQueue = {
+        StreamingTTSQueue(ttsClient: elevenLabsTTSClient)
+    }()
     // Response text is now displayed inline on the cursor overlay via
     // streamingResponseText, so no separate response overlay manager is needed.
 
@@ -610,6 +615,7 @@ final class CompanionManager: ObservableObject {
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
+        streamingTTSQueue.stopAndClear()
 
         currentResponseTask = Task {
             // Stay in processing (spinner) state — no streaming text displayed
@@ -634,21 +640,60 @@ final class CompanionManager: ObservableObject {
                     (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
                 }
 
+                // MARK: - Skilly — Sentence-level streaming TTS
+                // As Claude streams its response, we detect sentence boundaries
+                // and send each complete sentence to ElevenLabs immediately.
+                // This dramatically reduces perceived latency because the user
+                // hears the first sentence while Claude is still generating.
+                var streamingTextBuffer = ""
+                var sentencesSentToTTS: [String] = []
+
+                streamingTTSQueue.stopAndClear()
+                streamingTTSQueue.onFirstAudioStarted = { [weak self] in
+                    self?.voiceState = .responding
+                }
+
                 let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                     images: labeledImages,
                     systemPrompt: composedSystemPrompt,
                     conversationHistory: historyForAPI,
                     userPrompt: transcript,
-                    onTextChunk: { _ in
-                        // No streaming text display — spinner stays until TTS plays
+                    onTextChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        streamingTextBuffer += chunk
+
+                        // Don't send anything that might contain the [POINT:] tag.
+                        // The tag is always at the very end, so we hold back text
+                        // after the last sentence boundary.
+                        guard !streamingTextBuffer.contains("[POINT") else { return }
+
+                        // Extract complete sentences (ending with . ! ?)
+                        let completeSentences = Self.extractCompleteSentences(from: &streamingTextBuffer)
+                        for sentence in completeSentences {
+                            sentencesSentToTTS.append(sentence)
+                            self.streamingTTSQueue.queueSentence(sentence)
+                        }
                     }
                 )
 
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    streamingTTSQueue.stopAndClear()
+                    return
+                }
 
                 // Parse the [POINT:...] tag from Claude's response
                 let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
                 let spokenText = parseResult.spokenText
+
+                // Send any remaining buffered text that wasn't sent during streaming
+                // (the last partial sentence, or text before the POINT tag)
+                let alreadySentText = sentencesSentToTTS.joined()
+                let remainingText = String(spokenText.dropFirst(alreadySentText.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !remainingText.isEmpty {
+                    streamingTTSQueue.queueSentence(remainingText)
+                }
+                streamingTTSQueue.markFinalSegmentQueued()
 
                 // Handle element pointing if Claude returned coordinates.
                 // Switch to idle BEFORE setting the location so the triangle
@@ -748,18 +793,12 @@ final class CompanionManager: ObservableObject {
 
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
 
-                // Play the response via TTS. Keep the spinner (processing state)
-                // until the audio actually starts playing, then switch to responding.
-                if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    do {
-                        try await elevenLabsTTSClient.speakText(spokenText)
-                        // speakText returns after player.play() — audio is now playing
-                        voiceState = .responding
-                    } catch {
-                        ClickyAnalytics.trackTTSError(error: error.localizedDescription)
-                        print("⚠️ ElevenLabs TTS error: \(error)")
-                        speakCreditsErrorFallback()
-                    }
+                // TTS is handled by the streaming queue — sentences were already
+                // sent during Claude's streaming response. The queue transitions
+                // voiceState to .responding when the first audio starts playing.
+                // If no sentences were queued (empty response), reset to idle.
+                if spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    voiceState = .idle
                 }
             } catch is CancellationError {
                 // User spoke again — response was interrupted
@@ -828,6 +867,28 @@ final class CompanionManager: ObservableObject {
         let elementLabel: String?
         /// Which screen the coordinate refers to (1-based), or nil to default to cursor screen.
         let screenNumber: Int?
+    }
+
+    // MARK: - Skilly — Sentence Extraction for Streaming TTS
+
+    /// Extracts complete sentences from a text buffer, leaving any incomplete
+    /// trailing sentence in the buffer for the next chunk. A sentence ends
+    /// with '.', '!', or '?' followed by a space or end of string.
+    static func extractCompleteSentences(from buffer: inout String) -> [String] {
+        var sentences: [String] = []
+        let sentenceEndPattern = /[.!?]\s/
+
+        while let match = buffer.firstMatch(of: sentenceEndPattern) {
+            let sentenceEndIndex = match.range.upperBound
+            let sentence = String(buffer[buffer.startIndex..<sentenceEndIndex])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sentence.isEmpty {
+                sentences.append(sentence)
+            }
+            buffer = String(buffer[sentenceEndIndex...])
+        }
+
+        return sentences
     }
 
     /// Parses a [POINT:x,y:label:screenN] or [POINT:none] tag from the end of Claude's response.
