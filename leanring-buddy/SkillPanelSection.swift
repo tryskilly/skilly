@@ -40,8 +40,9 @@ struct SkillPanelSection: View {
 
     private var sectionHeading: some View {
         Text("SKILLS")
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(DS.Colors.textTertiary)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundColor(DS.Colors.accentText)
+            .tracking(0.8)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

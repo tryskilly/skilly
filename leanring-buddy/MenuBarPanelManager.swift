@@ -35,7 +35,7 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Skilly
     private let skillManager: SkillManager?
     private let authManager: AuthManager?
-    private let panelWidth: CGFloat = 320
+    private let panelWidth: CGFloat = 300
     private let panelHeight: CGFloat = 380
 
     init(companionManager: CompanionManager, skillManager: SkillManager? = nil, authManager: AuthManager? = nil) {
