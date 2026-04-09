@@ -86,13 +86,7 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(voiceName, forKey: "voiceName") }
     }
 
-    // MARK: - Pipeline
-
-    /// When true, uses OpenAI Realtime (STT+LLM+Vision+TTS in one WebSocket).
-    /// When false, uses classic pipeline (AssemblyAI + Claude + ElevenLabs).
-    @Published var useRealtimePipeline: Bool {
-        didSet { UserDefaults.standard.set(useRealtimePipeline, forKey: "useRealtimePipeline") }
-    }
+    // Pipeline is always OpenAI Realtime — classic pipeline removed.
 
     // MARK: - Init
 
@@ -114,9 +108,6 @@ final class AppSettings: ObservableObject {
         // Voice
         self.voiceName = UserDefaults.standard.string(forKey: "voiceName") ?? "coral"
 
-        // Pipeline
-        self.useRealtimePipeline = UserDefaults.standard.object(forKey: "useRealtimePipeline") == nil
-            ? true  // Default: OpenAI Realtime
-            : UserDefaults.standard.bool(forKey: "useRealtimePipeline")
+        // Pipeline is always OpenAI Realtime
     }
 }

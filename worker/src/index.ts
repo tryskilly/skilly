@@ -20,7 +20,6 @@ interface Env {
   WORKOS_API_KEY: string;
   WORKOS_CLIENT_ID: string;
   WORKOS_REDIRECT_URI: string;
-  GEMINI_API_KEY: string;
   OPENAI_API_KEY: string;
 }
 
@@ -53,9 +52,6 @@ export default {
         // WorkOS redirects here after auth → we redirect to the app's custom URL scheme
         if (url.pathname === "/auth/callback") {
           return handleAuthCallbackRedirect(url);
-        }
-        if (url.pathname === "/gemini/token") {
-          return handleGeminiToken(env);
         }
         if (url.pathname === "/openai/token") {
           return handleOpenAIToken(env);
@@ -301,41 +297,6 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
       "content-type": response.headers.get("content-type") || "audio/mpeg",
     },
   });
-}
-
-// ─── Gemini Token Relay ────────────────────────────────────
-
-/**
- * GET /gemini/token
- * Returns the Gemini API key and WebSocket URL so the app can
- * connect directly to Gemini Live. The API key is stored as a
- * Worker secret and never ships in the app binary.
- *
- * The app fetches this once per session, then connects the
- * WebSocket directly to Gemini (Worker can't proxy WebSockets).
- */
-function handleGeminiToken(env: Env): Response {
-  if (!env.GEMINI_API_KEY) {
-    return new Response(
-      JSON.stringify({ error: "Gemini API key not configured" }),
-      { status: 500, headers: { "content-type": "application/json" } }
-    );
-  }
-
-  return new Response(
-    JSON.stringify({
-      apiKey: env.GEMINI_API_KEY,
-      websocketBaseURL: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
-      model: "models/gemini-2.5-flash-native-audio-latest",
-    }),
-    {
-      status: 200,
-      headers: {
-        "content-type": "application/json",
-        "cache-control": "private, max-age=300",  // Cache for 5 min
-      },
-    }
-  );
 }
 
 // ─── OpenAI Token Relay ────────────────────────────────────

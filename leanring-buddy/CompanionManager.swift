@@ -96,13 +96,9 @@ final class CompanionManager: ObservableObject {
     }()
 
     // MARK: - Skilly — OpenAI Realtime Pipeline
-    /// Pipeline selection is now driven by AppSettings.shared.useRealtimePipeline
-    var useRealtimePipeline: Bool {
-        AppSettings.shared.useRealtimePipeline
-    }
-
+    // MARK: - Skilly — OpenAI Realtime Pipeline
     let openAIRealtimeClient = OpenAIRealtimeClient()
-    private var realtimeAudioPlayer: GeminiAudioPlayer?  // Reuse — plays PCM16 24kHz
+    private var realtimeAudioPlayer: GeminiAudioPlayer?  // Plays PCM16 24kHz
     private var realtimeEventSubscription: AnyCancellable?
     private var realtimeAudioEngine: AVAudioEngine?
     private var realtimePushToTalkTask: Task<Void, Never>?
@@ -526,8 +522,8 @@ final class CompanionManager: ObservableObject {
     private func handleEscapeKeyPressed() {
         print("🛑 Escape handler: voiceState=\(voiceState), isModelSpeaking=\(openAIRealtimeClient.isModelSpeaking)")
 
-        // Also check if the model is speaking even if voiceState hasn't updated
-        if openAIRealtimeClient.isModelSpeaking && useRealtimePipeline {
+        // Check if the model is speaking even if voiceState hasn't updated
+        if openAIRealtimeClient.isModelSpeaking {
             print("🛑 Escape: stopping AI response (model still speaking)")
             openAIRealtimeClient.cancelResponse()
             realtimeAudioPlayer?.stop()
@@ -537,60 +533,27 @@ final class CompanionManager: ObservableObject {
 
         switch voiceState {
         case .listening:
-            // User is recording — cancel without submitting
             print("🛑 Escape: cancelling recording")
-
-            if useRealtimePipeline {
-                // Stop audio capture
-                realtimeAudioEngine?.stop()
-                realtimeAudioEngine?.inputNode.removeTap(onBus: 0)
-                realtimeAudioEngine = nil
-                realtimePushToTalkTask?.cancel()
-                realtimePushToTalkTask = nil
-                // Clear the audio buffer so nothing is submitted
-                openAIRealtimeClient.clearAudioBuffer()
-            } else {
-                pendingKeyboardShortcutStartTask?.cancel()
-                pendingKeyboardShortcutStartTask = nil
-                buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
-            }
-
+            realtimeAudioEngine?.stop()
+            realtimeAudioEngine?.inputNode.removeTap(onBus: 0)
+            realtimeAudioEngine = nil
+            realtimePushToTalkTask?.cancel()
+            realtimePushToTalkTask = nil
+            openAIRealtimeClient.clearAudioBuffer()
             voiceState = .idle
-            print("🛑 Escape: recording cancelled — nothing submitted")
 
         case .processing:
-            // Waiting for AI response — cancel the request
             print("🛑 Escape: cancelling pending response")
-
-            if useRealtimePipeline {
-                openAIRealtimeClient.cancelResponse()
-            } else {
-                currentResponseTask?.cancel()
-                streamingTTSQueue.stopAndClear()
-                elevenLabsTTSClient.stopPlayback()
-            }
-
+            openAIRealtimeClient.cancelResponse()
             voiceState = .idle
-            print("🛑 Escape: response cancelled")
 
         case .responding:
-            // AI is speaking — stop playback immediately
             print("🛑 Escape: stopping AI response")
-
-            if useRealtimePipeline {
-                openAIRealtimeClient.cancelResponse()
-                realtimeAudioPlayer?.stop()
-            } else {
-                currentResponseTask?.cancel()
-                streamingTTSQueue.stopAndClear()
-                elevenLabsTTSClient.stopPlayback()
-            }
-
+            openAIRealtimeClient.cancelResponse()
+            realtimeAudioPlayer?.stop()
             voiceState = .idle
-            print("🛑 Escape: response stopped")
 
         case .idle:
-            // Nothing to cancel
             break
         }
     }
@@ -635,34 +598,12 @@ final class CompanionManager: ObservableObject {
 
             ClickyAnalytics.trackPushToTalkStarted()
 
-            // MARK: - Skilly — Pipeline selection
-            if useRealtimePipeline {
-                startOpenAIRealtimePushToTalk()
-            } else {
-                // Classic: AssemblyAI STT → Claude LLM → ElevenLabs TTS
-                pendingKeyboardShortcutStartTask?.cancel()
-                pendingKeyboardShortcutStartTask = Task {
-                    await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
-                        currentDraftText: "",
-                        updateDraftText: { _ in },
-                        submitDraftText: { [weak self] finalTranscript in
-                            self?.lastTranscript = finalTranscript
-                            print("🗣️ Companion received transcript: \(finalTranscript)")
-                            ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
-                            self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
-                        }
-                    )
-                }
-            }
+            // MARK: - Skilly — OpenAI Realtime pipeline
+            startOpenAIRealtimePushToTalk()
+
         case .released:
             ClickyAnalytics.trackPushToTalkReleased()
-            if useRealtimePipeline {
-                stopOpenAIRealtimePushToTalk()
-            } else {
-                pendingKeyboardShortcutStartTask?.cancel()
-                pendingKeyboardShortcutStartTask = nil
-                buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
-            }
+            stopOpenAIRealtimePushToTalk()
         case .none:
             break
         }
