@@ -98,7 +98,7 @@ final class CompanionManager: ObservableObject {
     // MARK: - Skilly — OpenAI Realtime Pipeline
     // MARK: - Skilly — OpenAI Realtime Pipeline
     let openAIRealtimeClient = OpenAIRealtimeClient()
-    private var realtimeAudioPlayer: GeminiAudioPlayer?  // Plays PCM16 24kHz
+    private var realtimeAudioPlayer: RealtimeAudioPlayer?  // Plays PCM16 24kHz
     private var realtimeEventSubscription: AnyCancellable?
     private var realtimeAudioEngine: AVAudioEngine?
     private var realtimePushToTalkTask: Task<Void, Never>?
@@ -961,7 +961,7 @@ final class CompanionManager: ObservableObject {
                         }
 
                     // Initialize audio player
-                    realtimeAudioPlayer = GeminiAudioPlayer()  // Same format: PCM16 24kHz
+                    realtimeAudioPlayer = RealtimeAudioPlayer()  // Same format: PCM16 24kHz
                 }
 
                 guard !Task.isCancelled else { return }
