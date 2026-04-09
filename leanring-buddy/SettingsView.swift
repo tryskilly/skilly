@@ -81,6 +81,7 @@ struct SettingsView: View {
         .padding(16)
         .frame(width: 280)
         .background(DS.Colors.background)
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - Components
