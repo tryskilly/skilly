@@ -113,11 +113,11 @@ struct CompanionPanelView: View {
     private var panelHeader: some View {
         HStack {
             HStack(spacing: 6) {
-                // Skilly logo icon
+                // Skilly logo icon — sized to match the panel title (15px)
                 Image("SkillyCursor")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 14, height: 14)
+                    .frame(width: 18, height: 18)
 
                 Text("Skilly")
                     .font(.system(size: 15, weight: .semibold))
