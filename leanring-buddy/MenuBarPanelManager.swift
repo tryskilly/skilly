@@ -76,33 +76,31 @@ final class MenuBarPanelManager: NSObject {
         button.target = self
     }
 
-    /// Draws the clicky triangle as a menu bar icon. Uses the same shape
-    /// and rotation as the in-app cursor so the menu bar icon matches.
+    /// Draws the Skilly cursor arrow as a menu bar icon.
+    /// Matches the amber cursor logo shape — a stylized pointer arrow.
+    /// Rendered as a template image so macOS handles light/dark automatically.
     private func makeClickyMenuBarIcon() -> NSImage {
         let iconSize: CGFloat = 18
         let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
         image.lockFocus()
 
-        let triangleSize = iconSize * 0.7
-        let cx = iconSize * 0.50
-        let cy = iconSize * 0.50
-        let height = triangleSize * sqrt(3.0) / 2.0
-
-        let top = CGPoint(x: cx, y: cy + height / 1.5)
-        let bottomLeft = CGPoint(x: cx - triangleSize / 2, y: cy - height / 3)
-        let bottomRight = CGPoint(x: cx + triangleSize / 2, y: cy - height / 3)
-
-        let angle = 35.0 * .pi / 180.0
-        func rotate(_ point: CGPoint) -> CGPoint {
-            let dx = point.x - cx, dy = point.y - cy
-            let cosA = CGFloat(cos(angle)), sinA = CGFloat(sin(angle))
-            return CGPoint(x: cx + cosA * dx - sinA * dy, y: cy + sinA * dx + cosA * dy)
-        }
+        // Draw a cursor/pointer arrow shape matching the Skilly logo
+        // The shape points up-left, like the classic macOS cursor
+        let inset: CGFloat = 2.0
+        let w = iconSize - inset * 2
+        let h = iconSize - inset * 2
 
         let path = NSBezierPath()
-        path.move(to: rotate(top))
-        path.line(to: rotate(bottomLeft))
-        path.line(to: rotate(bottomRight))
+
+        // Cursor arrow — tip at top-left, body extends down-right
+        // with a notch on the right side
+        path.move(to: CGPoint(x: inset + w * 0.1, y: inset + h * 0.95))   // tip (top-left)
+        path.line(to: CGPoint(x: inset + w * 0.1, y: inset + h * 0.15))   // bottom-left
+        path.line(to: CGPoint(x: inset + w * 0.42, y: inset + h * 0.38))  // notch inner
+        path.line(to: CGPoint(x: inset + w * 0.72, y: inset + h * 0.08))  // tail end right
+        path.line(to: CGPoint(x: inset + w * 0.90, y: inset + h * 0.22))  // tail bottom
+        path.line(to: CGPoint(x: inset + w * 0.58, y: inset + h * 0.52))  // notch outer
+        path.line(to: CGPoint(x: inset + w * 0.75, y: inset + h * 0.82))  // bottom-right
         path.close()
 
         NSColor.black.setFill()
