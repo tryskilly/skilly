@@ -526,6 +526,17 @@ final class CompanionManager: ObservableObject {
     // MARK: - Skilly — Escape Key Cancel Handler
 
     private func handleEscapeKeyPressed() {
+        print("🛑 Escape handler: voiceState=\(voiceState), isModelSpeaking=\(openAIRealtimeClient.isModelSpeaking)")
+
+        // Also check if the model is speaking even if voiceState hasn't updated
+        if openAIRealtimeClient.isModelSpeaking && useRealtimePipeline {
+            print("🛑 Escape: stopping AI response (model still speaking)")
+            openAIRealtimeClient.cancelResponse()
+            realtimeAudioPlayer?.stop()
+            voiceState = .idle
+            return
+        }
+
         switch voiceState {
         case .listening:
             // User is recording — cancel without submitting

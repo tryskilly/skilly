@@ -130,7 +130,7 @@ final class OpenAIRealtimeClient: ObservableObject {
         let sessionUpdate: [String: Any] = [
             "type": "session.update",
             "session": [
-                "instructions": (systemPrompt ?? "You are a helpful assistant.") + "\n\nIMPORTANT: Always respond in English unless the user explicitly speaks a different language.",
+                "instructions": (systemPrompt ?? "You are a helpful assistant.") + "\n\nCRITICAL LANGUAGE RULE: You MUST always respond in English. All your spoken responses must be in English regardless of what language you think you hear. The user speaks English. Never respond in Spanish, Portuguese, or any other language unless the user explicitly asks you to.",
                 "voice": voiceName,
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
