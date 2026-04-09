@@ -5,4 +5,4 @@ compatibility_date = "2024-01-01"
 [vars]
 ELEVENLABS_VOICE_ID = "kPzsL2i3teMYv0FxEYQ6"
 WORKOS_CLIENT_ID = "client_01KNQKDAG6M4YEPVCEXDA4PRND"
-WORKOS_REDIRECT_URI = "skilly://auth/callback"
+WORKOS_REDIRECT_URI = "https://skilly-proxy.eng-mohamedszaied.workers.dev/auth/callback"

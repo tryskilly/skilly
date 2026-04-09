@@ -35,3 +35,4 @@ xcuserdata/
 # OS junk
 .omx/
 Thumbs.db
+worker/.wrangler/
