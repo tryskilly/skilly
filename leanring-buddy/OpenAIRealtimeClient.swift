@@ -148,6 +148,7 @@ final class OpenAIRealtimeClient: ObservableObject {
         let sessionUpdate: [String: Any] = [
             "type": "session.update",
             "session": [
+                "modalities": ["text", "audio"],
                 "instructions": (systemPrompt ?? "You are a helpful assistant.") + languageInstruction,
                 "voice": voiceName,
                 "input_audio_format": "pcm16",
@@ -199,8 +200,13 @@ final class OpenAIRealtimeClient: ObservableObject {
         // Commit the audio buffer
         let commitEvent: [String: Any] = ["type": "input_audio_buffer.commit"]
 
-        // Request a response
-        let responseEvent: [String: Any] = ["type": "response.create"]
+        // Request a response with audio output
+        let responseEvent: [String: Any] = [
+            "type": "response.create",
+            "response": [
+                "modalities": ["text", "audio"]
+            ]
+        ]
 
         Task {
             try? await sendEvent(commitEvent)
@@ -328,14 +334,17 @@ final class OpenAIRealtimeClient: ObservableObject {
         case "session.updated":
             print("📩 OpenAI Realtime: session.updated")
 
-        case "response.audio.delta":
+        case "response.audio.delta", "response.output_audio.delta":
             if let audioBase64 = json["delta"] as? String,
                let audioData = Data(base64Encoded: audioBase64) {
+                if !isModelSpeaking {
+                    print("🔊 OpenAI Realtime: first audio chunk received (\(audioData.count) bytes)")
+                }
                 isModelSpeaking = true
                 eventPublisher.send(.audioChunk(audioData))
             }
 
-        case "response.audio_transcript.delta":
+        case "response.audio_transcript.delta", "response.output_audio_transcript.delta":
             if let delta = json["delta"] as? String {
                 eventPublisher.send(.audioTranscriptDelta(delta))
             }

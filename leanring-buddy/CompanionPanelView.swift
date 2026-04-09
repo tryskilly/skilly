@@ -30,13 +30,8 @@ struct CompanionPanelView: View {
                 .padding(.top, 16)
                 .padding(.horizontal, 16)
 
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 12)
-
-                modelPickerRow
-                    .padding(.horizontal, 16)
-            }
+            // Model picker removed — OpenAI Realtime is the default pipeline.
+            // Model selection is handled in Settings if needed in the future.
 
             if !companionManager.allPermissionsGranted {
                 Spacer()
