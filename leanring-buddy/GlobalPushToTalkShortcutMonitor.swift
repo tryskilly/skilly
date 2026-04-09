@@ -15,6 +15,9 @@ import Foundation
 final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
 
+    // MARK: - Skilly — Escape key for cancel
+    let escapeKeyPressedPublisher = PassthroughSubject<Void, Never>()
+
     private var globalEventTap: CFMachPort?
     private var globalEventTapRunLoopSource: CFRunLoopSource?
     /// Mutated exclusively from the CGEvent tap callback, which runs on
@@ -109,6 +112,13 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+
+        // MARK: - Skilly — Detect Escape key press for cancel
+        let escapeKeyCode: UInt16 = 53
+        if eventType == .keyDown && eventKeyCode == escapeKeyCode {
+            escapeKeyPressedPublisher.send()
+        }
+
         let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,

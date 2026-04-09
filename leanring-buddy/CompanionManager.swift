@@ -132,6 +132,8 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
+    // MARK: - Skilly — Escape key cancel
+    private var escapeKeyCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
@@ -511,6 +513,77 @@ final class CompanionManager: ObservableObject {
             .sink { [weak self] transition in
                 self?.handleShortcutTransition(transition)
             }
+
+        // MARK: - Skilly — Escape key to cancel recording or response
+        escapeKeyCancellable = globalPushToTalkShortcutMonitor
+            .escapeKeyPressedPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.handleEscapeKeyPressed()
+            }
+    }
+
+    // MARK: - Skilly — Escape Key Cancel Handler
+
+    private func handleEscapeKeyPressed() {
+        switch voiceState {
+        case .listening:
+            // User is recording — cancel without submitting
+            print("🛑 Escape: cancelling recording")
+
+            if useRealtimePipeline {
+                // Stop audio capture
+                realtimeAudioEngine?.stop()
+                realtimeAudioEngine?.inputNode.removeTap(onBus: 0)
+                realtimeAudioEngine = nil
+                realtimePushToTalkTask?.cancel()
+                realtimePushToTalkTask = nil
+                // Clear the audio buffer so nothing is submitted
+                openAIRealtimeClient.clearAudioBuffer()
+            } else {
+                pendingKeyboardShortcutStartTask?.cancel()
+                pendingKeyboardShortcutStartTask = nil
+                buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
+            }
+
+            voiceState = .idle
+            print("🛑 Escape: recording cancelled — nothing submitted")
+
+        case .processing:
+            // Waiting for AI response — cancel the request
+            print("🛑 Escape: cancelling pending response")
+
+            if useRealtimePipeline {
+                openAIRealtimeClient.cancelResponse()
+            } else {
+                currentResponseTask?.cancel()
+                streamingTTSQueue.stopAndClear()
+                elevenLabsTTSClient.stopPlayback()
+            }
+
+            voiceState = .idle
+            print("🛑 Escape: response cancelled")
+
+        case .responding:
+            // AI is speaking — stop playback immediately
+            print("🛑 Escape: stopping AI response")
+
+            if useRealtimePipeline {
+                openAIRealtimeClient.cancelResponse()
+                realtimeAudioPlayer?.stop()
+            } else {
+                currentResponseTask?.cancel()
+                streamingTTSQueue.stopAndClear()
+                elevenLabsTTSClient.stopPlayback()
+            }
+
+            voiceState = .idle
+            print("🛑 Escape: response stopped")
+
+        case .idle:
+            // Nothing to cancel
+            break
+        }
     }
 
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
@@ -555,11 +628,6 @@ final class CompanionManager: ObservableObject {
 
             // MARK: - Skilly — Pipeline selection
             if useRealtimePipeline {
-                // Cancel any in-progress response when user starts speaking again
-                if openAIRealtimeClient.isModelSpeaking {
-                    openAIRealtimeClient.cancelResponse()
-                    realtimeAudioPlayer?.stop()
-                }
                 startOpenAIRealtimePushToTalk()
             } else {
                 // Classic: AssemblyAI STT → Claude LLM → ElevenLabs TTS
