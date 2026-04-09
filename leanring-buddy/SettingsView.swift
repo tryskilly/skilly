@@ -88,8 +88,9 @@ struct SettingsView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(DS.Colors.textTertiary)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundColor(DS.Colors.accentText)
+            .tracking(0.8)
     }
 
     private var divider: some View {

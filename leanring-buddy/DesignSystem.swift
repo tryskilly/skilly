@@ -2,9 +2,10 @@
 //  DesignSystem.swift
 //  leanring-buddy
 //
-//  Centralized design system using a blue accent palette on dark surfaces,
-//  with a unified button style system. All colors, button styles, and
-//  interaction states are defined here as the single source of truth.
+//  Skilly Design System — Amber accent on warm dark surfaces.
+//  Based on skilly-design-system-v1.0.md.
+//  All colors, button styles, and interaction states defined here
+//  as the single source of truth.
 //
 
 import SwiftUI
@@ -20,61 +21,80 @@ enum DS {
 
     enum Colors {
 
-        // ── Backgrounds ──────────────────────────────────────────────
+        // ── Backgrounds (Warm Gray) ─────────────────────────────────
         // Layered surfaces from deepest to most elevated.
-        // Higher surfaces are lighter, creating a sense of depth.
 
-        /// The deepest background — used for the main app window fill.
-        static let background = Color(hex: "#101211")
+        /// The deepest background — app panel, dark hero.
+        static let background = Color(hex: "#1C1C1E")        // gray-900
 
-        /// First elevation layer — used for cards, sidebar, top bar backgrounds.
-        static let surface1 = Color(hex: "#171918")
+        /// First elevation layer — card surfaces in dark mode.
+        static let surface1 = Color(hex: "#27272A")           // gray-800
 
-        /// Second elevation layer — used for input fields, elevated cards, chat bubbles.
-        static let surface2 = Color(hex: "#202221")
+        /// Second elevation layer — input fields, elevated cards.
+        static let surface2 = Color(hex: "#3F3F3D")           // gray-700
 
-        /// Third elevation layer — used for hover backgrounds on interactive elements.
-        static let surface3 = Color(hex: "#272A29")
+        /// Third elevation layer — hover backgrounds.
+        static let surface3 = Color(hex: "#525250")           // gray-600
 
-        /// Fourth elevation layer — used for active/pressed states on interactive elements.
-        static let surface4 = Color(hex: "#2E3130")
+        /// Fourth elevation layer — active/pressed states.
+        static let surface4 = Color(hex: "#525250")           // gray-600
+
+        /// Secondary surface — dropdown backgrounds, button fills.
+        static let surfaceSecondary = Color.white.opacity(0.08)
 
         // ── Borders ──────────────────────────────────────────────────
 
-        /// Subtle border — used for card outlines, dividers, input field borders.
-        static let borderSubtle = Color(hex: "#373B39")
+        /// Subtle border — card outlines, dividers. 0.5px solid.
+        static let borderSubtle = Color.white.opacity(0.08)
 
-        /// Strong border — used for focused inputs, hovered card outlines.
-        static let borderStrong = Color(hex: "#444947")
+        /// Strong border — focused inputs, hovered card outlines.
+        static let borderStrong = Color.white.opacity(0.15)
 
         // ── Text ─────────────────────────────────────────────────────
 
-        /// Primary text — main body text, titles, headings.
-        static let textPrimary = Color(hex: "#ECEEED")
+        /// Primary text — headings, body text on dark backgrounds.
+        static let textPrimary = Color(hex: "#E5E5E0")       // gray-200
 
-        /// Secondary text — descriptions, hints, muted labels.
-        static let textSecondary = Color(hex: "#ADB5B2")
+        /// Secondary text — descriptions, hints.
+        static let textSecondary = Color(hex: "#A3A39E")      // gray-400
 
-        /// Tertiary text — very muted, used for section labels, timestamps, disabled text.
-        static let textTertiary = Color(hex: "#6B736F")
+        /// Tertiary text — section labels, timestamps, muted.
+        static let textTertiary = Color(hex: "#737370")       // gray-500
 
-        /// Text used on top of the accent fill (#2563eb blue), like the primary button label.
-        /// White on #2563eb achieves ~5.1:1 contrast — WCAG AA compliant.
-        /// White on #1d4ed8 hover achieves ~6.5:1 — also WCAG AA compliant.
-        static let textOnAccent: Color = .white
+        /// Text on accent (amber) backgrounds — dark for contrast.
+        static let textOnAccent = Color(hex: "#0F0F10")       // gray-950
 
-        // ── Tailwind Blue Scale ─────────────────────────────────────
-        // Full Tailwind CSS v4 blue palette for consistent blue usage.
-        //
-        // Usage guide:
-        //   50–100  → Very subtle tinted backgrounds (selected rows, hover fills on dark surfaces)
-        //   200–300 → Light text/icons on dark backgrounds, disabled states
-        //   400     → Bright accent text, links, icons, chat user bubbles
-        //   500     → Mid-tone fills, badges, secondary buttons
-        //   600     → Primary action fills (buttons, toggles) — main accent
-        //   700     → Hover/pressed state for primary actions
-        //   800–900 → Deep backgrounds, dark overlays, header bars
-        //   950     → Deepest blue — near-black tinted backgrounds
+        // ── Amber Scale (Brand Accent) ──────────────────────────────
+        // Skilly's signature color. The cursor, CTAs, brand mark.
+        // Rule: Amber is the ONLY chromatic accent in the app UI.
+
+        static let amber50  = Color(hex: "#FEFCE8")
+        static let amber100 = Color(hex: "#FEF3C7")
+        static let amber200 = Color(hex: "#FDE68A")
+        static let amber300 = Color(hex: "#FCD34D")
+        static let amber400 = Color(hex: "#FBBF24")
+        static let amber500 = Color(hex: "#F59E0B")
+        static let amber600 = Color(hex: "#D97706")
+        static let amber700 = Color(hex: "#B45309")
+        static let amber800 = Color(hex: "#92400E")
+        static let amber900 = Color(hex: "#78350F")
+
+        // ── Accent (derived from amber scale) ──────────────────────
+
+        /// Primary accent — CTAs, cursor overlay, brand mark, links.
+        static let accent = amber500
+
+        /// Accent hover state.
+        static let accentHover = amber600
+
+        /// Accent text — bright amber for text/icons on dark backgrounds.
+        /// Section headers, active nav items, highlighted labels.
+        static let accentText = amber300
+
+        /// Subtle accent tint — selected item backgrounds, active skill card.
+        static let accentSubtle = amber500.opacity(0.15)
+
+        // ── Legacy Blue (kept for backward compat, use amber instead) ─
 
         static let blue50  = Color(hex: "#eff6ff")
         static let blue100 = Color(hex: "#dbeafe")
@@ -88,60 +108,30 @@ enum DS {
         static let blue900 = Color(hex: "#1e3a8a")
         static let blue950 = Color(hex: "#172554")
 
-        // ── Accent (derived from blue scale) ───────────────────────
-        // The primary fill is Blue 600; hover darkens to Blue 700.
-
-        /// Accent fill — used for solid button backgrounds.
-        /// #2563eb → ~5.1:1 contrast with white text (WCAG AA).
-        static let accent = blue600
-
-        /// Accent hover — slightly darker blue for hover state.
-        /// #1d4ed8 → ~6.5:1 contrast with white text (WCAG AA+).
-        static let accentHover = blue700
-
-        /// Accent text — bright blue used for accent-colored text and icons
-        /// on dark backgrounds (links, active nav items, highlighted labels).
-        static let accentText = blue400
-
-        /// Very subtle accent tint — used for selected item backgrounds (e.g. current step
-        /// in the sidebar). Low opacity so it doesn't overpower.
-        static let accentSubtle = blue500.opacity(0.10)
-
         // ── Semantic Colors ──────────────────────────────────────────
 
-        /// Destructive/error actions — delete buttons, error messages, close button hover.
-        static let destructive = Color(hex: "#E5484D")        // Radix Red 9
+        /// Error / destructive actions.
+        static let destructive = Color(hex: "#EF4444")        // red-500
+        static let destructiveHover = Color(hex: "#DC2626")
+        static let destructiveText = Color(hex: "#EF4444")
 
-        /// Destructive hover state.
-        static let destructiveHover = Color(hex: "#F2555A")   // Radix Red 10
+        /// Success — active indicator, completion, granted status.
+        static let success = Color(hex: "#22C55E")            // green-500
 
-        /// Destructive used for text on dark backgrounds (brighter for readability).
-        static let destructiveText = Color(hex: "#FF6369")    // Radix Red 11
+        /// Warning — caution messages.
+        static let warning = amber500
+        static let warningText = amber300
 
-        /// Success — checkmarks, granted status, completion indicators.
-        /// Independent green so success states are visually distinct from the blue accent.
-        static let success = Color(hex: "#34D399")      // Tailwind Emerald 400
-
-        /// Warning — caution messages, manual verification failure explanations.
-        static let warning = Color(hex: "#FFB224")            // Radix Amber 9
-
-        /// Warning text — brighter variant for text on dark backgrounds.
-        static let warningText = Color(hex: "#F1A10D")        // Radix Amber 11
-
-        /// Info/feature highlight — used for prompt card headers, code highlights.
-        /// Lighter than accentText so informational elements are visually distinct
-        /// from interactive accent-colored elements.
-        static let info = Color(hex: "#70B8FF")               // Radix Blue 9
-
-        /// Inline code text color — slightly brighter blue for monospace code snippets.
-        static let codeText = Color(hex: "#9DC2FF")           // Radix Blue 11 variant
+        /// Info — links on dark backgrounds where amber doesn't contrast.
+        static let info = Color(hex: "#3B82F6")               // blue-500
+        static let codeText = amber400
 
         // ── Overlay Cursor ───────────────────────────────────────────
 
-        /// The blue cursor/bubble color used in OverlayWindow.
-        /// Kept distinct from the accent since it serves a different purpose
-        /// (screen overlay vs in-app UI).
-        static let overlayCursorBlue = Color(hex: "#3380FF")
+        /// The cursor color used in OverlayWindow — amber with glow.
+        static let overlayCursorBlue = amber500  // Legacy name kept for compat
+        /// Cursor glow color.
+        static let cursorGlow = amber300.opacity(0.3)
 
         // ── Floating Button Gradient ─────────────────────────────────
 
@@ -198,16 +188,16 @@ enum DS {
     // MARK: - Corner Radii
 
     enum CornerRadius {
-        /// Small elements like tags, badges.
-        static let small: CGFloat = 6
-        /// Buttons, input fields, small cards.
-        static let medium: CGFloat = 8
-        /// Cards, dialogs, chat bubbles.
-        static let large: CGFloat = 10
-        /// Large panels, permission cards.
-        static let extraLarge: CGFloat = 12
-        /// Pill-shaped buttons (the continue button).
-        static let pill: CGFloat = .infinity
+        /// Buttons, badges, keyboard shortcut pills.
+        static let small: CGFloat = 6       // radius-sm
+        /// Toggle buttons, dropdowns, input fields.
+        static let medium: CGFloat = 8      // radius-md
+        /// Cards, feedback boxes, skill cards.
+        static let large: CGFloat = 12      // radius-lg
+        /// App panel, modal dialogs.
+        static let extraLarge: CGFloat = 14  // radius-xl
+        /// Pills, status dots, avatar circles.
+        static let pill: CGFloat = .infinity // radius-full
     }
 
     // MARK: - Animation Durations
