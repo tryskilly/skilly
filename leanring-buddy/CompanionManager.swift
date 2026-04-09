@@ -622,8 +622,14 @@ final class CompanionManager: ObservableObject {
             voiceState = .processing
 
             do {
-                // Capture all connected screens so the AI has full context
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                // MARK: - Skilly — Capture only the cursor screen for speed
+                // On multi-monitor setups, capturing all screens adds ~0.5MB+
+                // of image data per extra monitor, significantly increasing
+                // Claude's processing time. We capture only the cursor screen
+                // by default. The full multi-screen capture is still available
+                // if needed in the future.
+                let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                let screenCaptures = [allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures[0]]
 
                 guard !Task.isCancelled else { return }
 
