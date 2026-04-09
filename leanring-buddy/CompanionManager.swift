@@ -1027,6 +1027,7 @@ final class CompanionManager: ObservableObject {
 
                 // Clear any stale audio from previous interaction
                 openAIRealtimeClient.clearAudioBuffer()
+                realtimeAudioChunksSent = 0
 
                 // Capture and send screenshot immediately
                 let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
@@ -1045,6 +1046,7 @@ final class CompanionManager: ObservableObject {
                 inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { [weak self] buffer, _ in
                     guard let pcm16Data = self?.convertBufferToPCM16(buffer) else { return }
                     self?.openAIRealtimeClient.appendAudioChunk(pcm16Data)
+                    self?.realtimeAudioChunksSent += 1
                     self?.updateRealtimeAudioPowerLevel(from: buffer)
                 }
 
@@ -1060,6 +1062,9 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Tracks whether we've actually sent any audio chunks this press.
+    private var realtimeAudioChunksSent = 0
+
     private func stopOpenAIRealtimePushToTalk() {
         // Stop audio capture
         realtimeAudioEngine?.stop()
@@ -1067,11 +1072,16 @@ final class CompanionManager: ObservableObject {
         realtimeAudioEngine = nil
         realtimePushToTalkTask = nil
 
-        // Commit audio buffer and request response
-        openAIRealtimeClient.commitAudioAndRespond()
-        voiceState = .processing
-
-        print("🎙️ OpenAI Realtime: user finished speaking, committed audio")
+        // Only commit if we've actually sent audio
+        if realtimeAudioChunksSent > 5 {  // At least ~100ms of audio
+            openAIRealtimeClient.commitAudioAndRespond()
+            voiceState = .processing
+            print("🎙️ OpenAI Realtime: committed \(realtimeAudioChunksSent) audio chunks")
+        } else {
+            print("⚠️ OpenAI Realtime: not enough audio captured (\(realtimeAudioChunksSent) chunks), skipping commit")
+            voiceState = .idle
+        }
+        realtimeAudioChunksSent = 0
     }
 
     private func handleRealtimeEvent(_ event: OpenAIRealtimeEvent) {
@@ -1080,7 +1090,10 @@ final class CompanionManager: ObservableObject {
             break
 
         case .audioChunk(let pcm16Data):
-            voiceState = .responding
+            if voiceState != .responding {
+                voiceState = .responding
+                print("🔊 OpenAI Realtime: voiceState → responding")
+            }
             realtimeAudioPlayer?.enqueueAudio(pcm16Data)
 
         case .audioTranscriptDelta(let text):
@@ -1099,7 +1112,15 @@ final class CompanionManager: ObservableObject {
             )
 
         case .responseDone:
-            voiceState = .idle
+            // Don't go idle immediately — audio player may still be draining.
+            // Wait a short moment so Escape can still cancel during playback.
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                if voiceState == .responding {
+                    voiceState = .idle
+                    print("🔊 OpenAI Realtime: voiceState → idle (after playback drain)")
+                }
+            }
 
         case .error(let message):
             print("⚠️ OpenAI Realtime error: \(message)")
