@@ -47,9 +47,9 @@ final class GeminiLiveSessionManager: ObservableObject {
     // MARK: - Session Lifecycle
 
     /// Start a Gemini Live session. Opens the WebSocket and configures
-    /// the model with the system prompt and voice.
+    /// the model with the system prompt and voice. The API key is fetched
+    /// from the Worker proxy automatically (token relay pattern).
     func startSession(
-        apiKey: String,
         systemPrompt: String,
         voiceName: String = "Kore"
     ) async throws {
@@ -66,7 +66,6 @@ final class GeminiLiveSessionManager: ObservableObject {
 
         // Connect to Gemini Live API
         try await geminiLiveClient.connect(
-            apiKey: apiKey,
             systemPrompt: systemPrompt,
             voiceName: voiceName
         )

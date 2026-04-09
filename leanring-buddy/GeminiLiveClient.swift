@@ -95,7 +95,7 @@ enum GeminiLiveResponseEvent {
 @MainActor
 final class GeminiLiveClient: ObservableObject {
 
-    private static let websocketBaseURL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+    private static let workerBaseURL = "https://skilly-proxy.eng-mohamedszaied.workers.dev"
 
     /// Available Gemini Live voices.
     static let availableVoices = ["Puck", "Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"]
@@ -110,6 +110,9 @@ final class GeminiLiveClient: ObservableObject {
     private let urlSession: URLSession
     private var setupContinuation: CheckedContinuation<Void, Error>?
 
+    /// Cached token from the Worker — avoids fetching on every session.
+    private var cachedGeminiToken: GeminiTokenResponse?
+
     init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300  // 5 min — sessions can be long
@@ -117,18 +120,48 @@ final class GeminiLiveClient: ObservableObject {
         self.urlSession = URLSession(configuration: config)
     }
 
+    // MARK: - Token Relay
+
+    private struct GeminiTokenResponse: Codable {
+        let apiKey: String
+        let websocketBaseURL: String
+        let model: String
+    }
+
+    /// Fetches the Gemini API key and WebSocket URL from the Worker proxy.
+    /// The API key is a Worker secret — never stored in the app binary.
+    private func fetchGeminiToken() async throws -> GeminiTokenResponse {
+        if let cached = cachedGeminiToken { return cached }
+
+        let url = URL(string: "\(Self.workerBaseURL)/gemini/token")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let body = String(data: data, encoding: .utf8) ?? "unknown"
+            throw GeminiLiveError.setupFailed("Token relay failed (HTTP \(statusCode)): \(body)")
+        }
+
+        let tokenResponse = try JSONDecoder().decode(GeminiTokenResponse.self, from: data)
+        cachedGeminiToken = tokenResponse
+        return tokenResponse
+    }
+
     // MARK: - Connection
 
     /// Opens a WebSocket to the Gemini Live API, sends the setup message,
-    /// and waits for setupComplete before returning.
+    /// and waits for setupComplete before returning. Fetches the API key
+    /// from the Worker proxy (token relay pattern).
     func connect(
-        apiKey: String,
-        model: String = "models/gemini-2.0-flash-live-001",
         systemPrompt: String? = nil,
         voiceName: String = "Kore"
     ) async throws {
+        // Fetch API key from Worker
+        let token = try await fetchGeminiToken()
+
         // Build WebSocket URL with API key
-        guard let url = URL(string: "\(Self.websocketBaseURL)?key=\(apiKey)") else {
+        guard let url = URL(string: "\(token.websocketBaseURL)?key=\(token.apiKey)") else {
             throw GeminiLiveError.invalidURL
         }
 
@@ -149,7 +182,7 @@ final class GeminiLiveClient: ObservableObject {
 
         let setupMessage = GeminiLiveSetupMessage(
             setup: .init(
-                model: model,
+                model: token.model,
                 generation_config: .init(
                     response_modalities: ["AUDIO", "TEXT"],
                     speech_config: .init(

@@ -98,13 +98,10 @@ final class CompanionManager: ObservableObject {
     // MARK: - Skilly — Gemini Live Pipeline
     /// When true, uses Gemini Live API (single WebSocket for STT+LLM+TTS).
     /// When false, uses classic pipeline (AssemblyAI + Claude + ElevenLabs).
+    /// The Gemini API key is fetched from the Worker proxy (token relay) —
+    /// no key is stored in the app.
     @Published var useGeminiLivePipeline: Bool = UserDefaults.standard.bool(forKey: "useGeminiLivePipeline") {
         didSet { UserDefaults.standard.set(useGeminiLivePipeline, forKey: "useGeminiLivePipeline") }
-    }
-
-    /// Gemini API key for BYOK. Stored in UserDefaults for now — move to Keychain for production.
-    @Published var geminiAPIKey: String = UserDefaults.standard.string(forKey: "geminiAPIKey") ?? "" {
-        didSet { UserDefaults.standard.set(geminiAPIKey, forKey: "geminiAPIKey") }
     }
 
     let geminiLiveSessionManager = GeminiLiveSessionManager()
@@ -554,7 +551,7 @@ final class CompanionManager: ObservableObject {
             ClickyAnalytics.trackPushToTalkStarted()
 
             // MARK: - Skilly — Pipeline selection
-            if useGeminiLivePipeline && !geminiAPIKey.isEmpty {
+            if useGeminiLivePipeline {
                 startGeminiLivePushToTalk()
             } else {
                 pendingKeyboardShortcutStartTask?.cancel()
@@ -580,7 +577,7 @@ final class CompanionManager: ObservableObject {
             // leaves the waveform overlay stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()
 
-            if useGeminiLivePipeline && geminiLiveSessionManager.isSessionActive {
+            if useGeminiLivePipeline {
                 stopGeminiLivePushToTalk()
             } else {
                 pendingKeyboardShortcutStartTask?.cancel()
@@ -936,7 +933,6 @@ final class CompanionManager: ObservableObject {
             do {
                 // Start the Gemini Live session with the composed system prompt
                 try await geminiLiveSessionManager.startSession(
-                    apiKey: geminiAPIKey,
                     systemPrompt: composedSystemPrompt
                 )
 
