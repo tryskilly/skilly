@@ -3,222 +3,118 @@
 //  SettingsView.swift
 //  leanring-buddy
 //
-//  Settings panel for Skilly — accessible from the menu bar panel.
-//  Covers language, shortcuts, voice, and pipeline selection.
+//  Settings panel for Skilly — opens as a popover from the gear icon.
 //
 
 import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
-    @Environment(\.dismiss) private var dismiss
-    @State private var isRecordingCancelKey = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("Settings")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(DS.Colors.textPrimary)
+        VStack(alignment: .leading, spacing: 16) {
 
-                Spacer()
+            // ── Language ──────────────────────────────
+            VStack(alignment: .leading, spacing: 10) {
+                Text("LANGUAGE")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(DS.Colors.textTertiary)
 
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+                VStack(spacing: 8) {
+                    settingsRow("Preferred language") {
+                        Picker("", selection: $settings.preferredLanguage) {
+                            ForEach(AppSettings.supportedLanguages, id: \.code) { lang in
+                                Text(lang.name).tag(lang.code)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
 
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    languageSection
-                    shortcutsSection
-                    voiceSection
-                    pipelineSection
-                }
-                .padding(16)
-            }
-        }
-        .frame(width: 320, height: 420)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(DS.Colors.background)
-        )
-    }
-
-    // MARK: - Language Section
-
-    private var languageSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("LANGUAGE")
-
-            HStack {
-                Text("Preferred language")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textSecondary)
-
-                Spacer()
-
-                Picker("", selection: $settings.preferredLanguage) {
-                    ForEach(AppSettings.supportedLanguages, id: \.code) { language in
-                        Text(language.name).tag(language.code)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Auto-detect")
+                                .font(.system(size: 12))
+                                .foregroundColor(DS.Colors.textSecondary)
+                            Text("Detect from speech")
+                                .font(.system(size: 10))
+                                .foregroundColor(DS.Colors.textTertiary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.autoDetectLanguage)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(width: 130)
             }
 
-            Toggle(isOn: $settings.autoDetectLanguage) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Auto-detect language")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                    Text("Detect from your speech. Falls back to preferred language.")
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-        }
-    }
+            Divider().background(DS.Colors.borderSubtle)
 
-    // MARK: - Shortcuts Section
+            // ── Shortcuts ─────────────────────────────
+            VStack(alignment: .leading, spacing: 10) {
+                Text("SHORTCUTS")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(DS.Colors.textTertiary)
 
-    private var shortcutsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("SHORTCUTS")
+                VStack(spacing: 8) {
+                    settingsRow("Push to talk") {
+                        Picker("", selection: $settings.pushToTalkShortcut) {
+                            Text("Ctrl + Option").tag("controlOption")
+                            Text("Shift + Ctrl").tag("shiftControl")
+                            Text("Shift + Fn").tag("shiftFunction")
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
 
-            HStack {
-                Text("Push to talk")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textSecondary)
-
-                Spacer()
-
-                Picker("", selection: $settings.pushToTalkShortcut) {
-                    Text("Ctrl + Option").tag("controlOption")
-                    Text("Shift + Ctrl").tag("shiftControl")
-                    Text("Shift + Fn").tag("shiftFunction")
-                    Text("Ctrl + Option + Space").tag("controlOptionSpace")
-                }
-                .pickerStyle(.menu)
-                .frame(width: 160)
-            }
-
-            HStack {
-                Text("Cancel / Stop")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textSecondary)
-
-                Spacer()
-
-                if isRecordingCancelKey {
-                    Text("Press a key...")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(DS.Colors.accent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                                .stroke(DS.Colors.accent, lineWidth: 1)
-                        )
-                } else {
-                    Button(action: { isRecordingCancelKey = true }) {
+                    settingsRow("Cancel / Stop") {
                         Text(settings.cancelKeyDisplayName)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
                             .background(
-                                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .fill(Color.white.opacity(0.08))
                             )
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
                 }
             }
-            .onKeyPress { keyPress in
-                if isRecordingCancelKey {
-                    // Map SwiftUI KeyEquivalent to keyCode
-                    if keyPress.key == .escape {
-                        settings.cancelKeyCode = 53
-                    } else if keyPress.key == .delete {
-                        settings.cancelKeyCode = 51
-                    }
-                    isRecordingCancelKey = false
-                    return .handled
-                }
-                return .ignored
-            }
-        }
-    }
 
-    // MARK: - Voice Section
+            Divider().background(DS.Colors.borderSubtle)
 
-    private var voiceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("VOICE")
-
-            HStack {
-                Text("AI Voice")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textSecondary)
-
-                Spacer()
-
-                Picker("", selection: $settings.voiceName) {
-                    ForEach(OpenAIRealtimeClient.availableVoices, id: \.self) { voice in
-                        Text(voice.capitalized).tag(voice)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 130)
-            }
-        }
-    }
-
-    // MARK: - Pipeline Section
-
-    private var pipelineSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("AI ENGINE")
-
-            Picker("", selection: $settings.useRealtimePipeline) {
-                Text("OpenAI Realtime").tag(true)
-                Text("Classic (Claude + ElevenLabs)").tag(false)
-            }
-            .pickerStyle(.segmented)
-
-            if settings.useRealtimePipeline {
-                Text("Audio + screenshots + AI in one connection. Fastest response.")
-                    .font(.system(size: 10))
+            // ── Voice ─────────────────────────────────
+            VStack(alignment: .leading, spacing: 10) {
+                Text("VOICE")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundColor(DS.Colors.textTertiary)
-            } else {
-                Text("AssemblyAI (STT) → Claude (AI) → ElevenLabs (TTS). Best teaching quality.")
-                    .font(.system(size: 10))
-                    .foregroundColor(DS.Colors.textTertiary)
+
+                settingsRow("AI Voice") {
+                    Picker("", selection: $settings.voiceName) {
+                        ForEach(OpenAIRealtimeClient.availableVoices, id: \.self) { voice in
+                            Text(voice.capitalized).tag(voice)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
             }
         }
+        .padding(16)
+        .frame(width: 280)
+        .background(DS.Colors.background)
     }
 
     // MARK: - Helpers
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(DS.Colors.textTertiary)
+    private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textSecondary)
+            Spacer()
+            content()
+        }
     }
 }
