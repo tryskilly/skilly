@@ -336,7 +336,8 @@ final class GeminiLiveClient: ObservableObject {
         }
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("⚠️ Gemini Live: failed to parse JSON: \(text.prefix(200))")
+            let preview = String(data: data.prefix(200), encoding: .utf8) ?? "binary"
+            print("⚠️ Gemini Live: failed to parse JSON: \(preview)")
             return
         }
 

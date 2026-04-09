@@ -924,35 +924,73 @@ final class CompanionManager: ObservableObject {
     private var geminiAudioEngine: AVAudioEngine?
     private var geminiPushToTalkTask: Task<Void, Never>?
 
+    /// Whether the Gemini session is ready to accept audio.
+    private var isGeminiSessionReady = false
+
     private func startGeminiLivePushToTalk() {
-        geminiPushToTalkTask?.cancel()
+        // Prevent double-start if a session is already connecting
+        guard geminiPushToTalkTask == nil else {
+            print("🎙️ Gemini Live: ignoring start — session already in progress")
+            return
+        }
+
+        isGeminiSessionReady = false
+
         geminiPushToTalkTask = Task {
             let pipelineStartTime = CFAbsoluteTimeGetCurrent()
             voiceState = .listening
 
             do {
-                // Start the Gemini Live session with the composed system prompt
+                // Start audio capture IMMEDIATELY — buffer audio while connecting.
+                // This prevents dropping the user's first words.
+                let audioEngine = AVAudioEngine()
+                self.geminiAudioEngine = audioEngine
+                var earlyAudioBuffers: [AVAudioPCMBuffer] = []
+                let bufferLock = NSLock()
+
+                let inputNode = audioEngine.inputNode
+                let inputFormat = inputNode.outputFormat(forBus: 0)
+
+                inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { [weak self] buffer, _ in
+                    bufferLock.lock()
+                    if self?.isGeminiSessionReady == true {
+                        bufferLock.unlock()
+                        self?.geminiLiveSessionManager.sendAudioBuffer(buffer)
+                    } else {
+                        // Copy buffer for later flushing
+                        if let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) {
+                            copy.frameLength = buffer.frameLength
+                            if let src = buffer.floatChannelData, let dst = copy.floatChannelData {
+                                for ch in 0..<Int(buffer.format.channelCount) {
+                                    dst[ch].update(from: src[ch], count: Int(buffer.frameLength))
+                                }
+                            }
+                            earlyAudioBuffers.append(copy)
+                        }
+                        bufferLock.unlock()
+                    }
+                    self?.updateAudioPowerLevelForGemini(from: buffer)
+                }
+
+                audioEngine.prepare()
+                try audioEngine.start()
+                print("⏱️ Gemini Live: audio capture started in \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+
+                // Connect to Gemini (runs in parallel with audio capture)
                 try await geminiLiveSessionManager.startSession(
                     systemPrompt: composedSystemPrompt
                 )
 
                 guard !Task.isCancelled else {
                     geminiLiveSessionManager.endSession()
+                    audioEngine.stop()
                     return
                 }
 
-                // Capture and send the screenshot immediately
-                let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-                if let cursorScreen = allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures.first {
-                    geminiLiveSessionManager.sendScreenshot(cursorScreen.imageData)
-                    print("⏱️ Gemini Live: screenshot sent in \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
-                }
-
-                // Set up audio callbacks
+                // Set up response callbacks
                 geminiLiveSessionManager.onTurnComplete = { [weak self] in
                     guard let self else { return }
                     self.voiceState = .idle
-                    // Curriculum signal observation
                     let responseText = self.geminiLiveSessionManager.lastTranscriptFromModel
                     self.skillManager?.didReceiveInteraction(
                         transcript: self.lastTranscript ?? "",
@@ -965,25 +1003,29 @@ final class CompanionManager: ObservableObject {
                     self?.voiceState = .idle
                 }
 
-                // Start capturing audio and streaming to Gemini
-                let audioEngine = AVAudioEngine()
-                self.geminiAudioEngine = audioEngine
-
-                let inputNode = audioEngine.inputNode
-                let inputFormat = inputNode.outputFormat(forBus: 0)
-
-                inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { [weak self] buffer, _ in
-                    self?.geminiLiveSessionManager.sendAudioBuffer(buffer)
-                    self?.updateAudioPowerLevelForGemini(from: buffer)
+                // Capture and send the screenshot
+                let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                if let cursorScreen = allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures.first {
+                    geminiLiveSessionManager.sendScreenshot(cursorScreen.imageData)
+                    print("⏱️ Gemini Live: screenshot sent (\(cursorScreen.imageData.count / 1024)KB)")
                 }
 
-                audioEngine.prepare()
-                try audioEngine.start()
+                // Flush buffered audio
+                bufferLock.lock()
+                let bufferedCount = earlyAudioBuffers.count
+                for earlyBuffer in earlyAudioBuffers {
+                    geminiLiveSessionManager.sendAudioBuffer(earlyBuffer)
+                }
+                earlyAudioBuffers.removeAll()
+                isGeminiSessionReady = true
+                bufferLock.unlock()
 
-                print("⏱️ Gemini Live: audio streaming started in \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+                print("⏱️ Gemini Live: session ready, flushed \(bufferedCount) buffered audio chunks (total \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms)")
 
             } catch {
                 print("⚠️ Gemini Live: failed to start session: \(error)")
+                geminiAudioEngine?.stop()
+                geminiAudioEngine = nil
                 voiceState = .idle
             }
         }
@@ -994,6 +1036,8 @@ final class CompanionManager: ObservableObject {
         geminiAudioEngine?.stop()
         geminiAudioEngine?.inputNode.removeTap(onBus: 0)
         geminiAudioEngine = nil
+        isGeminiSessionReady = false
+        geminiPushToTalkTask = nil
 
         // Signal end of user's turn — model will now respond
         geminiLiveSessionManager.endUserTurn()
