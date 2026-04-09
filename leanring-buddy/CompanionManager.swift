@@ -95,16 +95,19 @@ final class CompanionManager: ObservableObject {
         StreamingTTSQueue(ttsClient: elevenLabsTTSClient)
     }()
 
-    // MARK: - Skilly — Gemini Live Pipeline
-    /// When true, uses Gemini Live API (single WebSocket for STT+LLM+TTS).
+    // MARK: - Skilly — OpenAI Realtime Pipeline
+    /// When true, uses OpenAI Realtime API (single WebSocket for STT+LLM+Vision+TTS).
     /// When false, uses classic pipeline (AssemblyAI + Claude + ElevenLabs).
-    /// The Gemini API key is fetched from the Worker proxy (token relay) —
-    /// no key is stored in the app.
-    @Published var useGeminiLivePipeline: Bool = UserDefaults.standard.object(forKey: "useGeminiLivePipeline") == nil ? true : UserDefaults.standard.bool(forKey: "useGeminiLivePipeline") {
-        didSet { UserDefaults.standard.set(useGeminiLivePipeline, forKey: "useGeminiLivePipeline") }
+    /// The OpenAI API key is fetched from the Worker proxy (token relay).
+    @Published var useRealtimePipeline: Bool = UserDefaults.standard.object(forKey: "useRealtimePipeline") == nil ? true : UserDefaults.standard.bool(forKey: "useRealtimePipeline") {
+        didSet { UserDefaults.standard.set(useRealtimePipeline, forKey: "useRealtimePipeline") }
     }
 
-    let geminiLiveSessionManager = GeminiLiveSessionManager()
+    let openAIRealtimeClient = OpenAIRealtimeClient()
+    private var realtimeAudioPlayer: GeminiAudioPlayer?  // Reuse — plays PCM16 24kHz
+    private var realtimeEventSubscription: AnyCancellable?
+    private var realtimeAudioEngine: AVAudioEngine?
+    private var realtimePushToTalkTask: Task<Void, Never>?
     // Response text is now displayed inline on the cursor overlay via
     // streamingResponseText, so no separate response overlay manager is needed.
 
@@ -550,40 +553,36 @@ final class CompanionManager: ObservableObject {
 
             ClickyAnalytics.trackPushToTalkStarted()
 
-            // Both pipelines use the same push-to-talk + AssemblyAI for STT.
-            // The difference is what happens with the transcript:
-            // - Classic: transcript → Claude API → ElevenLabs TTS
-            // - Gemini:  transcript → Gemini Live WebSocket → streaming audio
-            pendingKeyboardShortcutStartTask?.cancel()
-            pendingKeyboardShortcutStartTask = Task {
-                // MARK: - Skilly — Pre-connect Gemini Live session during recording
-                if useGeminiLivePipeline {
-                    startGeminiLiveSessionInBackground()
-                }
-
-                await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
-                    currentDraftText: "",
-                    updateDraftText: { _ in
-                        // Partial transcripts are hidden (waveform-only UI)
-                    },
-                    submitDraftText: { [weak self] finalTranscript in
-                        self?.lastTranscript = finalTranscript
-                        print("🗣️ Companion received transcript: \(finalTranscript)")
-                        ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
-
-                        if self?.useGeminiLivePipeline == true {
-                            self?.sendTranscriptToGeminiLive(transcript: finalTranscript)
-                        } else {
+            // MARK: - Skilly — Pipeline selection
+            if useRealtimePipeline {
+                // OpenAI Realtime: everything in one WebSocket
+                // Audio → OpenAI (STT + Vision + LLM + TTS) → Audio
+                startOpenAIRealtimePushToTalk()
+            } else {
+                // Classic: AssemblyAI STT → Claude LLM → ElevenLabs TTS
+                pendingKeyboardShortcutStartTask?.cancel()
+                pendingKeyboardShortcutStartTask = Task {
+                    await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
+                        currentDraftText: "",
+                        updateDraftText: { _ in },
+                        submitDraftText: { [weak self] finalTranscript in
+                            self?.lastTranscript = finalTranscript
+                            print("🗣️ Companion received transcript: \(finalTranscript)")
+                            ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
                             self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
                         }
-                    }
-                )
+                    )
+                }
             }
         case .released:
             ClickyAnalytics.trackPushToTalkReleased()
-            pendingKeyboardShortcutStartTask?.cancel()
-            pendingKeyboardShortcutStartTask = nil
-            buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+            if useRealtimePipeline {
+                stopOpenAIRealtimePushToTalk()
+            } else {
+                pendingKeyboardShortcutStartTask?.cancel()
+                pendingKeyboardShortcutStartTask = nil
+                buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+            }
         case .none:
             break
         }
@@ -917,90 +916,141 @@ final class CompanionManager: ObservableObject {
         let screenNumber: Int?
     }
 
-    // MARK: - Skilly — Gemini Live Push-to-Talk Pipeline
+    // MARK: - Skilly — OpenAI Realtime Push-to-Talk Pipeline
 
-    /// Audio engine dedicated to the Gemini Live pipeline. Separate from
-    /// BuddyDictationManager's engine to avoid conflicts.
-    private var geminiAudioEngine: AVAudioEngine?
-    private var geminiPushToTalkTask: Task<Void, Never>?
+    private func startOpenAIRealtimePushToTalk() {
+        realtimePushToTalkTask?.cancel()
 
-    /// Pre-connect the Gemini Live session while the user is recording.
-    /// This way when the transcript arrives, we can send it immediately
-    /// without waiting for the WebSocket to connect.
-    private func startGeminiLiveSessionInBackground() {
-        guard !geminiLiveSessionManager.isSessionActive else { return }
+        realtimePushToTalkTask = Task {
+            let pipelineStartTime = CFAbsoluteTimeGetCurrent()
+            voiceState = .listening
 
-        geminiPushToTalkTask = Task {
             do {
-                try await geminiLiveSessionManager.startSession(
-                    systemPrompt: composedSystemPrompt
-                )
-
-                geminiLiveSessionManager.onTurnComplete = { [weak self] in
-                    guard let self else { return }
-                    self.voiceState = .idle
-                    let responseText = self.geminiLiveSessionManager.lastTranscriptFromModel
-                    self.skillManager?.didReceiveInteraction(
-                        transcript: self.lastTranscript ?? "",
-                        assistantResponse: responseText
+                // Connect if not already connected
+                if !openAIRealtimeClient.isConnected {
+                    try await openAIRealtimeClient.connect(
+                        systemPrompt: composedSystemPrompt
                     )
+
+                    // Subscribe to response events
+                    realtimeEventSubscription = openAIRealtimeClient.eventPublisher
+                        .receive(on: DispatchQueue.main)
+                        .sink { [weak self] event in
+                            self?.handleRealtimeEvent(event)
+                        }
+
+                    // Initialize audio player
+                    realtimeAudioPlayer = GeminiAudioPlayer()  // Same format: PCM16 24kHz
                 }
 
-                geminiLiveSessionManager.onError = { [weak self] error in
-                    print("⚠️ Gemini Live pipeline error: \(error)")
-                    self?.voiceState = .idle
+                guard !Task.isCancelled else { return }
+
+                // Capture and send screenshot immediately
+                let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                if let cursorScreen = allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures.first {
+                    openAIRealtimeClient.sendScreenshot(cursorScreen.imageData, withText: "This is what the user currently sees on their screen.")
+                    print("⏱️ OpenAI Realtime: screenshot sent (\(cursorScreen.imageData.count / 1024)KB) at \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
                 }
+
+                // Start audio capture and stream to OpenAI
+                let audioEngine = AVAudioEngine()
+                self.realtimeAudioEngine = audioEngine
+
+                let inputNode = audioEngine.inputNode
+                let inputFormat = inputNode.outputFormat(forBus: 0)
+
+                inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { [weak self] buffer, _ in
+                    guard let pcm16Data = self?.convertBufferToPCM16(buffer) else { return }
+                    self?.openAIRealtimeClient.appendAudioChunk(pcm16Data)
+                    self?.updateRealtimeAudioPowerLevel(from: buffer)
+                }
+
+                audioEngine.prepare()
+                try audioEngine.start()
+
+                print("⏱️ OpenAI Realtime: audio streaming started at \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+
             } catch {
-                print("⚠️ Gemini Live: failed to pre-connect session: \(error)")
+                print("⚠️ OpenAI Realtime: failed to start: \(error)")
+                voiceState = .idle
             }
         }
     }
 
-    /// Send the transcript + screenshot to Gemini Live for response.
-    /// Uses the pre-connected session from startGeminiLiveSessionInBackground.
-    private func sendTranscriptToGeminiLive(transcript: String) {
+    private func stopOpenAIRealtimePushToTalk() {
+        // Stop audio capture
+        realtimeAudioEngine?.stop()
+        realtimeAudioEngine?.inputNode.removeTap(onBus: 0)
+        realtimeAudioEngine = nil
+        realtimePushToTalkTask = nil
+
+        // Commit audio buffer and request response
+        openAIRealtimeClient.commitAudioAndRespond()
         voiceState = .processing
-        let pipelineStartTime = CFAbsoluteTimeGetCurrent()
 
-        Task {
-            do {
-                // Wait for session to be ready if still connecting
-                if !geminiLiveSessionManager.isSessionActive {
-                    try await geminiLiveSessionManager.startSession(
-                        systemPrompt: composedSystemPrompt
-                    )
-                    geminiLiveSessionManager.onTurnComplete = { [weak self] in
-                        self?.voiceState = .idle
-                    }
-                    geminiLiveSessionManager.onError = { [weak self] error in
-                        print("⚠️ Gemini Live pipeline error: \(error)")
-                        self?.voiceState = .idle
-                    }
-                }
+        print("🎙️ OpenAI Realtime: user finished speaking, committed audio")
+    }
 
-                print("⏱️ Gemini Live: sending transcript at \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+    private func handleRealtimeEvent(_ event: OpenAIRealtimeEvent) {
+        switch event {
+        case .sessionCreated:
+            break
 
-                // Send text to Gemini — it responds with streaming audio.
-                // Note: Gemini native-audio model doesn't support images.
-                // For screenshot-based interactions, use the classic pipeline.
-                geminiLiveSessionManager.sendTranscript(transcript)
+        case .audioChunk(let pcm16Data):
+            voiceState = .responding
+            realtimeAudioPlayer?.enqueueAudio(pcm16Data)
 
-                // Save to conversation history
-                conversationHistory.append((
-                    userTranscript: transcript,
-                    assistantResponse: "(Gemini Live audio response)"
-                ))
-                if conversationHistory.count > 10 {
-                    conversationHistory.removeFirst(conversationHistory.count - 10)
-                }
+        case .audioTranscriptDelta(let text):
+            // Model's speech transcript — could display in overlay
+            break
 
-                voiceState = .responding
+        case .inputTranscriptDone(let transcript):
+            // What the user said (STT result)
+            lastTranscript = transcript
+            ClickyAnalytics.trackUserMessageSent(transcript: transcript)
 
-            } catch {
-                print("⚠️ Gemini Live: failed to send transcript: \(error)")
-                voiceState = .idle
-            }
+            // Curriculum signal observation
+            skillManager?.didReceiveInteraction(
+                transcript: transcript,
+                assistantResponse: ""
+            )
+
+        case .responseDone:
+            voiceState = .idle
+
+        case .error(let message):
+            print("⚠️ OpenAI Realtime error: \(message)")
+            voiceState = .idle
         }
+    }
+
+    private func updateRealtimeAudioPowerLevel(from buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let frameCount = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<frameCount { sum += abs(channelData[i]) }
+        let power = CGFloat(min(1.0, (sum / Float(frameCount)) * 5.0))
+        Task { @MainActor in self.currentAudioPowerLevel = power }
+    }
+
+    /// Convert AVAudioPCMBuffer to PCM16 mono 16kHz for OpenAI Realtime.
+    private func convertBufferToPCM16(_ buffer: AVAudioPCMBuffer) -> Data? {
+        guard let floatData = buffer.floatChannelData else { return nil }
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        let ratio = buffer.format.sampleRate / 16000.0
+        let targetFrameCount = Int(Double(frameCount) / ratio)
+
+        var pcm16 = Data(capacity: targetFrameCount * 2)
+        for i in 0..<targetFrameCount {
+            let srcFrame = min(Int(Double(i) * ratio), frameCount - 1)
+            var sample: Float = 0
+            for ch in 0..<channelCount { sample += floatData[ch][srcFrame] }
+            sample /= Float(channelCount)
+            var int16 = Int16(max(-1, min(1, sample)) * Float(Int16.max))
+            pcm16.append(Data(bytes: &int16, count: 2))
+        }
+        return pcm16
     }
 
     // MARK: - Skilly — Sentence Extraction for Streaming TTS

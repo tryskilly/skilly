@@ -21,6 +21,7 @@ interface Env {
   WORKOS_CLIENT_ID: string;
   WORKOS_REDIRECT_URI: string;
   GEMINI_API_KEY: string;
+  OPENAI_API_KEY: string;
 }
 
 export default {
@@ -55,6 +56,9 @@ export default {
         }
         if (url.pathname === "/gemini/token") {
           return handleGeminiToken(env);
+        }
+        if (url.pathname === "/openai/token") {
+          return handleOpenAIToken(env);
         }
       }
     } catch (error) {
@@ -329,6 +333,37 @@ function handleGeminiToken(env: Env): Response {
       headers: {
         "content-type": "application/json",
         "cache-control": "private, max-age=300",  // Cache for 5 min
+      },
+    }
+  );
+}
+
+// ─── OpenAI Token Relay ────────────────────────────────────
+
+/**
+ * GET /openai/token
+ * Returns the OpenAI API key so the app can connect directly to
+ * the OpenAI Realtime WebSocket. The key is stored as a Worker
+ * secret and never ships in the app binary.
+ */
+function handleOpenAIToken(env: Env): Response {
+  if (!env.OPENAI_API_KEY) {
+    return new Response(
+      JSON.stringify({ error: "OpenAI API key not configured" }),
+      { status: 500, headers: { "content-type": "application/json" } }
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      apiKey: env.OPENAI_API_KEY,
+      model: "gpt-4o-realtime-preview",
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "private, max-age=300",
       },
     }
   );
