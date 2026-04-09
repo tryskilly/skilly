@@ -16,6 +16,8 @@ struct CompanionPanelView: View {
     var skillManager: SkillManager?
     var authManager: AuthManager?
     @State private var emailInput: String = ""
+    // MARK: - Skilly — Settings
+    @State private var showSettings = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -130,6 +132,19 @@ struct CompanionPanelView: View {
             Text(statusText)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textTertiary)
+
+            // MARK: - Skilly — Settings gear button
+            Button(action: { showSettings.toggle() }) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .popover(isPresented: $showSettings) {
+                SettingsView(settings: AppSettings.shared)
+            }
 
             Button(action: {
                 NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)

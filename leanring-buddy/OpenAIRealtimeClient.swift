@@ -126,18 +126,33 @@ final class OpenAIRealtimeClient: ObservableObject {
             group.cancelAll()
         }
 
-        // Update session with system prompt, voice, and language
+        // Read language and voice from AppSettings
+        let settings = await AppSettings.shared
+        let languageCode = settings.preferredLanguage
+        let languageName = AppSettings.languageName(for: languageCode)
+        let autoDetect = settings.autoDetectLanguage
+
+        let languageInstruction: String
+        if autoDetect {
+            languageInstruction = "\n\nLANGUAGE: Detect the language the user speaks and respond in the same language. Default to \(languageName) if unclear."
+        } else {
+            languageInstruction = "\n\nLANGUAGE: You MUST always respond in \(languageName). All spoken responses must be in \(languageName). Never switch to another language."
+        }
+
+        // Build transcription config — only set language if not auto-detecting
+        var transcriptionConfig: [String: Any] = ["model": "gpt-4o-mini-transcribe"]
+        if !autoDetect {
+            transcriptionConfig["language"] = languageCode
+        }
+
         let sessionUpdate: [String: Any] = [
             "type": "session.update",
             "session": [
-                "instructions": (systemPrompt ?? "You are a helpful assistant.") + "\n\nCRITICAL LANGUAGE RULE: You MUST always respond in English. All your spoken responses must be in English regardless of what language you think you hear. The user speaks English. Never respond in Spanish, Portuguese, or any other language unless the user explicitly asks you to.",
+                "instructions": (systemPrompt ?? "You are a helpful assistant.") + languageInstruction,
                 "voice": voiceName,
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
-                "input_audio_transcription": [
-                    "model": "gpt-4o-mini-transcribe",
-                    "language": "en"
-                ],
+                "input_audio_transcription": transcriptionConfig,
                 "turn_detection": [
                     "type": "server_vad",
                     "threshold": 0.5,

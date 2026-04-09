@@ -96,11 +96,9 @@ final class CompanionManager: ObservableObject {
     }()
 
     // MARK: - Skilly — OpenAI Realtime Pipeline
-    /// When true, uses OpenAI Realtime API (single WebSocket for STT+LLM+Vision+TTS).
-    /// When false, uses classic pipeline (AssemblyAI + Claude + ElevenLabs).
-    /// The OpenAI API key is fetched from the Worker proxy (token relay).
-    @Published var useRealtimePipeline: Bool = UserDefaults.standard.object(forKey: "useRealtimePipeline") == nil ? true : UserDefaults.standard.bool(forKey: "useRealtimePipeline") {
-        didSet { UserDefaults.standard.set(useRealtimePipeline, forKey: "useRealtimePipeline") }
+    /// Pipeline selection is now driven by AppSettings.shared.useRealtimePipeline
+    var useRealtimePipeline: Bool {
+        AppSettings.shared.useRealtimePipeline
     }
 
     let openAIRealtimeClient = OpenAIRealtimeClient()

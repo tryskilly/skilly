@@ -113,13 +113,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
 
-        // MARK: - Skilly — Detect Escape key press for cancel
-        // Escape keyCode is 53. Detect on keyDown (rawValue 10).
-        // Also detect when Escape is pressed while modifiers are held —
-        // in that case the event might still be keyDown but with modifier flags.
-        let escapeKeyCode: UInt16 = 53
-        if eventKeyCode == escapeKeyCode && (eventType == .keyDown || eventType.rawValue == 10) {
-            print("🛑 Escape key detected (eventType=\(eventType.rawValue))")
+        // MARK: - Skilly — Detect cancel key press (configurable, default: Escape)
+        let cancelKeyCode = AppSettings.shared.cancelKeyCode
+        if eventKeyCode == cancelKeyCode && (eventType == .keyDown || eventType.rawValue == 10) {
+            print("🛑 Cancel key detected (keyCode=\(eventKeyCode), eventType=\(eventType.rawValue))")
             escapeKeyPressedPublisher.send()
         }
 
