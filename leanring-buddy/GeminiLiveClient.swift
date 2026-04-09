@@ -107,18 +107,10 @@ final class GeminiLiveClient: ObservableObject {
     let responseEventPublisher = PassthroughSubject<GeminiLiveResponseEvent, Never>()
 
     private var webSocketTask: URLSessionWebSocketTask?
-    private let urlSession: URLSession
     private var setupContinuation: CheckedContinuation<Void, Error>?
 
     /// Cached token from the Worker — avoids fetching on every session.
     private var cachedGeminiToken: GeminiTokenResponse?
-
-    init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300  // 5 min — sessions can be long
-        config.timeoutIntervalForResource = 900 // 15 min — Gemini session limit
-        self.urlSession = URLSession(configuration: config)
-    }
 
     // MARK: - Token Relay
 
@@ -168,13 +160,19 @@ final class GeminiLiveClient: ObservableObject {
 
         print("🔌 Gemini Live: connecting to WebSocket...")
 
-        // Create WebSocket with a proper request
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 30
+        // Use a dedicated URLSession with a delegate to detect WebSocket open
+        let delegate = GeminiWebSocketDelegate()
+        let sessionConfig = URLSessionConfiguration.default
+        sessionConfig.timeoutIntervalForRequest = 30
+        let delegateSession = URLSession(configuration: sessionConfig, delegate: delegate, delegateQueue: nil)
 
-        let task = urlSession.webSocketTask(with: request)
+        let task = delegateSession.webSocketTask(with: url)
         self.webSocketTask = task
         task.resume()
+
+        // Wait for the WebSocket handshake to complete
+        try await delegate.waitForOpen(timeout: 15)
+        print("🔌 Gemini Live: WebSocket handshake complete")
 
         // Start receiving messages
         startReceiving()
@@ -191,7 +189,7 @@ final class GeminiLiveClient: ObservableObject {
             setup: .init(
                 model: token.model,
                 generation_config: .init(
-                    response_modalities: ["AUDIO", "TEXT"],
+                    response_modalities: ["AUDIO"],
                     speech_config: .init(
                         voice_config: .init(
                             prebuilt_voice_config: .init(voice_name: voiceName)
@@ -207,16 +205,15 @@ final class GeminiLiveClient: ObservableObject {
 
         // Wait for setupComplete with a timeout
         try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
+            group.addTask { @MainActor in
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     self.setupContinuation = continuation
                 }
             }
             group.addTask {
                 try await Task.sleep(for: .seconds(15))
-                throw GeminiLiveError.setupFailed("Connection timed out after 15 seconds")
+                throw GeminiLiveError.setupFailed("Setup response timed out after 15 seconds")
             }
-            // First to complete wins — either setupComplete arrives or timeout fires
             try await group.next()
             group.cancelAll()
         }
@@ -324,9 +321,17 @@ final class GeminiLiveClient: ObservableObject {
     }
 
     private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
-        guard case .string(let text) = message,
-              let data = text.data(using: .utf8) else {
-            print("⚠️ Gemini Live: received non-text WebSocket message")
+        // Gemini Live sends responses as either text or binary frames.
+        // Both contain JSON — binary frames are just UTF-8 encoded JSON.
+        let data: Data
+        switch message {
+        case .string(let text):
+            guard let textData = text.data(using: .utf8) else { return }
+            data = textData
+        case .data(let binaryData):
+            data = binaryData
+        @unknown default:
+            print("⚠️ Gemini Live: received unknown WebSocket message type")
             return
         }
 
@@ -403,5 +408,98 @@ final class GeminiLiveClient: ObservableObject {
             case .notConnected: return "Not connected to Gemini Live"
             }
         }
+    }
+}
+
+// MARK: - WebSocket Delegate
+
+/// URLSession delegate that detects when the WebSocket handshake completes.
+/// Used to ensure we don't send messages before the connection is ready.
+private final class GeminiWebSocketDelegate: NSObject, URLSessionWebSocketDelegate, Sendable {
+    private let openContinuation = UnsafeContinuationBox()
+
+    /// Waits for the WebSocket to open, with a timeout.
+    func waitForOpen(timeout: TimeInterval) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.openContinuation.store(continuation)
+                }
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(timeout))
+                throw GeminiLiveClient.GeminiLiveError.setupFailed("WebSocket handshake timed out after \(Int(timeout))s")
+            }
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didOpenWithProtocol protocol: String?
+    ) {
+        print("🔌 Gemini Live: WebSocket didOpen (protocol: \(`protocol` ?? "none"))")
+        openContinuation.resume()
+    }
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        let reasonString = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "none"
+        print("🔴 Gemini Live: WebSocket didClose (code: \(closeCode.rawValue), reason: \(reasonString))")
+    }
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            print("⚠️ Gemini Live: URLSession task error: \(error)")
+            openContinuation.resumeWithError(GeminiLiveClient.GeminiLiveError.setupFailed(error.localizedDescription))
+        }
+    }
+}
+
+/// Thread-safe container for a CheckedContinuation, since the URLSession
+/// delegate callbacks arrive on arbitrary threads.
+private final class UnsafeContinuationBox: @unchecked Sendable {
+    private var continuation: CheckedContinuation<Void, Error>?
+    private let lock = NSLock()
+    private var isResolved = false
+
+    func store(_ continuation: CheckedContinuation<Void, Error>) {
+        lock.lock()
+        if isResolved {
+            lock.unlock()
+            // Already resolved before store was called — resume immediately
+            // (This handles the race where didOpen fires before store)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resume() {
+        lock.lock()
+        isResolved = true
+        let cont = continuation
+        continuation = nil
+        lock.unlock()
+        cont?.resume()
+    }
+
+    func resumeWithError(_ error: Error) {
+        lock.lock()
+        isResolved = true
+        let cont = continuation
+        continuation = nil
+        lock.unlock()
+        cont?.resume(throwing: error)
     }
 }
