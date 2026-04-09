@@ -159,13 +159,20 @@ final class GeminiLiveClient: ObservableObject {
     ) async throws {
         // Fetch API key from Worker
         let token = try await fetchGeminiToken()
+        print("🔑 Gemini Live: token fetched, model=\(token.model)")
 
         // Build WebSocket URL with API key
         guard let url = URL(string: "\(token.websocketBaseURL)?key=\(token.apiKey)") else {
             throw GeminiLiveError.invalidURL
         }
 
-        let task = urlSession.webSocketTask(with: url)
+        print("🔌 Gemini Live: connecting to WebSocket...")
+
+        // Create WebSocket with a proper request
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+
+        let task = urlSession.webSocketTask(with: request)
         self.webSocketTask = task
         task.resume()
 
@@ -195,11 +202,23 @@ final class GeminiLiveClient: ObservableObject {
             )
         )
 
+        print("📤 Gemini Live: sending setup message...")
         try await sendJSON(setupMessage)
 
-        // Wait for setupComplete
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.setupContinuation = continuation
+        // Wait for setupComplete with a timeout
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    self.setupContinuation = continuation
+                }
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(15))
+                throw GeminiLiveError.setupFailed("Connection timed out after 15 seconds")
+            }
+            // First to complete wins — either setupComplete arrives or timeout fires
+            try await group.next()
+            group.cancelAll()
         }
 
         isConnected = true
@@ -287,8 +306,15 @@ final class GeminiLiveClient: ObservableObject {
                     self.startReceiving()  // Continue receiving
 
                 case .failure(let error):
+                    print("⚠️ Gemini Live: WebSocket error: \(error)")
+
+                    // If the setup continuation is still pending, fail it
+                    if let continuation = self.setupContinuation {
+                        self.setupContinuation = nil
+                        continuation.resume(throwing: GeminiLiveError.setupFailed("WebSocket connection failed: \(error.localizedDescription)"))
+                    }
+
                     if self.isConnected {
-                        print("⚠️ Gemini Live: WebSocket error: \(error)")
                         self.responseEventPublisher.send(.error(error.localizedDescription))
                     }
                     self.isConnected = false
@@ -299,10 +325,20 @@ final class GeminiLiveClient: ObservableObject {
 
     private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
         guard case .string(let text) = message,
-              let data = text.data(using: .utf8) else { return }
+              let data = text.data(using: .utf8) else {
+            print("⚠️ Gemini Live: received non-text WebSocket message")
+            return
+        }
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("⚠️ Gemini Live: failed to parse JSON: \(text.prefix(200))")
             return
+        }
+
+        // Log top-level keys for debugging
+        let keys = json.keys.sorted().joined(separator: ", ")
+        if json["serverContent"] == nil {
+            print("📩 Gemini Live: received message with keys: [\(keys)]")
         }
 
         // Setup complete

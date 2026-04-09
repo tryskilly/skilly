@@ -100,7 +100,7 @@ final class CompanionManager: ObservableObject {
     /// When false, uses classic pipeline (AssemblyAI + Claude + ElevenLabs).
     /// The Gemini API key is fetched from the Worker proxy (token relay) —
     /// no key is stored in the app.
-    @Published var useGeminiLivePipeline: Bool = UserDefaults.standard.bool(forKey: "useGeminiLivePipeline") {
+    @Published var useGeminiLivePipeline: Bool = UserDefaults.standard.object(forKey: "useGeminiLivePipeline") == nil ? true : UserDefaults.standard.bool(forKey: "useGeminiLivePipeline") {
         didSet { UserDefaults.standard.set(useGeminiLivePipeline, forKey: "useGeminiLivePipeline") }
     }
 
@@ -577,9 +577,9 @@ final class CompanionManager: ObservableObject {
             // leaves the waveform overlay stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()
 
-            if useGeminiLivePipeline {
+            if useGeminiLivePipeline && geminiLiveSessionManager.isSessionActive {
                 stopGeminiLivePushToTalk()
-            } else {
+            } else if !useGeminiLivePipeline {
                 pendingKeyboardShortcutStartTask?.cancel()
                 pendingKeyboardShortcutStartTask = nil
                 buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
