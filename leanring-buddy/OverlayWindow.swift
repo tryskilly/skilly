@@ -52,19 +52,24 @@ class OverlayWindow: NSWindow {
     }
 }
 
-// Cursor-like triangle shape (equilateral)
+// MARK: - Skilly — Cursor arrow shape (replaces Clicky triangle)
+// Matches the Skilly amber cursor logo — a stylized pointer arrow.
+
 struct Triangle: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let size = min(rect.width, rect.height)
-        let height = size * sqrt(3.0) / 2.0
+        let w = rect.width
+        let h = rect.height
 
-        // Top vertex
-        path.move(to: CGPoint(x: rect.midX, y: rect.midY - height / 1.5))
-        // Bottom left vertex
-        path.addLine(to: CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3))
-        // Bottom right vertex
-        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3))
+        // Cursor arrow pointing up-left with a notch on the right side.
+        // Coordinates normalized to the bounding rect.
+        path.move(to: CGPoint(x: w * 0.10, y: h * 0.05))   // tip (top-left)
+        path.addLine(to: CGPoint(x: w * 0.10, y: h * 0.85)) // bottom-left
+        path.addLine(to: CGPoint(x: w * 0.38, y: h * 0.62)) // notch inner
+        path.addLine(to: CGPoint(x: w * 0.68, y: h * 0.92)) // tail end bottom
+        path.addLine(to: CGPoint(x: w * 0.90, y: h * 0.72)) // tail end right
+        path.addLine(to: CGPoint(x: w * 0.58, y: h * 0.42)) // notch outer
+        path.addLine(to: CGPoint(x: w * 0.82, y: h * 0.18)) // right wing
         path.closeSubpath()
         return path
     }
