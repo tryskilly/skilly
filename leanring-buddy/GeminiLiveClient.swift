@@ -231,53 +231,32 @@ final class GeminiLiveClient: ObservableObject {
         print("🔴 Gemini Live: disconnected")
     }
 
-    // MARK: - Sending Audio
+    // MARK: - Sending User Messages
 
-    /// Send a chunk of PCM16 mono 16kHz audio to the model.
-    /// Audio data should be raw PCM16 bytes (not WAV, no headers).
-    func sendAudioChunk(_ pcm16Data: Data) {
+    /// Send a text message to the model via clientContent.
+    /// The model responds with streaming audio + text.
+    ///
+    /// Note: The native-audio model does not support inline images.
+    /// For screenshot-based interactions, use the classic pipeline
+    /// or describe the screenshot in text.
+    func sendTextMessage(_ text: String) {
         guard isConnected else { return }
 
-        let message = GeminiLiveRealtimeInput(
-            realtimeInput: .init(
-                mediaChunks: [.init(
-                    mimeType: "audio/pcm;rate=16000",
-                    data: pcm16Data.base64EncodedString()
-                )]
-            )
-        )
-
-        Task { try? await sendJSON(message) }
-    }
-
-    // MARK: - Sending Images
-
-    /// Send a screenshot/image to the model mid-session.
-    /// The model will incorporate the image into its understanding.
-    func sendImage(_ jpegData: Data) {
-        guard isConnected else { return }
-
-        let message = GeminiLiveRealtimeInput(
-            realtimeInput: .init(
-                mediaChunks: [.init(
-                    mimeType: "image/jpeg",
-                    data: jpegData.base64EncodedString()
-                )]
-            )
-        )
+        let message: [String: Any] = [
+            "clientContent": [
+                "turns": [
+                    ["role": "user", "parts": [["text": text]]]
+                ],
+                "turnComplete": true
+            ]
+        ]
 
         Task {
-            try? await sendJSON(message)
-            print("📸 Gemini Live: sent image (\(jpegData.count / 1024)KB)")
+            guard let data = try? JSONSerialization.data(withJSONObject: message),
+                  let jsonString = String(data: data, encoding: .utf8) else { return }
+            try? await webSocketTask?.send(.string(jsonString))
+            print("📤 Gemini Live: sent user message (\(text.prefix(50))...)")
         }
-    }
-
-    // MARK: - Turn Management
-
-    /// Signal that the user has finished speaking (key released).
-    func sendTurnComplete() {
-        guard isConnected else { return }
-        Task { try? await sendJSON(GeminiLiveClientTurnComplete.message) }
     }
 
     // MARK: - Private — Sending

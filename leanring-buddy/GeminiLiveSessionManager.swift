@@ -92,35 +92,15 @@ final class GeminiLiveSessionManager: ObservableObject {
         fullResponseText = ""
     }
 
-    // MARK: - Audio Input
+    // MARK: - Send User Message
 
-    /// Send an audio buffer from AVAudioEngine to the model.
-    /// Converts the buffer to PCM16 mono 16kHz before sending.
-    func sendAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+    /// Send a text transcript to the model. Gemini handles LLM + TTS.
+    /// The native-audio model does not support inline images — for
+    /// screenshot-based interactions, use the classic Claude pipeline.
+    func sendTranscript(_ transcript: String) {
         guard isSessionActive else { return }
-
-        // Convert to PCM16 mono 16kHz data
-        guard let pcm16Data = convertBufferToPCM16(buffer) else { return }
-        geminiLiveClient.sendAudioChunk(pcm16Data)
-    }
-
-    // MARK: - Image Input
-
-    /// Send a screenshot to the model. Call this once per interaction,
-    /// typically right after the push-to-talk key is pressed.
-    func sendScreenshot(_ jpegData: Data) {
-        guard isSessionActive else { return }
-        geminiLiveClient.sendImage(jpegData)
-    }
-
-    // MARK: - Turn Management
-
-    /// Signal that the user has finished speaking (key released).
-    /// The model will process the accumulated audio + image and respond.
-    func endUserTurn() {
-        guard isSessionActive else { return }
-        geminiLiveClient.sendTurnComplete()
-        print("🎙️ Gemini Live: user turn complete, waiting for model response")
+        geminiLiveClient.sendTextMessage(transcript)
+        print("🎙️ Gemini Live: sent transcript, waiting for audio response")
     }
 
     // MARK: - Response Handling
@@ -158,9 +138,11 @@ final class GeminiLiveSessionManager: ObservableObject {
         }
     }
 
-    // MARK: - Audio Conversion
+    // MARK: - Audio Conversion (reserved for future realtimeInput audio support)
 
     /// Convert an AVAudioPCMBuffer to raw PCM16 mono 16kHz data.
+    /// Currently unused — the native-audio model only accepts text via clientContent.
+    /// Kept for future use when Gemini Live supports audio+vision in one session.
     private func convertBufferToPCM16(_ buffer: AVAudioPCMBuffer) -> Data? {
         guard let floatData = buffer.floatChannelData else { return nil }
 
