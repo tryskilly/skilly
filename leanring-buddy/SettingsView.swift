@@ -110,33 +110,14 @@ struct SettingsView: View {
     /// A dropdown picker styled for the dark settings panel.
     /// Shows the current selection as a pill with a chevron.
     private func settingsPicker(selection: Binding<String>, options: [(value: String, label: String)]) -> some View {
-        Menu {
+        Picker("", selection: selection) {
             ForEach(options, id: \.value) { option in
-                Button(action: { selection.wrappedValue = option.value }) {
-                    HStack {
-                        Text(option.label)
-                        if selection.wrappedValue == option.value {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
+                Text(option.label).tag(option.value)
             }
-        } label: {
-            HStack(spacing: 4) {
-                Text(options.first(where: { $0.value == selection.wrappedValue })?.label ?? "")
-                    .font(.system(size: 11, weight: .medium))
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .foregroundColor(DS.Colors.textPrimary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.1))
-            )
         }
-        .menuStyle(.borderlessButton)
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .tint(DS.Colors.textPrimary)
         .fixedSize()
     }
 
