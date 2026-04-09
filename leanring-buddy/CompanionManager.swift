@@ -555,8 +555,11 @@ final class CompanionManager: ObservableObject {
 
             // MARK: - Skilly — Pipeline selection
             if useRealtimePipeline {
-                // OpenAI Realtime: everything in one WebSocket
-                // Audio → OpenAI (STT + Vision + LLM + TTS) → Audio
+                // Cancel any in-progress response when user starts speaking again
+                if openAIRealtimeClient.isModelSpeaking {
+                    openAIRealtimeClient.cancelResponse()
+                    realtimeAudioPlayer?.stop()
+                }
                 startOpenAIRealtimePushToTalk()
             } else {
                 // Classic: AssemblyAI STT → Claude LLM → ElevenLabs TTS

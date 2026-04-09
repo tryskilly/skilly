@@ -357,7 +357,7 @@ function handleOpenAIToken(env: Env): Response {
   return new Response(
     JSON.stringify({
       apiKey: env.OPENAI_API_KEY,
-      model: "gpt-4o-realtime-preview",
+      model: "gpt-realtime",
     }),
     {
       status: 200,

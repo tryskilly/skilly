@@ -126,22 +126,23 @@ final class OpenAIRealtimeClient: ObservableObject {
             group.cancelAll()
         }
 
-        // Update session with system prompt and voice
+        // Update session with system prompt, voice, and language
         let sessionUpdate: [String: Any] = [
             "type": "session.update",
             "session": [
-                "instructions": systemPrompt ?? "You are a helpful assistant.",
+                "instructions": (systemPrompt ?? "You are a helpful assistant.") + "\n\nIMPORTANT: Always respond in English unless the user explicitly speaks a different language.",
                 "voice": voiceName,
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
                 "input_audio_transcription": [
-                    "model": "gpt-4o-mini-transcribe"
+                    "model": "gpt-4o-mini-transcribe",
+                    "language": "en"
                 ],
                 "turn_detection": [
                     "type": "server_vad",
                     "threshold": 0.5,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500
+                    "silence_duration_ms": 800
                 ]
             ]
         ]
@@ -197,6 +198,21 @@ final class OpenAIRealtimeClient: ObservableObject {
         guard isConnected else { return }
         let event: [String: Any] = ["type": "input_audio_buffer.clear"]
         Task { try? await sendEvent(event) }
+    }
+
+    // MARK: - Cancel / Interrupt
+
+    /// Cancel the current response. Stops the model from generating
+    /// more audio/text, saving tokens. Call this when the user presses
+    /// push-to-talk again while a response is playing.
+    func cancelResponse() {
+        guard isConnected else { return }
+        let event: [String: Any] = ["type": "response.cancel"]
+        Task {
+            try? await sendEvent(event)
+            print("🛑 OpenAI Realtime: response cancelled")
+        }
+        isModelSpeaking = false
     }
 
     // MARK: - Image/Screenshot Input
