@@ -94,6 +94,20 @@ final class CompanionManager: ObservableObject {
     private lazy var streamingTTSQueue: StreamingTTSQueue = {
         StreamingTTSQueue(ttsClient: elevenLabsTTSClient)
     }()
+
+    // MARK: - Skilly — Gemini Live Pipeline
+    /// When true, uses Gemini Live API (single WebSocket for STT+LLM+TTS).
+    /// When false, uses classic pipeline (AssemblyAI + Claude + ElevenLabs).
+    @Published var useGeminiLivePipeline: Bool = UserDefaults.standard.bool(forKey: "useGeminiLivePipeline") {
+        didSet { UserDefaults.standard.set(useGeminiLivePipeline, forKey: "useGeminiLivePipeline") }
+    }
+
+    /// Gemini API key for BYOK. Stored in UserDefaults for now — move to Keychain for production.
+    @Published var geminiAPIKey: String = UserDefaults.standard.string(forKey: "geminiAPIKey") ?? "" {
+        didSet { UserDefaults.standard.set(geminiAPIKey, forKey: "geminiAPIKey") }
+    }
+
+    let geminiLiveSessionManager = GeminiLiveSessionManager()
     // Response text is now displayed inline on the cursor overlay via
     // streamingResponseText, so no separate response overlay manager is needed.
 
@@ -539,20 +553,25 @@ final class CompanionManager: ObservableObject {
 
             ClickyAnalytics.trackPushToTalkStarted()
 
-            pendingKeyboardShortcutStartTask?.cancel()
-            pendingKeyboardShortcutStartTask = Task {
-                await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
-                    currentDraftText: "",
-                    updateDraftText: { _ in
-                        // Partial transcripts are hidden (waveform-only UI)
-                    },
-                    submitDraftText: { [weak self] finalTranscript in
-                        self?.lastTranscript = finalTranscript
-                        print("🗣️ Companion received transcript: \(finalTranscript)")
-                        ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
-                        self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
-                    }
-                )
+            // MARK: - Skilly — Pipeline selection
+            if useGeminiLivePipeline && !geminiAPIKey.isEmpty {
+                startGeminiLivePushToTalk()
+            } else {
+                pendingKeyboardShortcutStartTask?.cancel()
+                pendingKeyboardShortcutStartTask = Task {
+                    await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
+                        currentDraftText: "",
+                        updateDraftText: { _ in
+                            // Partial transcripts are hidden (waveform-only UI)
+                        },
+                        submitDraftText: { [weak self] finalTranscript in
+                            self?.lastTranscript = finalTranscript
+                            print("🗣️ Companion received transcript: \(finalTranscript)")
+                            ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
+                            self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
+                        }
+                    )
+                }
             }
         case .released:
             // Cancel the pending start task in case the user released the shortcut
@@ -560,9 +579,14 @@ final class CompanionManager: ObservableObject {
             // Without this, a quick press-and-release drops the release event and
             // leaves the waveform overlay stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()
-            pendingKeyboardShortcutStartTask?.cancel()
-            pendingKeyboardShortcutStartTask = nil
-            buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+
+            if useGeminiLivePipeline && geminiLiveSessionManager.isSessionActive {
+                stopGeminiLivePushToTalk()
+            } else {
+                pendingKeyboardShortcutStartTask?.cancel()
+                pendingKeyboardShortcutStartTask = nil
+                buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+            }
         case .none:
             break
         }
@@ -894,6 +918,108 @@ final class CompanionManager: ObservableObject {
         let elementLabel: String?
         /// Which screen the coordinate refers to (1-based), or nil to default to cursor screen.
         let screenNumber: Int?
+    }
+
+    // MARK: - Skilly — Gemini Live Push-to-Talk Pipeline
+
+    /// Audio engine dedicated to the Gemini Live pipeline. Separate from
+    /// BuddyDictationManager's engine to avoid conflicts.
+    private var geminiAudioEngine: AVAudioEngine?
+    private var geminiPushToTalkTask: Task<Void, Never>?
+
+    private func startGeminiLivePushToTalk() {
+        geminiPushToTalkTask?.cancel()
+        geminiPushToTalkTask = Task {
+            let pipelineStartTime = CFAbsoluteTimeGetCurrent()
+            voiceState = .listening
+
+            do {
+                // Start the Gemini Live session with the composed system prompt
+                try await geminiLiveSessionManager.startSession(
+                    apiKey: geminiAPIKey,
+                    systemPrompt: composedSystemPrompt
+                )
+
+                guard !Task.isCancelled else {
+                    geminiLiveSessionManager.endSession()
+                    return
+                }
+
+                // Capture and send the screenshot immediately
+                let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                if let cursorScreen = allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures.first {
+                    geminiLiveSessionManager.sendScreenshot(cursorScreen.imageData)
+                    print("⏱️ Gemini Live: screenshot sent in \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+                }
+
+                // Set up audio callbacks
+                geminiLiveSessionManager.onTurnComplete = { [weak self] in
+                    guard let self else { return }
+                    self.voiceState = .idle
+                    // Curriculum signal observation
+                    let responseText = self.geminiLiveSessionManager.lastTranscriptFromModel
+                    self.skillManager?.didReceiveInteraction(
+                        transcript: self.lastTranscript ?? "",
+                        assistantResponse: responseText
+                    )
+                }
+
+                geminiLiveSessionManager.onError = { [weak self] error in
+                    print("⚠️ Gemini Live pipeline error: \(error)")
+                    self?.voiceState = .idle
+                }
+
+                // Start capturing audio and streaming to Gemini
+                let audioEngine = AVAudioEngine()
+                self.geminiAudioEngine = audioEngine
+
+                let inputNode = audioEngine.inputNode
+                let inputFormat = inputNode.outputFormat(forBus: 0)
+
+                inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { [weak self] buffer, _ in
+                    self?.geminiLiveSessionManager.sendAudioBuffer(buffer)
+                    self?.updateAudioPowerLevelForGemini(from: buffer)
+                }
+
+                audioEngine.prepare()
+                try audioEngine.start()
+
+                print("⏱️ Gemini Live: audio streaming started in \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+
+            } catch {
+                print("⚠️ Gemini Live: failed to start session: \(error)")
+                voiceState = .idle
+            }
+        }
+    }
+
+    private func stopGeminiLivePushToTalk() {
+        // Stop audio capture
+        geminiAudioEngine?.stop()
+        geminiAudioEngine?.inputNode.removeTap(onBus: 0)
+        geminiAudioEngine = nil
+
+        // Signal end of user's turn — model will now respond
+        geminiLiveSessionManager.endUserTurn()
+        voiceState = .processing
+
+        print("🎙️ Gemini Live: user finished speaking, waiting for response")
+    }
+
+    /// Update audio power level from Gemini pipeline's audio engine.
+    /// Mirrors BuddyDictationManager's waveform feedback.
+    private func updateAudioPowerLevelForGemini(from buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let frameCount = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<frameCount {
+            sum += abs(channelData[i])
+        }
+        let average = sum / Float(frameCount)
+        let power = CGFloat(min(1.0, average * 5.0))  // Scale for visual feedback
+        Task { @MainActor in
+            self.currentAudioPowerLevel = power
+        }
     }
 
     // MARK: - Skilly — Sentence Extraction for Streaming TTS
