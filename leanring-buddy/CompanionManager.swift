@@ -622,6 +622,9 @@ final class CompanionManager: ObservableObject {
             voiceState = .processing
 
             do {
+                // MARK: - Skilly — Pipeline timing instrumentation
+                let pipelineStartTime = CFAbsoluteTimeGetCurrent()
+
                 // MARK: - Skilly — Capture only the cursor screen for speed
                 // On multi-monitor setups, capturing all screens adds ~0.5MB+
                 // of image data per extra monitor, significantly increasing
@@ -641,6 +644,10 @@ final class CompanionManager: ObservableObject {
                     return (data: capture.imageData, label: capture.label + dimensionInfo)
                 }
 
+                let screenshotTime = CFAbsoluteTimeGetCurrent()
+                let screenshotSizeKB = screenCaptures.reduce(0) { $0 + $1.imageData.count } / 1024
+                print("⏱️ Pipeline: screenshot captured in \(Int((screenshotTime - pipelineStartTime) * 1000))ms (\(screenshotSizeKB)KB, \(screenCaptures.count) screen)")
+
                 // Pass conversation history so Claude remembers prior exchanges
                 let historyForAPI = conversationHistory.map { entry in
                     (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
@@ -653,10 +660,14 @@ final class CompanionManager: ObservableObject {
                 // hears the first sentence while Claude is still generating.
                 var streamingTextBuffer = ""
                 var sentencesSentToTTS: [String] = []
+                var firstChunkTime: CFAbsoluteTime?
+                var firstSentenceSentTime: CFAbsoluteTime?
 
                 streamingTTSQueue.stopAndClear()
                 streamingTTSQueue.onFirstAudioStarted = { [weak self] in
                     self?.voiceState = .responding
+                    let firstAudioTime = CFAbsoluteTimeGetCurrent()
+                    print("⏱️ Pipeline: first audio playing at \(Int((firstAudioTime - pipelineStartTime) * 1000))ms from start")
                 }
 
                 let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
@@ -666,6 +677,12 @@ final class CompanionManager: ObservableObject {
                     userPrompt: transcript,
                     onTextChunk: { [weak self] chunk in
                         guard let self else { return }
+
+                        if firstChunkTime == nil {
+                            firstChunkTime = CFAbsoluteTimeGetCurrent()
+                            print("⏱️ Pipeline: first Claude token at \(Int((firstChunkTime! - pipelineStartTime) * 1000))ms from start")
+                        }
+
                         streamingTextBuffer += chunk
 
                         // Don't send anything that might contain the [POINT:] tag.
@@ -676,6 +693,10 @@ final class CompanionManager: ObservableObject {
                         // Extract complete sentences (ending with . ! ?)
                         let completeSentences = Self.extractCompleteSentences(from: &streamingTextBuffer)
                         for sentence in completeSentences {
+                            if firstSentenceSentTime == nil {
+                                firstSentenceSentTime = CFAbsoluteTimeGetCurrent()
+                                print("⏱️ Pipeline: first sentence to TTS at \(Int((firstSentenceSentTime! - pipelineStartTime) * 1000))ms — \"\(sentence.prefix(50))...\"")
+                            }
                             sentencesSentToTTS.append(sentence)
                             self.streamingTTSQueue.queueSentence(sentence)
                         }

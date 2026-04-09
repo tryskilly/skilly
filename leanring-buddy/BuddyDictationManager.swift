@@ -515,6 +515,50 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         activeTranscriptionSession?.cancel()
         activeTranscriptionSession = nil
 
+        // MARK: - Skilly — Start audio capture BEFORE WebSocket connects
+        // This prevents dropping the user's first words. Audio buffers are
+        // accumulated in earlyAudioBuffers while the WebSocket connects, then
+        // flushed to the transcription session once it's ready.
+        let sessionStartTime = CFAbsoluteTimeGetCurrent()
+
+        let inputNode = audioEngine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+
+        // Start capturing audio immediately — before the WebSocket connects.
+        // Buffers are stored temporarily and flushed once the session is ready.
+        var earlyAudioBuffers: [AVAudioPCMBuffer] = []
+        var isSessionReady = false
+        let bufferLock = NSLock()
+
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            bufferLock.lock()
+            if isSessionReady {
+                bufferLock.unlock()
+                self?.activeTranscriptionSession?.appendAudioBuffer(buffer)
+            } else {
+                // Copy the buffer since AVAudioEngine reuses the same pointer
+                if let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) {
+                    copy.frameLength = buffer.frameLength
+                    if let src = buffer.floatChannelData, let dst = copy.floatChannelData {
+                        for channel in 0..<Int(buffer.format.channelCount) {
+                            dst[channel].update(from: src[channel], count: Int(buffer.frameLength))
+                        }
+                    }
+                    earlyAudioBuffers.append(copy)
+                }
+                bufferLock.unlock()
+            }
+            self?.updateAudioPowerLevel(from: buffer)
+        }
+
+        audioEngine.prepare()
+        try audioEngine.start()
+
+        let audioStartTime = CFAbsoluteTimeGetCurrent()
+        print("🎙️ BuddyDictationManager: audio engine started (took \(Int((audioStartTime - sessionStartTime) * 1000))ms)")
+
+        // Now connect the WebSocket — audio is being captured in the meantime
         print("🎙️ BuddyDictationManager: opening transcription provider \(transcriptionProvider.displayName)")
 
         let activeTranscriptionSession = try await transcriptionProvider.startStreamingSession(
@@ -544,19 +588,21 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         )
 
         self.activeTranscriptionSession = activeTranscriptionSession
-        print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
 
-        let inputNode = audioEngine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
+        let providerReadyTime = CFAbsoluteTimeGetCurrent()
+        let bufferedDurationMs = Int((providerReadyTime - audioStartTime) * 1000)
 
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-            self?.activeTranscriptionSession?.appendAudioBuffer(buffer)
-            self?.updateAudioPowerLevel(from: buffer)
+        // Flush all early audio buffers to the now-connected session
+        bufferLock.lock()
+        let bufferedCount = earlyAudioBuffers.count
+        for earlyBuffer in earlyAudioBuffers {
+            activeTranscriptionSession.appendAudioBuffer(earlyBuffer)
         }
+        earlyAudioBuffers.removeAll()
+        isSessionReady = true
+        bufferLock.unlock()
 
-        audioEngine.prepare()
-        try audioEngine.start()
+        print("🎙️ BuddyDictationManager: provider ready (took \(bufferedDurationMs)ms), flushed \(bufferedCount) buffered audio chunks")
     }
 
     private func handleRecognitionError(_ error: Error) {
