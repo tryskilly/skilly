@@ -16,6 +16,32 @@ final class AppSettings: ObservableObject {
 
     static let shared = AppSettings()
 
+    // MARK: - Skilly — Configurable Endpoints
+
+    /// Base URL for the Cloudflare Worker proxy. All API calls route through this endpoint.
+    /// Change this to point to your own Worker instance. Defaults to the Skilly-hosted proxy.
+    @Published var workerBaseURL: String {
+        didSet { UserDefaults.standard.set(workerBaseURL, forKey: "workerBaseURL") }
+    }
+
+    /// PostHog analytics API key. Set to empty string to disable analytics entirely.
+    @Published var postHogAPIKey: String {
+        didSet { UserDefaults.standard.set(postHogAPIKey, forKey: "postHogAPIKey") }
+    }
+
+    /// Whether analytics tracking is enabled. When false, no events are sent to PostHog.
+    @Published var analyticsEnabled: Bool {
+        didSet { UserDefaults.standard.set(analyticsEnabled, forKey: "analyticsEnabled") }
+    }
+
+    // MARK: - Skilly — External asset URLs
+
+    /// URL for the HLS onboarding video stream. Forks should replace with their own asset.
+    /// Set to empty string to skip onboarding video entirely.
+    @Published var onboardingVideoURL: String {
+        didSet { UserDefaults.standard.set(onboardingVideoURL, forKey: "onboardingVideoURL") }
+    }
+
     // MARK: - Language
 
     /// Preferred language for speech recognition and AI responses.
@@ -91,6 +117,31 @@ final class AppSettings: ObservableObject {
     // MARK: - Init
 
     private init() {
+        // Skilly — Configurable endpoints
+        self.workerBaseURL = UserDefaults.standard.string(forKey: "workerBaseURL")
+            ?? "https://skilly-proxy.eng-mohamedszaied.workers.dev"
+
+        // PostHog key — migrate any stale cached keys to the current default.
+        let currentPostHogKey = "phc_D46KQXyPXhmRabFDiL3KUZTWJcmjyqhpGJfpH7H48Sso"
+        let cachedPostHogKey = UserDefaults.standard.string(forKey: "postHogAPIKey")
+        let staleKeys: Set<String> = [
+            "phc_qkw7erTLNNLwstjfYatewM9WheZ7MS9WkXgzF6HdzpPV",  // previous project
+            "phc_xcQPygmhTMzzYh8wNW92CCwoXmnzqyChAixh8zgpqC3C",  // upstream Clicky
+        ]
+        if let cachedKey = cachedPostHogKey, !staleKeys.contains(cachedKey) {
+            self.postHogAPIKey = cachedKey
+        } else {
+            self.postHogAPIKey = currentPostHogKey
+            UserDefaults.standard.set(currentPostHogKey, forKey: "postHogAPIKey")
+        }
+        self.analyticsEnabled = UserDefaults.standard.object(forKey: "analyticsEnabled") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "analyticsEnabled")
+
+        // Skilly — External assets
+        self.onboardingVideoURL = UserDefaults.standard.string(forKey: "onboardingVideoURL")
+            ?? "https://stream.mux.com/e5jB8UuSrtFABVnTHCR7k3sIsmcUHCyhtLu1tzqLlfs.m3u8"
+
         // Language
         let systemLanguage = Locale.current.language.languageCode?.identifier ?? "en"
         self.preferredLanguage = UserDefaults.standard.string(forKey: "preferredLanguage")
