@@ -74,7 +74,9 @@ enum SkillPromptComposer {
         sections.append(basePrompt)
 
         // Layer 2: Active skill header + teaching instructions.
-        let skillHeader = "--- ACTIVE SKILL: \(skill.metadata.name) ---\n\n\(skill.teachingInstructions)"
+        let escapedSkillName = escapePromptDelimiters(skill.metadata.name)
+        let escapedTeachingInstructions = escapePromptDelimiters(skill.teachingInstructions)
+        let skillHeader = "--- ACTIVE SKILL: \(escapedSkillName) ---\n\n\(escapedTeachingInstructions)"
         sections.append(skillHeader)
 
         // Layer 3: Curriculum context showing current stage, completed stages, and what's next.
@@ -111,19 +113,22 @@ enum SkillPromptComposer {
 
         var lines: [String] = []
         lines.append("--- LEARNING PROGRESS ---")
-        lines.append("Current stage: \(currentStage.name)")
+        lines.append("Current stage: \(escapePromptDelimiters(currentStage.name))")
 
         // List the goals for the current stage as bullet items.
         lines.append("Goals for this stage:")
         for stageGoal in currentStage.goals {
-            lines.append("- \(stageGoal)")
+            lines.append("- \(escapePromptDelimiters(stageGoal))")
         }
 
         // Show previously completed stages if any exist.
         if !progress.completedStageIds.isEmpty {
             // Map completed stage IDs to their human-readable names where possible.
             let completedStageNames: [String] = progress.completedStageIds.compactMap { completedStageId in
-                skill.curriculumStages.first(where: { $0.id == completedStageId })?.name
+                guard let completedStageName = skill.curriculumStages.first(where: { $0.id == completedStageId })?.name else {
+                    return nil
+                }
+                return escapePromptDelimiters(completedStageName)
             }
             if !completedStageNames.isEmpty {
                 lines.append("Completed stages: \(completedStageNames.joined(separator: ", "))")
@@ -132,7 +137,7 @@ enum SkillPromptComposer {
 
         // Show the name of the next stage when one exists.
         if let nextStageName = currentStage.nextStageName {
-            lines.append("Next up: \(nextStageName)")
+            lines.append("Next up: \(escapePromptDelimiters(nextStageName))")
         }
 
         return lines.joined(separator: "\n")
@@ -149,7 +154,9 @@ enum SkillPromptComposer {
         guard let currentStage = skill.curriculumStages.first(where: { $0.id == progress.currentStageId }) else {
             // No matching stage; include all entries without trimming.
             let allEntriesFormatted = skill.vocabularyEntries
-                .map { "\($0.name): \($0.description)" }
+                .map {
+                    "\(escapePromptDelimiters($0.name)): \(escapePromptDelimiters($0.description))"
+                }
                 .joined(separator: "\n")
             return "--- UI ELEMENT REFERENCE ---\n\(allEntriesFormatted)"
         }
@@ -165,7 +172,9 @@ enum SkillPromptComposer {
         }
 
         let formattedEntries = trimmedEntries
-            .map { "\($0.name): \($0.description)" }
+            .map {
+                "\(escapePromptDelimiters($0.name)): \(escapePromptDelimiters($0.description))"
+            }
             .joined(separator: "\n")
 
         return "--- UI ELEMENT REFERENCE ---\n\(formattedEntries)"
@@ -181,5 +190,11 @@ enum SkillPromptComposer {
         case .minimal:
             return "When helping with \(targetApp), only point at UI elements when the user explicitly asks where something is or is clearly lost. Default to verbal descriptions unless pointing adds significant clarity."
         }
+    }
+
+    // MARK: - Skilly
+
+    private static func escapePromptDelimiters(_ text: String) -> String {
+        text.replacingOccurrences(of: "---", with: "—")
     }
 }

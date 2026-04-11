@@ -60,6 +60,10 @@ struct SkillMetadata: Codable, Sendable {
     /// Human-readable name shown to the user, e.g. "Xcode Debugger".
     let name: String
 
+    /// Optional short summary pulled from frontmatter (for example `description:` in
+    /// standard cross-agent SKILL.md files).
+    let shortDescription: String?
+
     /// Semantic version of this skill definition, e.g. "1.0.0".
     let version: String
 
@@ -116,7 +120,7 @@ struct SkillMetadata: Codable, Sendable {
 
     // MARK: - Parsing
 
-    /// Supported format_version values. Any other value triggers an error.
+    /// Supported format_version values.
     private static let supportedFormatVersions: Set<String> = ["1.0"]
 
     /// Regex pattern that a valid skill ID must fully match.
@@ -187,9 +191,15 @@ struct SkillMetadata: Codable, Sendable {
                 continue
             }
 
-            // Detect a block-sequence item: two leading spaces then "- ".
-            if line.hasPrefix("  - ") {
-                let itemValue = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+            // Detect a block-sequence item with flexible indentation, e.g.:
+            // `  - item` or `- item`.
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            if trimmedLine.hasPrefix("- ") {
+                guard currentArrayKey != nil else {
+                    throw SkillParsingError.invalidYAMLStructure("Array item found without a parent key: '\(line)'")
+                }
+                let rawItemValue = String(trimmedLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                let itemValue = normalizeScalarValue(rawItemValue)
                 currentArrayItems.append(itemValue)
                 continue
             }
@@ -210,7 +220,7 @@ struct SkillMetadata: Codable, Sendable {
                 // This key introduces a block sequence on the following lines.
                 currentArrayKey = rawKey
             } else {
-                keyValueMap[rawKey] = rawValue
+                keyValueMap[rawKey] = normalizeScalarValue(rawValue)
             }
         }
 
@@ -220,36 +230,111 @@ struct SkillMetadata: Codable, Sendable {
         return keyValueMap
     }
 
-    /// Reads the parsed key-value map, validates all required fields, and constructs a `SkillMetadata`.
+    /// Normalizes scalar YAML values used in frontmatter parsing.
+    /// Supports common SKILL.md authoring style where values are quoted, e.g.
+    /// `format_version: "1.0"` or `name: 'Blender Fundamentals'`.
+    private static func normalizeScalarValue(_ rawValue: String) -> String {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedValue.count >= 2 else { return trimmedValue }
+
+        let firstCharacter = trimmedValue.first
+        let lastCharacter = trimmedValue.last
+
+        let isWrappedInDoubleQuotes = firstCharacter == "\"" && lastCharacter == "\""
+        let isWrappedInSingleQuotes = firstCharacter == "'" && lastCharacter == "'"
+
+        if isWrappedInDoubleQuotes || isWrappedInSingleQuotes {
+            return String(trimmedValue.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return trimmedValue
+    }
+
+    /// Reads parsed frontmatter fields, applies compatibility defaults for common external
+    /// SKILL.md formats, and constructs a `SkillMetadata`.
     private static func buildAndValidateMetadata(from keyValueMap: [String: String]) throws -> SkillMetadata {
 
-        // MARK: Required field extraction helper
-        func requireField(_ yamlKey: String) throws -> String {
-            guard let value = keyValueMap[yamlKey], !value.isEmpty else {
-                throw SkillParsingError.missingRequiredField(yamlKey)
+        // MARK: Field extraction helpers
+        func firstNonEmptyValue(for keys: [String]) -> String? {
+            for key in keys {
+                if let value = keyValueMap[key], !value.isEmpty {
+                    return value
+                }
             }
-            return value
+            return nil
         }
 
-        // MARK: Required fields
-        let parsedId = try requireField("id")
-        let parsedName = try requireField("name")
-        let parsedVersion = try requireField("version")
-        let parsedFormatVersion = try requireField("format_version")
-        let parsedMinRuntimeVersion = try requireField("min_runtime_version")
-        let parsedAuthor = try requireField("author")
-        let parsedLicense = try requireField("license")
-        let parsedTargetApp = try requireField("target_app")
-        let parsedBundleId = try requireField("bundle_id")
-        let parsedPlatform = try requireField("platform")
-        let parsedCategory = try requireField("category")
-
-        // MARK: Validate format_version
-        guard supportedFormatVersions.contains(parsedFormatVersion) else {
-            throw SkillParsingError.unsupportedFormatVersion(parsedFormatVersion)
+        func normalizedSkillId(from rawValue: String) -> String {
+            let lowered = rawValue.lowercased()
+            let replacedNonAlphanumeric = lowered.replacingOccurrences(
+                of: "[^a-z0-9]+",
+                with: "-",
+                options: .regularExpression
+            )
+            let collapsedHyphens = replacedNonAlphanumeric.replacingOccurrences(
+                of: "-+",
+                with: "-",
+                options: .regularExpression
+            )
+            return collapsedHyphens.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         }
 
-        // MARK: Validate skill ID format
+        func inferTargetAppAndBundleId(fromName parsedName: String, parsedId: String) -> (targetApp: String, bundleId: String)? {
+            let lowercasedName = parsedName.lowercased()
+            let lowercasedId = parsedId.lowercased()
+
+            let knownAppMappings: [(prefix: String, targetApp: String, bundleId: String)] = [
+                ("figma", "Figma", "com.figma.Desktop"),
+                ("blender", "Blender", "org.blenderfoundation.blender"),
+                ("xcode", "Xcode", "com.apple.dt.Xcode"),
+                ("vscode", "Visual Studio Code", "com.microsoft.VSCode")
+            ]
+
+            for knownAppMapping in knownAppMappings {
+                if lowercasedId.hasPrefix("\(knownAppMapping.prefix)-")
+                    || lowercasedId == knownAppMapping.prefix
+                    || lowercasedName.hasPrefix("\(knownAppMapping.prefix)-")
+                    || lowercasedName == knownAppMapping.prefix {
+                    return (knownAppMapping.targetApp, knownAppMapping.bundleId)
+                }
+            }
+
+            return nil
+        }
+
+        // MARK: Required fields (compatibility-aware)
+        guard let parsedName = firstNonEmptyValue(for: ["name", "title"]), !parsedName.isEmpty else {
+            throw SkillParsingError.missingRequiredField("name")
+        }
+
+        let rawIdFromFrontmatter = firstNonEmptyValue(for: ["id", "slug"])
+        let parsedId = normalizedSkillId(from: rawIdFromFrontmatter ?? parsedName)
+        guard !parsedId.isEmpty else {
+            throw SkillParsingError.invalidSkillId(rawIdFromFrontmatter ?? parsedName)
+        }
+
+        let parsedVersion = firstNonEmptyValue(for: ["version"]) ?? "1.0.0"
+        let parsedMinRuntimeVersion = firstNonEmptyValue(for: ["min_runtime_version"]) ?? "1.0.0"
+        let parsedAuthor = firstNonEmptyValue(for: ["author", "maintainer", "creator"]) ?? "Unknown"
+        let parsedLicense = firstNonEmptyValue(for: ["license"]) ?? "UNSPECIFIED"
+        let inferredAppMapping = inferTargetAppAndBundleId(fromName: parsedName, parsedId: parsedId)
+        let parsedTargetApp = firstNonEmptyValue(for: ["target_app", "target", "app"])
+            ?? inferredAppMapping?.targetApp
+            ?? "General"
+        let parsedPlatform = firstNonEmptyValue(for: ["platform"]) ?? "macOS"
+        let parsedCategory = firstNonEmptyValue(for: ["category"]) ?? "general"
+        let parsedShortDescription = firstNonEmptyValue(for: ["description", "summary"])
+
+        // MARK: format_version (compatibility-aware)
+        let rawFormatVersion = firstNonEmptyValue(for: ["format_version"])
+        let parsedFormatVersion: String
+        if let rawFormatVersion, supportedFormatVersions.contains(rawFormatVersion) {
+            parsedFormatVersion = rawFormatVersion
+        } else {
+            parsedFormatVersion = "1.0"
+        }
+
+        // MARK: Skill ID format guard (after normalization)
         let skillIdRegex = try NSRegularExpression(pattern: validSkillIdPattern)
         let skillIdRange = NSRange(parsedId.startIndex..., in: parsedId)
         let skillIdMatchCount = skillIdRegex.numberOfMatches(in: parsedId, range: skillIdRange)
@@ -260,7 +345,8 @@ struct SkillMetadata: Codable, Sendable {
         // MARK: Validate / default pointing_mode
         let parsedPointingMode: PointingMode
         if let rawPointingMode = keyValueMap["pointing_mode"], !rawPointingMode.isEmpty {
-            guard let resolvedPointingMode = PointingMode(rawValue: rawPointingMode) else {
+            let normalizedPointingMode = rawPointingMode.lowercased().replacingOccurrences(of: "_", with: "-")
+            guard let resolvedPointingMode = PointingMode(rawValue: normalizedPointingMode) else {
                 throw SkillParsingError.invalidPointingMode(rawPointingMode)
             }
             parsedPointingMode = resolvedPointingMode
@@ -270,15 +356,13 @@ struct SkillMetadata: Codable, Sendable {
 
         // MARK: Optional fields
         let parsedMinAppVersion = keyValueMap["min_app_version"].flatMap { $0.isEmpty ? nil : $0 }
-        let parsedRecommendedModel = keyValueMap["recommended_model"].flatMap { $0.isEmpty ? nil : $0 }
+        let parsedRecommendedModel = firstNonEmptyValue(for: ["recommended_model", "model"])
+            .flatMap { $0.isEmpty ? nil : $0 }
         let parsedDifficulty = keyValueMap["difficulty"].flatMap { $0.isEmpty ? nil : $0 }
 
         let parsedEstimatedHours: Int?
         if let rawEstimatedHours = keyValueMap["estimated_hours"], !rawEstimatedHours.isEmpty {
-            guard let hoursAsInt = Int(rawEstimatedHours) else {
-                throw SkillParsingError.invalidYAMLStructure("estimated_hours must be an integer, got '\(rawEstimatedHours)'")
-            }
-            parsedEstimatedHours = hoursAsInt
+            parsedEstimatedHours = Int(rawEstimatedHours)
         } else {
             parsedEstimatedHours = nil
         }
@@ -297,13 +381,16 @@ struct SkillMetadata: Codable, Sendable {
         return SkillMetadata(
             id: parsedId,
             name: parsedName,
+            shortDescription: parsedShortDescription,
             version: parsedVersion,
             formatVersion: parsedFormatVersion,
             minRuntimeVersion: parsedMinRuntimeVersion,
             author: parsedAuthor,
             license: parsedLicense,
             targetApp: parsedTargetApp,
-            bundleId: parsedBundleId,
+            bundleId: firstNonEmptyValue(for: ["bundle_id", "bundleid", "target_bundle_id"])
+                ?? inferredAppMapping?.bundleId
+                ?? "generic.\(parsedId)",
             minAppVersion: parsedMinAppVersion,
             platform: parsedPlatform,
             recommendedModel: parsedRecommendedModel,

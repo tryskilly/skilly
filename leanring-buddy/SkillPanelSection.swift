@@ -1,13 +1,15 @@
 // MARK: - Skilly
 
 import SwiftUI
+import Combine
+import UniformTypeIdentifiers
 
-/// Displays the current skill state and controls in the menu bar dropdown panel.
+/// Displays the skill management UI in the menu bar dropdown panel.
 ///
-/// Shows one of three states depending on SkillManager:
-///   1. No skill active — prompt to activate the first installed skill
-///   2. Skill active — progress bar, stage list, and pause/change controls
-///   3. Skill paused — resume/change controls without the progress bar
+/// Shows:
+///   1. A list of all installed skills with activation controls
+///   2. Progress details for the active skill (stage list, reset)
+///   3. Import controls for adding new skills
 struct SkillPanelSection: View {
 
     @ObservedObject var skillManager: SkillManager
@@ -18,21 +20,55 @@ struct SkillPanelSection: View {
     /// Guards the destructive "Reset Progress" action with a confirmation prompt.
     @State private var showResetConfirmation = false
 
+    /// Controls the visibility of the URL import text field.
+    @State private var showURLImportField = false
+
+    /// The URL text being entered for import.
+    @State private var importURLText = ""
+
+    /// Error message to display if import fails.
+    @State private var importError: String?
+
+    /// Pending delete target shown in the confirmation alert.
+    @State private var pendingSkillDeletion: PendingSkillDeletion?
+    /// URL-based skill import is intentionally hidden for now, but kept in code
+    /// so it can be re-enabled without rebuilding the import flow.
+    private let shouldShowURLImportUI = false
+
+    private struct PendingSkillDeletion: Identifiable {
+        let id: String
+        let skillName: String
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeading
 
-            Spacer().frame(height: 8)
+            Spacer().frame(height: DS.Spacing.sm)
 
-            if let activeSkill = skillManager.activeSkill {
-                if skillManager.isSkillPaused {
-                    pausedState(skill: activeSkill)
-                } else {
-                    activeState(skill: activeSkill)
-                }
+            if skillManager.installedSkills.isEmpty {
+                emptyState
             } else {
-                noSkillActiveState
+                installedSkillsList
+
+                if let activeSkill = skillManager.activeSkill, !skillManager.isSkillPaused {
+                    Spacer().frame(height: DS.Spacing.md)
+                    activeSkillProgressSection(skill: activeSkill)
+                }
             }
+
+            Spacer().frame(height: DS.Spacing.md)
+            importSection
+        }
+        .alert(item: $pendingSkillDeletion) { pendingSkillDeletion in
+            Alert(
+                title: Text("Remove Skill"),
+                message: Text("Remove \"\(pendingSkillDeletion.skillName)\" from installed skills?"),
+                primaryButton: .destructive(Text("Remove")) {
+                    removeSkill(skillId: pendingSkillDeletion.id)
+                },
+                secondaryButton: .cancel()
+            )
         }
     }
 
@@ -46,104 +82,170 @@ struct SkillPanelSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - State 1: No Skill Active
+    // MARK: - Empty State
 
-    private var noSkillActiveState: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("No skill active.")
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            Text("No skills installed yet.")
                 .font(.system(size: 13))
                 .foregroundColor(DS.Colors.textSecondary)
 
-            if let firstInstalledSkill = skillManager.installedSkills.first {
-                activateSkillButton(skill: firstInstalledSkill)
+            Text("Import a skill to get started.")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
+        }
+    }
+
+    // MARK: - Installed Skills List
+
+    private var installedSkillsList: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            ForEach(skillManager.installedSkills, id: \.metadata.id) { skill in
+                skillRow(skill: skill)
             }
         }
     }
 
-    /// A tappable pill button that activates the given skill.
-    private func activateSkillButton(skill: SkillDefinition) -> some View {
-        Button(action: {
-            skillManager.activateSkill(skill)
-        }) {
-            HStack(spacing: 4) {
-                Text(skill.metadata.name)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.accentText)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.accentText)
+    private func skillRow(skill: SkillDefinition) -> some View {
+        let isActive = skillManager.activeSkill?.metadata.id == skill.metadata.id
+        let isPaused = isActive && skillManager.isSkillPaused
+
+        return HStack(spacing: DS.Spacing.xs) {
+            Button(action: {
+                if isActive {
+                    skillManager.deactivateSkill()
+                } else {
+                    skillManager.activateSkill(skill, isManualSelection: true)
+                }
+            }) {
+                HStack(spacing: DS.Spacing.sm) {
+                    // Active indicator
+                    Circle()
+                        .fill(isActive ? (isPaused ? DS.Colors.textTertiary : DS.Colors.success) : Color.clear)
+                        .frame(width: 6, height: 6)
+                        .overlay(
+                            Circle()
+                                .stroke(isActive ? DS.Colors.borderSubtle : Color.clear, lineWidth: 0.5)
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: DS.Spacing.xs) {
+                            Text(skill.metadata.name)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(DS.Colors.textPrimary)
+
+                            if isActive && !skillManager.hasManuallySelectedSkill {
+                                autoBadge
+                            }
+                        }
+
+                        HStack(spacing: 4) {
+                            Text(skill.metadata.targetApp)
+                                .font(.system(size: 10))
+                                .foregroundColor(DS.Colors.textTertiary)
+
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundColor(DS.Colors.textTertiary)
+                                .help(autoLoadTooltipText(for: skill))
+                        }
+                    }
+
+                    Spacer()
+
+                    if isActive {
+                        stageProgressIndicator(skill: skill)
+                    }
+                }
+                .padding(.horizontal, DS.Spacing.sm)
+                .padding(.vertical, DS.Spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                        .fill(isActive ? DS.Colors.accentSubtle : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                        .stroke(isActive ? DS.Colors.accent.opacity(0.3) : Color.clear, lineWidth: 0.5)
+                )
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .buttonStyle(.plain)
+            .onHover { isInside in
+                if isInside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+
+            Button(action: {
+                pendingSkillDeletion = PendingSkillDeletion(id: skill.metadata.id, skillName: skill.metadata.name)
+            }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(DS.Colors.destructiveText)
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                            .fill(DS.Colors.surface2)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                            .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .onHover { isInside in
+                if isInside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+            .accessibilityLabel("Remove \(skill.metadata.name)")
+        }
+    }
+
+    private var autoBadge: some View {
+        Text("Auto")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(DS.Colors.accentText)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
             .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                    .fill(DS.Colors.accentSubtle)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(DS.Colors.accent.opacity(0.2))
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                    .stroke(DS.Colors.accent.opacity(0.3), lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isInside in
-            if isInside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
     }
 
-    // MARK: - State 2: Skill Active
+    private func stageProgressIndicator(skill: SkillDefinition) -> some View {
+        guard let progress = skillManager.activeSkillProgress else {
+            return AnyView(EmptyView())
+        }
 
-    private func activeState(skill: SkillDefinition) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            skillNameAndStatusRow(skillName: skill.metadata.name, isPaused: false)
+        let totalStages = max(skill.curriculumStages.count, 1)
+        let completedStages = progress.completedStageIds.count
+        let progressFraction = Double(completedStages) / Double(totalStages)
 
+        return AnyView(
+            Text("\(Int(progressFraction * 100))%")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(DS.Colors.textTertiary)
+        )
+    }
+
+    // MARK: - Active Skill Progress Section
+
+    private func activeSkillProgressSection(skill: SkillDefinition) -> some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             if let progress = skillManager.activeSkillProgress {
                 progressBar(skill: skill, progress: progress)
                 stageDetailToggle(skill: skill, progress: progress)
-            }
-
-            activeControlButtons
-
-            resetProgressButton
-        }
-    }
-
-    // MARK: - State 3: Skill Paused
-
-    private func pausedState(skill: SkillDefinition) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            skillNameAndStatusRow(skillName: skill.metadata.name, isPaused: true)
-            pausedControlButtons
-        }
-    }
-
-    // MARK: - Shared Subviews
-
-    /// Displays the skill name and an active/paused status indicator dot with label.
-    private func skillNameAndStatusRow(skillName: String, isPaused: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(skillName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textPrimary)
-
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(isPaused ? DS.Colors.textTertiary : DS.Colors.success)
-                    .frame(width: 6, height: 6)
-                Text(isPaused ? "Paused" : "Active")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isPaused ? DS.Colors.textTertiary : DS.Colors.success)
+                activeControlButtons
+                resetProgressButton
             }
         }
     }
 
-    /// A segmented progress bar showing stage completion percentage with a label.
+    // MARK: - Progress Bar
+
     private func progressBar(skill: SkillDefinition, progress: SkillProgress) -> some View {
         let totalStageCount = max(skill.curriculumStages.count, 1)
         let completedStageCount = progress.completedStageIds.count
         let completionFraction = Double(completedStageCount) / Double(totalStageCount)
         let completionPercentage = Int(completionFraction * 100)
 
-        // Find the human-readable name of the current stage by matching against the curriculum.
         let currentStageName = skill.curriculumStages.first(where: { $0.id == progress.currentStageId })?.name
             ?? progress.currentStageId
 
@@ -154,12 +256,10 @@ struct SkillPanelSection: View {
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    // Track (unfilled background)
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(DS.Colors.surface3)
                         .frame(height: 6)
 
-                    // Fill (completed portion)
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(DS.Colors.success)
                         .frame(width: max(geometry.size.width * completionFraction, completionFraction > 0 ? 6 : 0), height: 6)
@@ -173,7 +273,8 @@ struct SkillPanelSection: View {
         }
     }
 
-    /// A toggle button that shows/hides the detailed stage list.
+    // MARK: - Stage Detail Toggle
+
     private func stageDetailToggle(skill: SkillDefinition, progress: SkillProgress) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: {
@@ -201,8 +302,8 @@ struct SkillPanelSection: View {
         }
     }
 
-    /// The ordered list of curriculum stages with completion indicators.
-    /// Tapping a stage calls manuallySetCurrentStage on the skill manager.
+    // MARK: - Stage List
+
     private func stageList(skill: SkillDefinition, progress: SkillProgress) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(skill.curriculumStages, id: \.id) { stage in
@@ -212,11 +313,9 @@ struct SkillPanelSection: View {
         .padding(.leading, 4)
     }
 
-    /// A single row in the stage list.
     private func stageRow(stage: CurriculumStage, progress: SkillProgress) -> some View {
         let isCompleted = progress.completedStageIds.contains(stage.id)
         let isCurrent = progress.currentStageId == stage.id
-        let isFuture = !isCompleted && !isCurrent
 
         let statusSymbol: String = {
             if isCompleted { return "checkmark.circle.fill" }
@@ -263,35 +362,20 @@ struct SkillPanelSection: View {
         }
     }
 
-    // MARK: - Control Button Rows
+    // MARK: - Control Buttons
 
-    /// Pause + Change Skill buttons shown when the skill is active.
     private var activeControlButtons: some View {
         HStack(spacing: 8) {
             controlButton(label: "Pause", action: {
                 skillManager.pauseSkill()
             })
 
-            controlButton(label: "Change Skill", action: {
+            controlButton(label: "Deactivate", action: {
                 skillManager.deactivateSkill()
             })
         }
     }
 
-    /// Resume + Change Skill buttons shown when the skill is paused.
-    private var pausedControlButtons: some View {
-        HStack(spacing: 8) {
-            controlButton(label: "Resume", action: {
-                skillManager.resumeSkill()
-            })
-
-            controlButton(label: "Change Skill", action: {
-                skillManager.deactivateSkill()
-            })
-        }
-    }
-
-    /// A generic secondary-style button used for skill controls.
     private func controlButton(label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
@@ -316,8 +400,6 @@ struct SkillPanelSection: View {
 
     // MARK: - Reset Button
 
-    /// A small destructive text button that resets all progress for the active skill.
-    /// Tapping it once shows an inline confirmation; tapping again confirms the reset.
     private var resetProgressButton: some View {
         Group {
             if showResetConfirmation {
@@ -365,5 +447,197 @@ struct SkillPanelSection: View {
                 }
             }
         }
+    }
+
+    // MARK: - Import Section
+
+    private var importSection: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                Button(action: {
+                    openFilePicker()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Import from File...")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                            .fill(DS.Colors.surface2)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                            .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .onHover { isInside in
+                    if isInside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+
+                if shouldShowURLImportUI {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: DS.Animation.fast)) {
+                            showURLImportField.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "link")
+                                .font(.system(size: 11, weight: .medium))
+                            Text("Import from URL...")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                                .fill(DS.Colors.surface2)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isInside in
+                        if isInside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+
+                    if showURLImportField {
+                        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                            TextField("Paste skill URL...", text: $importURLText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundColor(DS.Colors.textPrimary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                                        .fill(DS.Colors.surface1)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                                        .stroke(DS.Colors.borderStrong, lineWidth: 0.5)
+                                )
+                                .overlay(IBeamCursorView())
+
+                            Button(action: {
+                                importFromURL()
+                            }) {
+                                Text("Import")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(DS.Colors.textOnAccent)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                                            .fill(DS.Colors.accent)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { isInside in
+                                if isInside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+
+                            if let error = importError {
+                                Text(error)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(DS.Colors.destructiveText)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Import Actions
+
+    private func openFilePicker() {
+        let fileManager = FileManager.default
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.allowedContentTypes = [.folder, .plainText, UTType(filenameExtension: "md") ?? .plainText]
+        panel.allowsOtherFileTypes = true
+        panel.prompt = "Import"
+        panel.message = "Select a skill folder (or a SKILL.md file inside it)."
+
+        if panel.runModal() == .OK, let selectedURL = panel.url {
+            let importDirectoryURL: URL
+            var isDirectory = ObjCBool(false)
+            if fileManager.fileExists(atPath: selectedURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                importDirectoryURL = selectedURL
+            } else if selectedURL.lastPathComponent.lowercased() == "skill.md" {
+                importDirectoryURL = selectedURL.deletingLastPathComponent()
+            } else {
+                importError = "Select a folder containing SKILL.md, or select SKILL.md directly."
+                return
+            }
+
+            do {
+                _ = try skillManager.importSkillFromDirectory(at: importDirectoryURL)
+                importError = nil
+            } catch {
+                importError = "Failed to import: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func importFromURL() {
+        guard !importURLText.isEmpty else { return }
+
+        do {
+            _ = try skillManager.importSkillFromURL(importURLText)
+            importURLText = ""
+            showURLImportField = false
+            importError = nil
+        } catch {
+            importError = "Failed to import: \(error.localizedDescription)"
+        }
+    }
+
+    private func removeSkill(skillId: String) {
+        do {
+            try skillManager.removeSkill(skillId: skillId)
+            importError = nil
+        } catch {
+            importError = "Failed to remove skill: \(error.localizedDescription)"
+        }
+    }
+
+    private func autoLoadTooltipText(for skill: SkillDefinition) -> String {
+        if !skillManager.autoDetectionEnabled {
+            return "Auto-load is currently disabled."
+        }
+
+        guard let frontmostAppBundleId = skillManager.frontmostAppBundleId, !frontmostAppBundleId.isEmpty else {
+            return "Skilly cannot read the current frontmost app yet."
+        }
+
+        let expectedBundleId = skill.metadata.bundleId
+        if expectedBundleId.hasPrefix("generic.") {
+            return "This skill does not declare a specific app bundle id, so it will not auto-load for a specific app."
+        }
+
+        if expectedBundleId.caseInsensitiveCompare(frontmostAppBundleId) == .orderedSame {
+            return "Auto-load is active: this skill matches the current app (\(frontmostAppBundleId))."
+        }
+
+        return "Auto-load expects \(expectedBundleId), but current app is \(frontmostAppBundleId)."
     }
 }

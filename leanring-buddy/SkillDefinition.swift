@@ -52,23 +52,46 @@ struct SkillDefinition: Sendable {
         let sectionsByHeading = splitByH2Headings(markdownBody)
 
         // Step 4: Extract the skill description from the preamble (content before first H2).
+        // For cross-agent skills that only provide `description:` in frontmatter, fall back to that.
         let rawPreamble = sectionsByHeading["_preamble"] ?? ""
-        let trimmedSkillDescription = rawPreamble.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSkillDescription = {
+            let preambleDescription = rawPreamble.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !preambleDescription.isEmpty {
+                return preambleDescription
+            }
+            return parsedMetadata.shortDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }()
 
-        // Step 5: Extract the Teaching Instructions section (required).
-        guard let teachingInstructionsContent = sectionsByHeading["Teaching Instructions"] else {
-            throw SkillParsingError.sectionNotFound("Teaching Instructions")
+        // Step 5: Extract teaching instructions.
+        // Compatibility mode: if no dedicated "## Teaching Instructions" section exists,
+        // treat the full markdown body as instructions so standard SKILL.md files import.
+        let trimmedTeachingInstructions: String
+        if let teachingInstructionsContent = sectionsByHeading["Teaching Instructions"] {
+            trimmedTeachingInstructions = teachingInstructionsContent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            let fallbackInstructions = stripTopLevelH1Titles(from: markdownBody)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !fallbackInstructions.isEmpty {
+                trimmedTeachingInstructions = fallbackInstructions
+            } else if let shortDescription = parsedMetadata.shortDescription,
+                      !shortDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                trimmedTeachingInstructions = shortDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                throw SkillParsingError.sectionNotFound("Teaching Instructions")
+            }
         }
-        let trimmedTeachingInstructions = teachingInstructionsContent
-            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Step 6: Parse curriculum stages from the "Curriculum" section (optional — defaults to empty).
         var parsedCurriculumStages: [CurriculumStage] = []
         if let curriculumSectionContent = sectionsByHeading["Curriculum"] {
             let stageBlocks = splitByH3Headings(curriculumSectionContent)
             for (stageIndex, stageBlock) in stageBlocks.enumerated() {
-                let parsedStage = try CurriculumStage.parse(from: stageBlock, stageIndex: stageIndex)
-                parsedCurriculumStages.append(parsedStage)
+                // Compatibility mode: ignore non-Skilly curriculum shapes instead of failing import.
+                if let parsedStage = try? CurriculumStage.parse(from: stageBlock, stageIndex: stageIndex) {
+                    parsedCurriculumStages.append(parsedStage)
+                }
             }
         }
 
@@ -77,8 +100,10 @@ struct SkillDefinition: Sendable {
         if let vocabularySectionContent = sectionsByHeading["UI Vocabulary"] {
             let entryBlocks = splitByH3Headings(vocabularySectionContent)
             for entryBlock in entryBlocks {
-                let parsedEntry = try VocabularyEntry.parse(from: entryBlock)
-                parsedVocabularyEntries.append(parsedEntry)
+                // Compatibility mode: ignore non-Skilly vocabulary shapes instead of failing import.
+                if let parsedEntry = try? VocabularyEntry.parse(from: entryBlock) {
+                    parsedVocabularyEntries.append(parsedEntry)
+                }
             }
         }
 
@@ -205,5 +230,16 @@ struct SkillDefinition: Sendable {
         }
 
         return resultBlocks
+    }
+
+    /// Removes top-level H1 title lines from markdown while preserving all other content.
+    /// This keeps fallback teaching instructions clean when external SKILL.md files begin with
+    /// a decorative `# Title` before their actual instructions.
+    private static func stripTopLevelH1Titles(from content: String) -> String {
+        let lines = content.components(separatedBy: "\n")
+        let filteredLines = lines.filter { line in
+            !(line.hasPrefix("# ") && !line.hasPrefix("## "))
+        }
+        return filteredLines.joined(separator: "\n")
     }
 }
