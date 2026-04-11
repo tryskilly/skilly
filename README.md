@@ -37,7 +37,7 @@ If you want to do it yourself, here's the deal.
 - Xcode 15+
 - Node.js 18+ (for the Cloudflare Worker)
 - A [Cloudflare](https://cloudflare.com) account (free tier works)
-- API keys for: [Anthropic](https://console.anthropic.com), [AssemblyAI](https://www.assemblyai.com), [ElevenLabs](https://elevenlabs.io)
+- API keys for: [OpenAI](https://platform.openai.com) and [WorkOS](https://workos.com)
 
 ### 1. Set up the Cloudflare Worker
 
@@ -51,16 +51,16 @@ npm install
 Now add your secrets. Wrangler will prompt you to paste each one:
 
 ```bash
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ASSEMBLYAI_API_KEY
-npx wrangler secret put ELEVENLABS_API_KEY
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put WORKOS_API_KEY
 ```
 
-For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
+For the WorkOS config, open `wrangler.toml` and set it there (these are not sensitive):
 
 ```toml
 [vars]
-ELEVENLABS_VOICE_ID = "your-voice-id-here"
+WORKOS_CLIENT_ID = "your-workos-client-id"
+WORKOS_REDIRECT_URI = "https://your-worker-name.your-subdomain.workers.dev/auth/callback"
 ```
 
 Deploy it:
@@ -83,25 +83,17 @@ npx wrangler dev
 This starts a local server (usually `http://localhost:8787`) that behaves exactly like the deployed Worker. You'll need to create a `.dev.vars` file in the `worker/` directory with your keys:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-ASSEMBLYAI_API_KEY=...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=...
+OPENAI_API_KEY=sk-...
+WORKOS_API_KEY=...
+WORKOS_CLIENT_ID=...
+WORKOS_REDIRECT_URI=https://your-worker-name.your-subdomain.workers.dev/auth/callback
 ```
 
-Then update the proxy URLs in the Swift code to point to `http://localhost:8787` instead of the deployed Worker URL while developing. Grep for `clicky-proxy` to find them all.
+Then update the worker base URL in app settings (or defaults) to point to `http://localhost:8787` instead of the deployed Worker URL while developing.
 
 ### 3. Update the proxy URLs in the app
 
-The app has the Worker URL hardcoded in a few places. Search for `your-worker-name.your-subdomain.workers.dev` and replace it with your Worker URL:
-
-```bash
-grep -r "clicky-proxy" leanring-buddy/
-```
-
-You'll find it in:
-- `CompanionManager.swift` — Claude chat + ElevenLabs TTS
-- `AssemblyAIStreamingTranscriptionProvider.swift` — AssemblyAI token endpoint
+The app reads the Worker URL from settings (`workerBaseURL`). Default points to the Skilly proxy. You can override it for your own deployment.
 
 ### 4. Open in Xcode and run
 
@@ -127,7 +119,7 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All three APIs are proxied through a Cloudflare Worker.
+**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio + screenshots to **OpenAI Realtime** over WebSocket (STT + vision + LLM + audio response). The response text is shown beside the floating cursor while speaking. The model can embed `[POINT:x,y:label:screenN]` tags; Skilly parses them and animates the cursor to the referenced UI element across monitors. Cloudflare Worker still proxies auth and external API routes.
 
 ## Project structure
 
@@ -135,13 +127,14 @@ If you want the full technical breakdown, read `CLAUDE.md`. But here's the short
 leanring-buddy/          # Swift source (yes, the typo stays)
   CompanionManager.swift    # Central state machine
   CompanionPanelView.swift  # Menu bar panel UI
-  ClaudeAPI.swift           # Claude streaming client
-  ElevenLabsTTSClient.swift # Text-to-speech playback
+  OpenAIRealtimeClient.swift # OpenAI Realtime websocket client
+  AuthManager.swift          # WorkOS auth flow + keychain session
+  SkillManager.swift         # Skill loading/activation/progress
   OverlayWindow.swift       # Blue cursor overlay
-  AssemblyAI*.swift         # Real-time transcription
-  BuddyDictation*.swift     # Push-to-talk pipeline
+  CompanionScreenCaptureUtility.swift # Multi-screen capture
+  GlobalPushToTalkShortcutMonitor.swift # Global hotkey capture
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Three routes: /chat, /tts, /transcribe-token
+  src/index.ts              # /openai/token, /auth/*, and legacy proxy routes
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
 

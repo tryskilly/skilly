@@ -1625,7 +1625,7 @@ Create `leanring-buddy/SkillProgress.swift`:
 //  MARK: - Skilly
 //  Per-skill learning progress model. Tracks current stage, completed stages,
 //  signal accumulation buffer, and manual override state. Persisted as JSON
-//  in ~/.skillsight/progress/{skill-id}.json.
+//  in ~/.skilly/progress/{skill-id}.json.
 //
 
 import Foundation
@@ -3029,13 +3029,13 @@ Create `leanring-buddy/SkillStore.swift`:
 //
 //  MARK: - Skilly
 //  Local disk persistence for installed skills, learning progress, and
-//  app configuration. All data stored under ~/.skillsight/ as JSON files.
+//  app configuration. All data stored under ~/.skilly/ as JSON files.
 //  See PRD Section 14 for directory layout.
 //
 
 import Foundation
 
-/// App-level configuration stored in ~/.skillsight/config.json.
+/// App-level configuration stored in ~/.skilly/config.json.
 struct SkillStoreConfig: Codable, Sendable {
     var version: Int
     var activeSkillId: String?
@@ -3051,10 +3051,10 @@ final class SkillStore: Sendable {
     private var progressDirectoryPath: String { "\(baseDirectoryPath)/progress" }
     private var configFilePath: String { "\(baseDirectoryPath)/config.json" }
 
-    /// Default base directory: ~/.skillsight/
+    /// Default base directory: ~/.skilly/
     static let defaultBaseDirectoryPath: String = {
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(homeDirectory)/.skillsight"
+        return "\(homeDirectory)/.skilly"
     }()
 
     init(baseDirectoryPath: String = SkillStore.defaultBaseDirectoryPath) {
@@ -3160,7 +3160,7 @@ final class SkillStore: Sendable {
 git add leanring-buddy/SkillStore.swift leanring-buddyTests/SkillStoreTests.swift
 git commit -m "feat(skillsight): add SkillStore for local disk persistence
 
-Manages ~/.skillsight/ directory: skill loading from SKILL.md files,
+Manages ~/.skilly/ directory: skill loading from SKILL.md files,
 progress JSON persistence, and app config. Uses temp directories in
 tests to avoid polluting real state."
 ```

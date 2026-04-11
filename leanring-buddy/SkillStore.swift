@@ -1,18 +1,61 @@
 // MARK: - Skilly
 // Local disk persistence for installed skills, learning progress, and
-// app configuration. All data stored under ~/.skillsight/ as JSON files.
+// app configuration. All data stored under ~/.skilly/ as JSON files.
 
 import Foundation
 
 // MARK: - SkillStoreConfig
 
-/// App-level configuration stored in ~/.skillsight/config.json.
+/// App-level configuration stored in ~/.skilly/config.json.
 struct SkillStoreConfig: Codable, Sendable {
     var version: Int
     var activeSkillId: String?
     var analyticsOptOut: Bool
+    // MARK: - Skilly
+    var autoDetectionEnabled: Bool
+    var hasManuallySelectedSkill: Bool
 
-    static let `default` = SkillStoreConfig(version: 1, activeSkillId: nil, analyticsOptOut: false)
+    // MARK: - Skilly
+    static let `default` = SkillStoreConfig(
+        version: 1,
+        activeSkillId: nil,
+        analyticsOptOut: false,
+        autoDetectionEnabled: true,
+        hasManuallySelectedSkill: false
+    )
+
+    init(
+        version: Int,
+        activeSkillId: String?,
+        analyticsOptOut: Bool,
+        autoDetectionEnabled: Bool,
+        hasManuallySelectedSkill: Bool
+    ) {
+        self.version = version
+        self.activeSkillId = activeSkillId
+        self.analyticsOptOut = analyticsOptOut
+        self.autoDetectionEnabled = autoDetectionEnabled
+        self.hasManuallySelectedSkill = hasManuallySelectedSkill
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case activeSkillId
+        case analyticsOptOut
+        case autoDetectionEnabled
+        case hasManuallySelectedSkill
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        self.activeSkillId = try container.decodeIfPresent(String.self, forKey: .activeSkillId)
+        self.analyticsOptOut = try container.decodeIfPresent(Bool.self, forKey: .analyticsOptOut) ?? false
+        self.autoDetectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoDetectionEnabled) ?? true
+        self.hasManuallySelectedSkill = try container.decodeIfPresent(Bool.self, forKey: .hasManuallySelectedSkill) ?? false
+    }
 }
 
 // MARK: - SkillStore
@@ -20,7 +63,7 @@ struct SkillStoreConfig: Codable, Sendable {
 /// Manages reading and writing all Skilly data to the local file system.
 ///
 /// Directory layout:
-///   ~/.skillsight/
+///   ~/.skilly/
 ///     skills/           — one subdirectory per installed skill, each containing SKILL.md
 ///     progress/         — one JSON file per skill: {skillId}.json
 ///     config.json       — app-level configuration
@@ -36,10 +79,10 @@ final class SkillStore: Sendable {
     /// Path to the app-level config JSON file.
     private var configFilePath: String { "\(baseDirectoryPath)/config.json" }
 
-    /// Default base directory for all Skilly data: ~/.skillsight/
+    /// Default base directory for all Skilly data: ~/.skilly/
     static let defaultBaseDirectoryPath: String = {
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(homeDirectory)/.skillsight"
+        return "\(homeDirectory)/.skilly"
     }()
 
     init(baseDirectoryPath: String = SkillStore.defaultBaseDirectoryPath) {
@@ -89,12 +132,18 @@ final class SkillStore: Sendable {
             let skillFilePath = subdirectoryURL.appendingPathComponent("SKILL.md").path
             guard fileManager.fileExists(atPath: skillFilePath) else { continue }
 
-            let markdownContent = try String(contentsOfFile: skillFilePath, encoding: .utf8)
-            let parsedSkill = try SkillDefinition.parse(
-                from: markdownContent,
-                sourceDirectoryPath: subdirectoryURL.path
-            )
-            installedSkills.append(parsedSkill)
+            do {
+                let markdownContent = try String(contentsOfFile: skillFilePath, encoding: .utf8)
+                let parsedSkill = try SkillDefinition.parse(
+                    from: markdownContent,
+                    sourceDirectoryPath: subdirectoryURL.path
+                )
+                installedSkills.append(parsedSkill)
+            } catch {
+                #if DEBUG
+                print("[SkillStore] Skipping invalid skill at '\(skillFilePath)': \(error)")
+                #endif
+            }
         }
 
         return installedSkills
@@ -132,6 +181,17 @@ final class SkillStore: Sendable {
         }
     }
 
+    // MARK: - Skill Deletion
+
+    /// Deletes an installed skill directory at ~/.skilly/skills/{skillId}.
+    /// No-ops if the directory is already missing.
+    func deleteInstalledSkill(skillId: String) throws {
+        let installedSkillDirectoryPath = "\(skillsDirectoryPath)/\(skillId)"
+        if FileManager.default.fileExists(atPath: installedSkillDirectoryPath) {
+            try FileManager.default.removeItem(atPath: installedSkillDirectoryPath)
+        }
+    }
+
     // MARK: - Config Persistence
 
     /// Encodes the given SkillStoreConfig to JSON and writes it to config.json.
@@ -151,5 +211,45 @@ final class SkillStore: Sendable {
         }
         let encodedData = try Data(contentsOf: URL(fileURLWithPath: configFilePath))
         return try JSONDecoder().decode(SkillStoreConfig.self, from: encodedData)
+    }
+
+    // MARK: - Skilly — Bundled Skill Seeding
+
+    /// Copies any bundled example skills from the app bundle's "Skills" resource folder
+    /// into ~/.skilly/skills/ if they are not already installed.
+    /// This is called on first launch to provide out-of-the-box skill content.
+    /// Existing skills are never overwritten — this only copies skills that don't exist yet.
+    func seedBundledSkills() {
+        let fileManager = FileManager.default
+        let skillsDir = URL(fileURLWithPath: skillsDirectoryPath)
+
+        guard let bundledSkillsURL = Bundle.main.resourceURL?.appendingPathComponent("Skills") else { return }
+
+        guard let bundledSkillDirs = try? fileManager.contentsOfDirectory(
+            at: bundledSkillsURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for bundledSkillDir in bundledSkillDirs {
+            let isDirectory = (try? bundledSkillDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            guard isDirectory else { continue }
+
+            let skillFileURL = bundledSkillDir.appendingPathComponent("SKILL.md")
+            guard fileManager.fileExists(atPath: skillFileURL.path) else { continue }
+
+            let destinationDir = skillsDir.appendingPathComponent(bundledSkillDir.lastPathComponent)
+
+            if fileManager.fileExists(atPath: destinationDir.path) { continue }
+            do {
+                // Copy the entire bundled skill directory in one step.
+                // Pre-creating destinationDir makes copyItem fail because the destination must not exist.
+                try fileManager.copyItem(at: bundledSkillDir, to: destinationDir)
+            } catch {
+                #if DEBUG
+                print("[SkillStore] Failed to seed bundled skill '\(bundledSkillDir.lastPathComponent)': \(error)")
+                #endif
+            }
+        }
     }
 }

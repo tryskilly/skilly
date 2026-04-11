@@ -11,7 +11,7 @@ struct SkillStoreTests {
     /// The caller is responsible for calling cleanup(_:) when the test ends.
     private func makeTempBaseDirectory() throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("skillsight-test-\(UUID().uuidString)")
+            .appendingPathComponent("skilly-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         return tempDir
     }
@@ -105,7 +105,13 @@ struct SkillStoreTests {
         let store = SkillStore(baseDirectoryPath: baseDir.path)
         store.ensureDirectoriesExist()
 
-        let configToSave = SkillStoreConfig(version: 1, activeSkillId: "blender-fundamentals", analyticsOptOut: false)
+        let configToSave = SkillStoreConfig(
+            version: 1,
+            activeSkillId: "blender-fundamentals",
+            analyticsOptOut: false,
+            autoDetectionEnabled: true,
+            hasManuallySelectedSkill: false
+        )
         try store.saveConfig(configToSave)
 
         let loadedConfig = try store.loadConfig()
@@ -132,5 +138,49 @@ struct SkillStoreTests {
 
         let loadedProgress = try store.loadProgress(skillId: "test-skill")
         #expect(loadedProgress == nil)
+    }
+
+    // MARK: - Test 7
+
+    @Test func loadsLegacyConfigWithDefaultValuesForNewFields() throws {
+        let baseDir = try makeTempBaseDirectory()
+        defer { cleanup(baseDir) }
+
+        let store = SkillStore(baseDirectoryPath: baseDir.path)
+        store.ensureDirectoriesExist()
+
+        let legacyConfigJSON = """
+        {
+          "version": 1,
+          "activeSkillId": "legacy-skill",
+          "analyticsOptOut": true
+        }
+        """
+
+        let legacyConfigPath = baseDir.appendingPathComponent("config.json")
+        try legacyConfigJSON.write(to: legacyConfigPath, atomically: true, encoding: .utf8)
+
+        let loadedConfig = try store.loadConfig()
+        #expect(loadedConfig.activeSkillId == "legacy-skill")
+        #expect(loadedConfig.analyticsOptOut)
+        #expect(loadedConfig.autoDetectionEnabled)
+        #expect(!loadedConfig.hasManuallySelectedSkill)
+    }
+
+    // MARK: - Test 8
+
+    @Test func deletesInstalledSkillDirectory() throws {
+        let baseDir = try makeTempBaseDirectory()
+        defer { cleanup(baseDir) }
+
+        let store = SkillStore(baseDirectoryPath: baseDir.path)
+        store.ensureDirectoriesExist()
+
+        let skillDirectoryURL = baseDir.appendingPathComponent("skills/temp-skill")
+        try FileManager.default.createDirectory(at: skillDirectoryURL, withIntermediateDirectories: true)
+        #expect(FileManager.default.fileExists(atPath: skillDirectoryURL.path))
+
+        try store.deleteInstalledSkill(skillId: "temp-skill")
+        #expect(!FileManager.default.fileExists(atPath: skillDirectoryURL.path))
     }
 }
