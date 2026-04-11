@@ -15,7 +15,7 @@ import AppKit
 import SwiftUI
 
 extension Notification.Name {
-    static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
+    static let skillyDismissPanel = Notification.Name("skillyDismissPanel")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -46,7 +46,7 @@ final class MenuBarPanelManager: NSObject {
         createStatusItem()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
-            forName: .clickyDismissPanel,
+            forName: .skillyDismissPanel,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -70,7 +70,7 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = makeClickyMenuBarIcon()
+        button.image = makeSkillyMenuBarIcon()
         button.image?.isTemplate = true
         button.action = #selector(statusItemClicked)
         button.target = self
@@ -79,7 +79,7 @@ final class MenuBarPanelManager: NSObject {
     /// Draws the Skilly cursor arrow as a menu bar icon.
     /// Matches the amber cursor logo shape — a stylized pointer arrow.
     /// Rendered as a template image so macOS handles light/dark automatically.
-    private func makeClickyMenuBarIcon() -> NSImage {
+    private func makeSkillyMenuBarIcon() -> NSImage {
         let iconSize: CGFloat = 18
         let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
         image.lockFocus()

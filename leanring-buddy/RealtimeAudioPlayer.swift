@@ -8,12 +8,24 @@
 //
 
 import AVFoundation
+import Foundation
 
 final class RealtimeAudioPlayer {
     private let audioEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private let outputFormat: AVAudioFormat
     private var isStarted = false
+    private let queuedBufferCountLock = NSLock()
+    private var queuedBufferCount: Int = 0
+
+    /// Called on the main thread when the scheduled audio queue drains fully.
+    var onQueueDrained: (() -> Void)?
+
+    var hasPendingAudio: Bool {
+        queuedBufferCountLock.lock()
+        defer { queuedBufferCountLock.unlock() }
+        return queuedBufferCount > 0
+    }
 
     init() {
         // OpenAI Realtime outputs PCM16 mono at 24kHz
@@ -36,7 +48,10 @@ final class RealtimeAudioPlayer {
                 playerNode.play()
                 isStarted = true
             } catch {
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("⚠️ RealtimeAudioPlayer: failed to start audio engine: \(error)")
+                #endif
                 return
             }
         }
@@ -57,15 +72,43 @@ final class RealtimeAudioPlayer {
             }
         }
 
-        playerNode.scheduleBuffer(buffer, completionHandler: nil)
+        incrementQueuedBufferCount()
+        playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            self?.decrementQueuedBufferCountAndNotifyIfNeeded()
+        }
     }
 
     /// Stop playback and reset.
     func stop() {
+        queuedBufferCountLock.lock()
+        queuedBufferCount = 0
+        queuedBufferCountLock.unlock()
+
         playerNode.stop()
         if isStarted {
             audioEngine.stop()
             isStarted = false
+        }
+    }
+
+    private func incrementQueuedBufferCount() {
+        queuedBufferCountLock.lock()
+        queuedBufferCount += 1
+        queuedBufferCountLock.unlock()
+    }
+
+    private func decrementQueuedBufferCountAndNotifyIfNeeded() {
+        var shouldNotifyQueueDrained = false
+        queuedBufferCountLock.lock()
+        if queuedBufferCount > 0 {
+            queuedBufferCount -= 1
+            shouldNotifyQueueDrained = queuedBufferCount == 0
+        }
+        queuedBufferCountLock.unlock()
+
+        guard shouldNotifyQueueDrained else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onQueueDrained?()
         }
     }
 }

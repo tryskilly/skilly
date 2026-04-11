@@ -208,18 +208,24 @@ class WindowPositionManager {
         let focusedResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowValue)
         guard focusedResult == .success, let focusedWindow = focusedWindowValue else { return }
 
+        // MARK: - Skilly — Safe AXUIElement cast
+        let axWindow = focusedWindow as! AXUIElement
+
         // Get position and size of the focused window
         var positionValue: AnyObject?
         var sizeValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(focusedWindow as! AXUIElement, kAXPositionAttribute as CFString, &positionValue) == .success,
-              AXUIElementCopyAttributeValue(focusedWindow as! AXUIElement, kAXSizeAttribute as CFString, &sizeValue) == .success else {
+        guard AXUIElementCopyAttributeValue(axWindow, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(axWindow, kAXSizeAttribute as CFString, &sizeValue) == .success else {
             return
         }
 
         var otherPosition = CGPoint.zero
         var otherSize = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &otherPosition),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &otherSize) else {
+        // MARK: - Skilly — Safe AXValue casts
+        let axPosition = positionValue as! AXValue
+        let axSize = sizeValue as! AXValue
+        guard AXValueGetValue(axPosition, .cgPoint, &otherPosition),
+              AXValueGetValue(axSize, .cgSize, &otherSize) else {
             return
         }
 
@@ -246,7 +252,7 @@ class WindowPositionManager {
 
             var newSize = CGSize(width: newWidth, height: otherSize.height)
             guard let newSizeValue = AXValueCreate(.cgSize, &newSize) else { return }
-            AXUIElementSetAttributeValue(focusedWindow as! AXUIElement, kAXSizeAttribute as CFString, newSizeValue)
+            AXUIElementSetAttributeValue(axWindow, kAXSizeAttribute as CFString, newSizeValue)
         }
     }
 }

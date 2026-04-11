@@ -96,6 +96,13 @@ struct NavigationBubbleSizePreferenceKey: PreferenceKey {
     }
 }
 
+struct RealtimeResponseBubbleSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
 enum BuddyNavigationMode {
@@ -154,6 +161,7 @@ struct BlueCursorView: View {
     @State private var navigationBubbleText: String = ""
     @State private var navigationBubbleOpacity: Double = 0.0
     @State private var navigationBubbleSize: CGSize = .zero
+    @State private var realtimeResponseBubbleSize: CGSize = .zero
 
     /// The cursor position at the moment navigation started, used to detect
     /// if the user moves the cursor enough to cancel the navigation.
@@ -223,6 +231,10 @@ struct BlueCursorView: View {
                     .onPreferenceChange(SizePreferenceKey.self) { newSize in
                         bubbleSize = newSize
                     }
+                    // MARK: - Skilly — Accessibility
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Skilly welcome message")
+                    .accessibilityValue(welcomeText)
             }
 
             // Onboarding video — always in the view tree so opacity animation works
@@ -240,6 +252,9 @@ struct BlueCursorView: View {
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeInOut(duration: 2.0), value: companionManager.onboardingVideoOpacity)
                 .allowsHitTesting(false)
+                // MARK: - Skilly — Accessibility
+                .accessibilityLabel("Onboarding video")
+                .accessibilityHidden(true)
 
             // Onboarding prompt — "press control + option and say hi" streamed after video ends
             if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
@@ -267,6 +282,53 @@ struct BlueCursorView: View {
                     .onPreferenceChange(SizePreferenceKey.self) { newSize in
                         bubbleSize = newSize
                     }
+                    // MARK: - Skilly — Accessibility
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Skilly onboarding prompt")
+                    .accessibilityValue(companionManager.onboardingPromptText)
+            }
+
+            // Realtime response transcript bubble — rendered in the same overlay as the
+            // cursor so it always remains physically attached and follows movement.
+            if buddyIsVisibleOnThisScreen,
+               companionManager.isShowingRealtimeResponseBubble,
+               !companionManager.realtimeResponseBubbleText.isEmpty {
+                Text(companionManager.realtimeResponseBubbleText)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.white)
+                    .lineSpacing(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 280, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(DS.Colors.surface1.opacity(0.95))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle.opacity(0.6), lineWidth: 0.7)
+                            )
+                    )
+                    .shadow(color: Color.black.opacity(0.35), radius: 8, x: 0, y: 4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .overlay(
+                        GeometryReader { geo in
+                            Color.clear
+                                .preference(key: RealtimeResponseBubbleSizePreferenceKey.self, value: geo.size)
+                        }
+                    )
+                    .position(
+                        x: cursorPosition.x + 10 + (realtimeResponseBubbleSize.width / 2),
+                        y: cursorPosition.y + 18 + (realtimeResponseBubbleSize.height / 2)
+                    )
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
+                    .animation(.easeInOut(duration: 0.15), value: companionManager.realtimeResponseBubbleText)
+                    .onPreferenceChange(RealtimeResponseBubbleSizePreferenceKey.self) { newSize in
+                        realtimeResponseBubbleSize = newSize
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Skilly response transcript")
+                    .accessibilityValue(companionManager.realtimeResponseBubbleText)
             }
 
             // Navigation pointer bubble — shown when buddy arrives at a detected element.
@@ -303,6 +365,10 @@ struct BlueCursorView: View {
                     .onPreferenceChange(NavigationBubbleSizePreferenceKey.self) { newSize in
                         navigationBubbleSize = newSize
                     }
+                    // MARK: - Skilly — Accessibility
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Skilly pointing indicator")
+                    .accessibilityValue(navigationBubbleText)
             }
 
             // Blue triangle cursor — shown when idle or while TTS is playing (responding).
@@ -334,6 +400,9 @@ struct BlueCursorView: View {
                     buddyNavigationMode == .navigatingToTarget ? nil : .easeInOut(duration: 0.3),
                     value: triangleRotationDegrees
                 )
+                // MARK: - Skilly — Accessibility
+                .accessibilityLabel("Skilly companion cursor")
+                .accessibilityHint("Shows where Skilly is pointing on screen")
 
             // Blue waveform — replaces the triangle while listening
             BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)
@@ -341,6 +410,9 @@ struct BlueCursorView: View {
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+                // MARK: - Skilly — Accessibility
+                .accessibilityLabel("Audio playback waveform")
+                .accessibilityHidden(true)
 
             // Blue spinner — shown while the AI is processing (transcription + Claude + waiting for TTS)
             BlueCursorSpinnerView()
@@ -348,6 +420,8 @@ struct BlueCursorView: View {
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+                // MARK: - Skilly — Accessibility
+                .accessibilityLabel("Skilly is thinking")
 
         }
         .frame(width: screenFrame.width, height: screenFrame.height)

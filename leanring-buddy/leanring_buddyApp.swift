@@ -34,20 +34,24 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
     // MARK: - Skilly
-    private let skillManager = SkillManager()
+    private let skillManager = SkillManager.createDefault()
     let authManager = AuthManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🎯 Skilly: Starting...")
         print("🎯 Skilly: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+        #endif
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
-        ClickyAnalytics.configure()
-        ClickyAnalytics.trackAppOpened()
+        SkillyAnalytics.configure()
+        SkillyAnalytics.trackAppOpened()
 
         // Inject skill manager into companion and panel
         companionManager.setSkillManager(skillManager)
+        skillManager.seedBundledSkillsIfNeeded()
         skillManager.loadInstalledSkills()
 
         // Register for skilly:// deep links (WorkOS auth callback)
@@ -85,9 +89,15 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if loginItemService.status != .enabled {
             do {
                 try loginItemService.register()
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("🎯 Skilly: Registered as login item")
+                #endif
             } catch {
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("⚠️ Skilly: Failed to register as login item: \(error)")
+                #endif
             }
         }
     }
@@ -106,11 +116,17 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // Extract the authorization code from the callback URL
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         guard let code = components?.queryItems?.first(where: { $0.name == "code" })?.value else {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("⚠️ Skilly Auth: No code in callback URL")
+            #endif
             return
         }
 
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🎯 Skilly Auth: Received auth callback with code")
+        #endif
         authManager.handleAuthCallback(code: code)
     }
 
@@ -125,7 +141,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         do {
             try updaterController.updater.start()
         } catch {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("⚠️ Skilly: Sparkle updater failed to start: \(error)")
+            #endif
         }
     }
 }

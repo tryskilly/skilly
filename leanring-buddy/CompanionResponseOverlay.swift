@@ -42,9 +42,19 @@ final class CompanionResponseOverlayManager {
         overlayViewModel.streamingResponseText = ""
         overlayViewModel.isShowingResponse = true
         createOverlayPanelIfNeeded()
+
+        // Position near cursor BEFORE showing to prevent flashing at (0,0).
+        repositionPanelNearCursor()
+
         startCursorTracking()
-        overlayPanel?.alphaValue = 1
+
+        // Start invisible and fade in smoothly so we never show a jarring flash.
+        overlayPanel?.alphaValue = 0
         overlayPanel?.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            self.overlayPanel?.animator().alphaValue = 1
+        }
     }
 
     func updateStreamingText(_ accumulatedText: String) {
@@ -84,7 +94,7 @@ final class CompanionResponseOverlayManager {
             defer: false
         )
 
-        responseOverlayPanel.level = .statusBar
+        responseOverlayPanel.level = .screenSaver
         responseOverlayPanel.isOpaque = false
         responseOverlayPanel.backgroundColor = .clear
         responseOverlayPanel.hasShadow = false
@@ -155,6 +165,7 @@ final class CompanionResponseOverlayManager {
     private func resizePanelToFitContent() {
         guard let overlayPanel, let contentView = overlayPanel.contentView else { return }
 
+        contentView.layoutSubtreeIfNeeded()
         let fittingSize = contentView.fittingSize
         let newWidth = min(fittingSize.width, overlayMaxWidth)
         let newHeight = fittingSize.height
@@ -212,6 +223,10 @@ private struct CompanionResponseOverlayView: View {
                         )
                         .shadow(color: Color.black.opacity(0.35), radius: 16, x: 0, y: 8)
                 )
+                // MARK: - Skilly — Accessibility
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Skilly response")
+                .accessibilityValue(viewModel.streamingResponseText.isEmpty ? "Thinking" : viewModel.streamingResponseText)
         }
     }
 }

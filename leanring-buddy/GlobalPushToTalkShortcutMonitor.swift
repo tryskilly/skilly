@@ -65,7 +65,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             callback: eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("⚠️ Global push-to-talk: couldn't create CGEvent tap")
+            #endif
             return
         }
 
@@ -75,7 +78,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             0
         ) else {
             CFMachPortInvalidate(globalEventTap)
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("⚠️ Global push-to-talk: couldn't create event tap run loop source")
+            #endif
             return
         }
 
@@ -116,7 +122,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         // MARK: - Skilly — Detect cancel key press (configurable, default: Escape)
         let cancelKeyCode = AppSettings.shared.cancelKeyCode
         if eventKeyCode == cancelKeyCode && (eventType == .keyDown || eventType.rawValue == 10) {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🛑 Cancel key detected (keyCode=\(eventKeyCode), eventType=\(eventType.rawValue))")
+            #endif
             escapeKeyPressedPublisher.send()
         }
 

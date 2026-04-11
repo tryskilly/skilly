@@ -59,12 +59,12 @@ struct CompanionPanelView: View {
                     .padding(.horizontal, 16)
             }
 
-            // Show Clicky toggle — hidden for now
+            // Show Skilly toggle — hidden for now
             // if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
             //     Spacer()
             //         .frame(height: 16)
             //
-            //     showClickyCursorToggleRow
+            //     showSkillyCursorToggleRow
             //         .padding(.horizontal, 16)
             // }
 
@@ -138,11 +138,17 @@ struct CompanionPanelView: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .popover(isPresented: $showSettings) {
-                SettingsView(settings: AppSettings.shared)
+                SettingsView(
+                    settings: AppSettings.shared,
+                    skillManager: skillManager
+                )
             }
+            // MARK: - Skilly — Accessibility
+            .accessibilityLabel("Settings")
+            .accessibilityHint("Opens app settings")
 
             Button(action: {
-                NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+                NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
             }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
@@ -155,6 +161,9 @@ struct CompanionPanelView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
+            // MARK: - Skilly — Accessibility
+            .accessibilityLabel("Close panel")
+            .accessibilityHint("Dismisses the Skilly panel")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -203,7 +212,7 @@ struct CompanionPanelView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
-                Text("An AI teaching companion that sees your screen, speaks to you, and points at what you need. Built on Clicky by Farza.")
+                Text("An AI teaching companion that sees your screen, speaks to you, and points at UI elements.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -252,6 +261,9 @@ struct CompanionPanelView: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .disabled(authManager?.isAuthenticating == true)
+            // MARK: - Skilly — Accessibility
+            .accessibilityLabel(authManager?.isAuthenticating == true ? "Signing in" : "Sign in")
+            .accessibilityHint("Opens browser to sign in with WorkOS")
         }
     }
 
@@ -273,6 +285,9 @@ struct CompanionPanelView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        // MARK: - Skilly — Accessibility
+        .accessibilityLabel("Start onboarding")
+        .accessibilityHint("Begins the Skilly introduction")
     }
 
     // MARK: - Permissions
@@ -581,9 +596,9 @@ struct CompanionPanelView: View {
 
 
 
-    // MARK: - Show Clicky Cursor Toggle
+    // MARK: - Skilly — Show Cursor Toggle
 
-    private var showClickyCursorToggleRow: some View {
+    private var showSkillyCursorToggleRow: some View {
         HStack {
             HStack(spacing: 8) {
                 Image(systemName: "cursorarrow")
@@ -599,8 +614,8 @@ struct CompanionPanelView: View {
             Spacer()
 
             Toggle("", isOn: Binding(
-                get: { companionManager.isClickyCursorEnabled },
-                set: { companionManager.setClickyCursorEnabled($0) }
+                get: { companionManager.isSkillyCursorEnabled },
+                set: { companionManager.setSkillyCursorEnabled($0) }
             ))
             .toggleStyle(.switch)
             .labelsHidden()
@@ -608,73 +623,11 @@ struct CompanionPanelView: View {
             .scaleEffect(0.8)
         }
         .padding(.vertical, 4)
-    }
-
-    private var speechToTextProviderRow: some View {
-        HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "mic.badge.waveform")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 16)
-
-                Text("Speech to Text")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            Text(companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Model Picker
-
-    private var modelPickerRow: some View {
-        HStack {
-            Text("Model")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
-
-            Spacer()
-
-            HStack(spacing: 0) {
-                modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
-                modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func modelOptionButton(label: String, modelID: String) -> some View {
-        let isSelected = companionManager.selectedModel == modelID
-        return Button(action: {
-            companionManager.setSelectedModel(modelID)
-        }) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
+        // MARK: - Skilly — Accessibility
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Show Skilly cursor")
+        .accessibilityHint("Toggle to show or hide the Skilly companion cursor")
+        .accessibilityValue(companionManager.isSkillyCursorEnabled ? "On" : "Off")
     }
 
     // MARK: - Feedback Button
@@ -712,6 +665,9 @@ struct CompanionPanelView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        // MARK: - Skilly — Accessibility
+        .accessibilityLabel("Feedback")
+        .accessibilityHint("Opens tryskilly.app in your browser")
     }
 
     // MARK: - Footer
@@ -731,6 +687,9 @@ struct CompanionPanelView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
+            // MARK: - Skilly — Accessibility
+            .accessibilityLabel("Quit Skilly")
+            .accessibilityHint("Exits the application")
 
             if companionManager.hasCompletedOnboarding {
                 Spacer()
@@ -748,6 +707,9 @@ struct CompanionPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
+                // MARK: - Skilly — Accessibility
+                .accessibilityLabel("Replay intro")
+                .accessibilityHint("Replays the Skilly introduction")
             }
 
             if authManager?.isSignedIn == true {
@@ -766,6 +728,9 @@ struct CompanionPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
+                // MARK: - Skilly — Accessibility
+                .accessibilityLabel("Sign out")
+                .accessibilityHint("Signs out of your Skilly account")
             }
         }
     }
