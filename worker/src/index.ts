@@ -61,11 +61,11 @@ export default {
       console.error(`[${url.pathname}] Unhandled error:`, error);
       return new Response(
         JSON.stringify({ error: String(error) }),
-        { status: 500, headers: { "content-type": "application/json" } }
+        { status: 500, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } }
       );
     }
 
-    return new Response("Not found", { status: 404 });
+    return new Response("Not found", { status: 404, headers: { "access-control-allow-origin": "*" } });
   },
 };
 
@@ -145,7 +145,67 @@ function handleAuthCallbackRedirect(url: URL): Response {
  * The app sends { code: "..." } and gets back { user, accessToken }.
  */
 async function handleAuthToken(request: Request, env: Env): Promise<Response> {
-  const { code } = await request.json() as { code: string };
+  const body = await request.json() as Record<string, string>;
+  const grantType = body.grant_type || "authorization_code";
+
+  // MARK: - Skilly
+  if (grantType === "refresh_token") {
+    const refreshToken = body.refresh_token;
+
+    if (!refreshToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing refresh token" }),
+        { status: 400, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    const refreshResponse = await fetch(
+      "https://api.workos.com/user_management/authenticate",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: env.WORKOS_CLIENT_ID,
+          client_secret: env.WORKOS_API_KEY,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      }
+    );
+
+    if (!refreshResponse.ok) {
+      const errorBody = await refreshResponse.text();
+      console.error(`[/auth/token] WorkOS refresh error ${refreshResponse.status}: ${errorBody}`);
+      return new Response(errorBody, {
+        status: refreshResponse.status,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const refreshedData = await refreshResponse.json() as {
+      user: { id: string; email: string; first_name: string; last_name: string };
+      access_token: string;
+      refresh_token?: string;
+    };
+
+    return new Response(
+      JSON.stringify({
+        user: {
+          id: refreshedData.user.id,
+          email: refreshedData.user.email,
+          firstName: refreshedData.user.first_name,
+          lastName: refreshedData.user.last_name,
+        },
+        accessToken: refreshedData.access_token,
+        refreshToken: refreshedData.refresh_token,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }
+
+  const { code } = body;
 
   if (!code) {
     return new Response(
