@@ -86,8 +86,8 @@ struct SkillMetadataTests {
 
     // MARK: Test 3
 
-    @Test func rejectsYAMLMissingRequiredField() throws {
-        // A frontmatter that is otherwise valid but omits the required 'id' field.
+    @Test func derivesSkillIdWhenFrontmatterIdIsMissing() throws {
+        // External SKILL.md formats frequently omit `id`; we derive it from `name`.
         let frontmatterMissingId = """
         ---
         name: My Skill
@@ -103,14 +103,13 @@ struct SkillMetadataTests {
         ---
         """
 
-        #expect(throws: SkillParsingError.self) {
-            try SkillMetadata.parse(from: frontmatterMissingId)
-        }
+        let parsedMetadata = try SkillMetadata.parse(from: frontmatterMissingId)
+        #expect(parsedMetadata.id == "my-skill")
     }
 
     // MARK: Test 4
 
-    @Test func rejectsUnrecognizedFormatVersion() throws {
+    @Test func fallsBackToSupportedFormatVersionWhenUnrecognized() throws {
         let frontmatterWithUnsupportedVersion = """
         ---
         id: my-skill
@@ -127,9 +126,8 @@ struct SkillMetadataTests {
         ---
         """
 
-        #expect(throws: SkillParsingError.self) {
-            try SkillMetadata.parse(from: frontmatterWithUnsupportedVersion)
-        }
+        let parsedMetadata = try SkillMetadata.parse(from: frontmatterWithUnsupportedVersion)
+        #expect(parsedMetadata.formatVersion == "1.0")
     }
 
     // MARK: Test 5
@@ -166,7 +164,7 @@ struct SkillMetadataTests {
 
     // MARK: Test 6
 
-    @Test func rejectsInvalidSkillId() throws {
+    @Test func normalizesInvalidSkillId() throws {
         let frontmatterWithInvalidId = """
         ---
         id: INVALID ID WITH SPACES!
@@ -183,9 +181,98 @@ struct SkillMetadataTests {
         ---
         """
 
-        #expect(throws: SkillParsingError.self) {
-            try SkillMetadata.parse(from: frontmatterWithInvalidId)
-        }
+        let parsedMetadata = try SkillMetadata.parse(from: frontmatterWithInvalidId)
+        #expect(parsedMetadata.id == "invalid-id-with-spaces")
+    }
+
+    // MARK: Test 7
+
+    @Test func parsesQuotedScalarValuesInFrontmatter() throws {
+        let quotedFrontmatter = """
+        ---
+        id: "blender-fundamentals"
+        name: "Blender Fundamentals"
+        version: "0.1.0"
+        format_version: "1.0"
+        min_runtime_version: "1.0.0"
+        author: "moelabs"
+        license: "MIT"
+        target_app: "Blender"
+        bundle_id: "org.blenderfoundation.blender"
+        min_app_version: "4.0"
+        platform: "macOS"
+        recommended_model: "claude-sonnet-4-6"
+        pointing_mode: "always"
+        category: "creative-tools"
+        tags:
+          - "3d-modeling"
+          - "blender"
+        difficulty: "beginner"
+        estimated_hours: "8"
+        ---
+        """
+
+        let parsedMetadata = try SkillMetadata.parse(from: quotedFrontmatter)
+
+        #expect(parsedMetadata.id == "blender-fundamentals")
+        #expect(parsedMetadata.formatVersion == "1.0")
+        #expect(parsedMetadata.minRuntimeVersion == "1.0.0")
+        #expect(parsedMetadata.pointingMode == .always)
+        #expect(parsedMetadata.tags == ["3d-modeling", "blender"])
+        #expect(parsedMetadata.estimatedHours == 8)
+    }
+
+    // MARK: Test 8
+
+    @Test func parsesMinimalExternalSkillFrontmatter() throws {
+        let externalSkillFrontmatter = """
+        ---
+        name: Ask Claude
+        description: Ask Claude via local CLI and capture a reusable artifact
+        ---
+        """
+
+        let parsedMetadata = try SkillMetadata.parse(from: externalSkillFrontmatter)
+
+        #expect(parsedMetadata.id == "ask-claude")
+        #expect(parsedMetadata.name == "Ask Claude")
+        #expect(parsedMetadata.shortDescription == "Ask Claude via local CLI and capture a reusable artifact")
+        #expect(parsedMetadata.version == "1.0.0")
+        #expect(parsedMetadata.targetApp == "General")
+        #expect(parsedMetadata.bundleId == "generic.ask-claude")
+    }
+
+    // MARK: Test 9
+
+    @Test func parsesTagArraysWithFlexibleIndentation() throws {
+        let flexibleIndentationFrontmatter = """
+        ---
+        name: Flexible Tags
+        tags:
+        - swift
+        - macos
+        ---
+        """
+
+        let parsedMetadata = try SkillMetadata.parse(from: flexibleIndentationFrontmatter)
+        #expect(parsedMetadata.id == "flexible-tags")
+        #expect(parsedMetadata.tags == ["swift", "macos"])
+    }
+
+    // MARK: Test 10
+
+    @Test func infersFigmaTargetAppAndBundleIdFromSkillNamePrefix() throws {
+        let figmaSkillFrontmatter = """
+        ---
+        name: figma-implement-design
+        description: Implements Figma designs in code
+        ---
+        """
+
+        let parsedMetadata = try SkillMetadata.parse(from: figmaSkillFrontmatter)
+        #expect(parsedMetadata.id == "figma-implement-design")
+        #expect(parsedMetadata.targetApp == "Figma")
+        #expect(parsedMetadata.bundleId == "com.figma.Desktop")
     }
 }
 
@@ -476,7 +563,7 @@ struct SkillDefinitionParserTests {
 
     // MARK: Test 6
 
-    @Test func rejectsMissingTeachingInstructionsSection() {
+    @Test func fallsBackToBodyWhenTeachingInstructionsSectionIsMissing() throws {
         // Valid frontmatter + Curriculum section, but no Teaching Instructions section.
         let markdownMissingTeachingInstructions = """
         ---
@@ -509,9 +596,38 @@ struct SkillDefinitionParserTests {
         **Next:** null
         """
 
-        #expect(throws: SkillParsingError.self) {
-            try SkillDefinition.parse(from: markdownMissingTeachingInstructions)
-        }
+        let parsedDefinition = try SkillDefinition.parse(from: markdownMissingTeachingInstructions)
+        #expect(parsedDefinition.teachingInstructions.contains("Skill description here."))
+        #expect(parsedDefinition.curriculumStages.count == 1)
+    }
+
+    // MARK: Test 7
+
+    @Test func parsesStandardExternalSkillShapeWithoutSkillySections() throws {
+        let externalSkillMarkdown = """
+        ---
+        name: Ask Claude
+        description: Ask Claude via local CLI and capture a reusable artifact
+        ---
+
+        # Ask Claude
+
+        Run Claude with a concrete question and summarize the output.
+
+        ## Usage
+
+        - Keep prompts focused.
+        - Save reusable snippets.
+        """
+
+        let parsedDefinition = try SkillDefinition.parse(from: externalSkillMarkdown)
+
+        #expect(parsedDefinition.metadata.id == "ask-claude")
+        #expect(parsedDefinition.skillDescription == "Ask Claude via local CLI and capture a reusable artifact")
+        #expect(parsedDefinition.teachingInstructions.contains("Run Claude with a concrete question"))
+        #expect(parsedDefinition.teachingInstructions.contains("## Usage"))
+        #expect(parsedDefinition.curriculumStages.isEmpty)
+        #expect(parsedDefinition.vocabularyEntries.isEmpty)
     }
 }
 
@@ -541,5 +657,4 @@ struct BlenderSkillValidationTests {
         #expect(skill.curriculumStages[5].name == "Your First Render")
         #expect(skill.curriculumStages[5].nextStageName == nil)
     }
-}
 }

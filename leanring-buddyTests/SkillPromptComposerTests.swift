@@ -5,7 +5,7 @@ import Testing
 
 struct SkillPromptComposerTests {
 
-    private let basePrompt = "you're clicky, a friendly companion."
+    private let basePrompt = "you're skilly, a friendly companion."
 
     /// Parses the shared minimal skill fixture and creates a fresh SkillProgress at stage 1.
     private func makeSkillAndProgress() throws -> (SkillDefinition, SkillProgress) {
