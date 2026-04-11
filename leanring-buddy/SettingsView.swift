@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
+    var skillManager: SkillManager?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -55,6 +56,8 @@ struct SettingsView: View {
                             ("controlOption", "Ctrl + Option"),
                             ("shiftControl", "Shift + Ctrl"),
                             ("shiftFunction", "Shift + Fn"),
+                            ("controlOptionSpace", "Ctrl + Option + Space"),
+                            ("shiftControlSpace", "Shift + Ctrl + Space"),
                         ]
                     )
                 }
@@ -75,6 +78,69 @@ struct SettingsView: View {
                         selection: $settings.voiceName,
                         options: OpenAIRealtimeClient.availableVoices.map { ($0, $0.capitalized) }
                     )
+                }
+            }
+
+            if let skillManager {
+                divider
+
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader("SKILLS")
+
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Auto-load by app")
+                                .font(.system(size: 12))
+                                .foregroundColor(DS.Colors.textSecondary)
+                            Text("Activate matching skill automatically")
+                                .font(.system(size: 10))
+                                .foregroundColor(DS.Colors.textTertiary)
+                        }
+                        Spacer()
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { skillManager.autoDetectionEnabled },
+                                set: { skillManager.setAutoDetectionEnabled($0) }
+                            )
+                        )
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    }
+
+                    if let frontmostAppBundleId = skillManager.frontmostAppBundleId, !frontmostAppBundleId.isEmpty {
+                        Text("Current app: \(frontmostAppBundleId)")
+                            .font(.system(size: 10))
+                            .foregroundColor(DS.Colors.textTertiary)
+                    } else {
+                        Text("Current app: unavailable")
+                            .font(.system(size: 10))
+                            .foregroundColor(DS.Colors.textTertiary)
+                    }
+                }
+            }
+
+            divider
+
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHeader("BETA TELEMETRY")
+
+                Toggle(
+                    "",
+                    isOn: $settings.beta_terms_consent
+                )
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Share usage analytics")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                    Text("Analytics processed by PostHog. No audio, screenshots, or prompts are ever recorded.")
+                        .font(.system(size: 10))
+                        .foregroundColor(DS.Colors.textTertiary)
                 }
             }
         }

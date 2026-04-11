@@ -34,6 +34,13 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(analyticsEnabled, forKey: "analyticsEnabled") }
     }
 
+    /// Whether the user has consented to beta telemetry. Required before sending
+    /// skilly_turn_completed and skilly_session_ended events to PostHog.
+    /// Explicitly names PostHog as the analytics processor.
+    @Published var beta_terms_consent: Bool {
+        didSet { UserDefaults.standard.set(beta_terms_consent, forKey: "beta_terms_consent") }
+    }
+
     // MARK: - Skilly — External asset URLs
 
     /// URL for the HLS onboarding video stream. Forks should replace with their own asset.
@@ -137,6 +144,7 @@ final class AppSettings: ObservableObject {
         self.analyticsEnabled = UserDefaults.standard.object(forKey: "analyticsEnabled") == nil
             ? true
             : UserDefaults.standard.bool(forKey: "analyticsEnabled")
+        self.beta_terms_consent = UserDefaults.standard.bool(forKey: "beta_terms_consent")
 
         // Skilly — External assets
         self.onboardingVideoURL = UserDefaults.standard.string(forKey: "onboardingVideoURL")
