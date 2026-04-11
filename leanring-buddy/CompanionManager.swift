@@ -32,7 +32,7 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var hasScreenContentPermission = false
 
     /// Screen location (global AppKit coords) of a detected UI element the
-    /// buddy should fly to and point at. Parsed from Claude's response;
+    /// buddy should fly to and point at. Parsed from the model response;
     /// observed by BlueCursorView to trigger the flight animation.
     @Published var detectedElementScreenLocation: CGPoint?
     /// The display frame (global AppKit coords) of the screen the detected
@@ -41,6 +41,11 @@ final class CompanionManager: ObservableObject {
     /// Custom speech bubble text for the pointing animation. When set,
     /// BlueCursorView uses this instead of a random pointer phrase.
     @Published var detectedElementBubbleText: String?
+    /// Live transcript bubble text rendered in the same overlay as the cursor.
+    /// This keeps the spoken response physically attached to the floating cursor.
+    @Published private(set) var realtimeResponseBubbleText: String = ""
+    /// True while the response transcript bubble should be visible beside the cursor.
+    @Published private(set) var isShowingRealtimeResponseBubble: Bool = false
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
@@ -66,8 +71,8 @@ final class CompanionManager: ObservableObject {
 
     /// Optional skill manager — when set and a skill is active, the companion
     /// uses a composed system prompt with domain teaching instructions instead
-    /// of the generic Clicky prompt. When nil or no skill active, original
-    /// Clicky behavior is preserved.
+    /// of the generic Skilly prompt. When nil or no skill active, original
+    /// Skilly behavior is preserved.
     private var skillManager: SkillManager?
 
     func setSkillManager(_ manager: SkillManager) {
@@ -75,66 +80,53 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Returns the skill-composed system prompt if a skill is active,
-    /// otherwise falls back to the base Clicky prompt.
+    /// otherwise falls back to the base Skilly prompt.
     private var composedSystemPrompt: String {
         if let skillManager,
-           let composed = skillManager.composedSystemPrompt(basePrompt: Self.companionVoiceResponseSystemPrompt) {
+           let composed = skillManager.composedSystemPrompt(basePrompt: Self.realtimeCompanionBasePrompt) {
             return composed
         }
-        return Self.companionVoiceResponseSystemPrompt
+        return Self.realtimeCompanionBasePrompt
     }
 
-    // MARK: - Clicky Core
+    // MARK: - Skilly Core
 
-    let buddyDictationManager = BuddyDictationManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
     let overlayWindowManager = OverlayWindowManager()
 
-    // MARK: - Skilly — Streaming TTS
-    private lazy var streamingTTSQueue: StreamingTTSQueue = {
-        StreamingTTSQueue(ttsClient: elevenLabsTTSClient)
-    }()
-
-    // MARK: - Skilly — OpenAI Realtime Pipeline
     // MARK: - Skilly — OpenAI Realtime Pipeline
     let openAIRealtimeClient = OpenAIRealtimeClient()
     private var realtimeAudioPlayer: RealtimeAudioPlayer?  // Plays PCM16 24kHz
     private var realtimeEventSubscription: AnyCancellable?
     private var realtimeAudioEngine: AVAudioEngine?
     private var realtimePushToTalkTask: Task<Void, Never>?
-    // Response text is now displayed inline on the cursor overlay via
-    // streamingResponseText, so no separate response overlay manager is needed.
-
-    /// Base URL for the Cloudflare Worker proxy. All API requests route
-    /// through this so keys never ship in the app binary.
-    private static let workerBaseURL = "https://skilly-proxy.eng-mohamedszaied.workers.dev"
-
-    private lazy var claudeAPI: ClaudeAPI = {
-        return ClaudeAPI(proxyURL: "\(Self.workerBaseURL)/chat", model: selectedModel)
-    }()
-
-    private lazy var elevenLabsTTSClient: ElevenLabsTTSClient = {
-        return ElevenLabsTTSClient(proxyURL: "\(Self.workerBaseURL)/tts")
-    }()
+    // MARK: - Skilly — Realtime transcript accumulation
+    private var realtimeResponseText: String = ""
+    private var currentTurnUserTranscript: String?
+    /// Screen capture metadata for the current turn, used to map [POINT:x,y]
+    /// tags from screenshot pixel space back into global AppKit screen space.
+    private var currentTurnScreenCaptures: [CompanionScreenCapture] = []
 
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
     private var conversationHistory: [(userTranscript: String, assistantResponse: String)] = []
 
-    /// The currently running AI response task, if any. Cancelled when the user
-    /// speaks again so a new response can begin immediately.
-    private var currentResponseTask: Task<Void, Never>?
-
     private var shortcutTransitionCancellable: AnyCancellable?
     // MARK: - Skilly — Escape key cancel
     private var escapeKeyCancellable: AnyCancellable?
-    private var voiceStateCancellable: AnyCancellable?
-    private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     /// Scheduled hide for transient cursor mode — cancelled if the user
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
+    /// True after `responseDone` while waiting for the realtime audio queue
+    /// to finish playing. Prevents transcript bubble from hiding too early.
+    private var isWaitingForRealtimeAudioQueueDrain = false
+    private var voiceSettingCancellable: AnyCancellable?
+    private var prewarmConnectionTask: Task<Void, Error>?
+    private let minimumAudioChunksRequiredToCommit = 1
+    private var isSuppressingPointTagAudioForCurrentTurn = false
+    private var hasEndedAssistantSpeechForCurrentTurn = false
 
     /// True when all three required permissions (accessibility, screen recording,
     /// microphone) are granted. Used by the panel to show a single "all good" state.
@@ -146,25 +138,16 @@ final class CompanionManager: ObservableObject {
     /// Used by the panel to show accurate status text ("Active" vs "Ready").
     @Published private(set) var isOverlayVisible: Bool = false
 
-    /// The Claude model used for voice responses. Persisted to UserDefaults.
-    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? "claude-sonnet-4-6"
-
-    func setSelectedModel(_ model: String) {
-        selectedModel = model
-        UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
-        claudeAPI.model = model
-    }
-
-    /// User preference for whether the Clicky cursor should be shown.
+    /// User preference for whether the Skilly cursor should be shown.
     /// When toggled off, the overlay is hidden and push-to-talk is disabled.
     /// Persisted to UserDefaults so the choice survives app restarts.
-    @Published var isClickyCursorEnabled: Bool = UserDefaults.standard.object(forKey: "isClickyCursorEnabled") == nil
+    @Published var isSkillyCursorEnabled: Bool = UserDefaults.standard.object(forKey: "isSkillyCursorEnabled") == nil
         ? true
-        : UserDefaults.standard.bool(forKey: "isClickyCursorEnabled")
+        : UserDefaults.standard.bool(forKey: "isSkillyCursorEnabled")
 
-    func setClickyCursorEnabled(_ enabled: Bool) {
-        isClickyCursorEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: "isClickyCursorEnabled")
+    func setSkillyCursorEnabled(_ enabled: Bool) {
+        isSkillyCursorEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "isSkillyCursorEnabled")
         transientHideTask?.cancel()
         transientHideTask = nil
 
@@ -188,7 +171,9 @@ final class CompanionManager: ObservableObject {
     /// Whether the user has submitted their email during onboarding.
     @Published var hasSubmittedEmail: Bool = UserDefaults.standard.bool(forKey: "hasSubmittedEmail")
 
-    /// Submits the user's email to FormSpark and identifies them in PostHog.
+    // MARK: - Skilly — Email submission: FormSpark endpoint removed for open-source.
+    // The hasSubmittedEmail flag is set locally so the UI dismisses correctly.
+    // Forks can add their own email collection here if desired.
     func submitEmail(_ email: String) {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedEmail.isEmpty else { return }
@@ -196,40 +181,36 @@ final class CompanionManager: ObservableObject {
         hasSubmittedEmail = true
         UserDefaults.standard.set(true, forKey: "hasSubmittedEmail")
 
-        // Identify user in PostHog
-        PostHogSDK.shared.identify(trimmedEmail, userProperties: [
-            "email": trimmedEmail
-        ])
-
-        // Submit to FormSpark
-        Task {
-            var request = URLRequest(url: URL(string: "https://submit-form.com/RWbGJxmIs")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: ["email": trimmedEmail])
-            _ = try? await URLSession.shared.data(for: request)
+        // Identify user in PostHog (respects analyticsEnabled toggle)
+        if AppSettings.shared.analyticsEnabled {
+            PostHogSDK.shared.identify(trimmedEmail, userProperties: [
+                "email": trimmedEmail
+            ])
         }
     }
 
     func start() {
         refreshAllPermissions()
-        print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
+        print("🔑 Skilly start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        #endif
         startPermissionPolling()
-        bindVoiceStateObservation()
-        bindAudioPowerLevel()
         bindShortcutTransitions()
-        // Eagerly touch the Claude API so its TLS warmup handshake completes
-        // well before the onboarding demo fires at ~40s into the video.
-        _ = claudeAPI
+        bindSettingsObservers()
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
         // were revoked (e.g. signing change), don't show the cursor — the
         // panel will show the permissions UI instead.
-        if hasCompletedOnboarding && allPermissionsGranted && isClickyCursorEnabled {
+        if hasCompletedOnboarding && allPermissionsGranted && isSkillyCursorEnabled {
             overlayWindowManager.hasShownOverlayBefore = true
             overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
             isOverlayVisible = true
+        }
+
+        if hasCompletedOnboarding && allPermissionsGranted {
+            startRealtimeSessionPrewarmIfNeeded()
         }
     }
 
@@ -239,13 +220,13 @@ final class CompanionManager: ObservableObject {
     /// the overlay so the welcome animation and intro video play.
     func triggerOnboarding() {
         // Post notification so the panel manager can dismiss the panel
-        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
 
         // Mark onboarding as completed so the Start button won't appear
         // again on future launches — the cursor will auto-show instead
         hasCompletedOnboarding = true
 
-        ClickyAnalytics.trackOnboardingStarted()
+        SkillyAnalytics.trackOnboardingStarted()
 
         // Play Besaid theme at 60% volume, fade out after 1m 30s
         startOnboardingMusic()
@@ -260,8 +241,8 @@ final class CompanionManager: ObservableObject {
     /// footer link. Same flow as triggerOnboarding but the cursor overlay
     /// is already visible so we just restart the welcome animation and video.
     func replayOnboarding() {
-        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-        ClickyAnalytics.trackOnboardingReplayed()
+        NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
+        SkillyAnalytics.trackOnboardingReplayed()
         startOnboardingMusic()
         // Tear down any existing overlays and recreate with isFirstAppearance = true
         overlayWindowManager.hasShownOverlayBefore = false
@@ -279,7 +260,10 @@ final class CompanionManager: ObservableObject {
     private func startOnboardingMusic() {
         stopOnboardingMusic()
         guard let musicURL = Bundle.main.url(forResource: "ff", withExtension: "mp3") else {
-            print("⚠️ Clicky: ff.mp3 not found in bundle")
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
+            print("⚠️ Skilly: ff.mp3 not found in bundle")
+            #endif
             return
         }
 
@@ -294,7 +278,10 @@ final class CompanionManager: ObservableObject {
                 self?.fadeOutOnboardingMusic()
             }
         } catch {
-            print("⚠️ Clicky: Failed to play onboarding music: \(error)")
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
+            print("⚠️ Skilly: Failed to play onboarding music: \(error)")
+            #endif
         }
     }
 
@@ -328,17 +315,18 @@ final class CompanionManager: ObservableObject {
 
     func stop() {
         globalPushToTalkShortcutMonitor.stop()
-        buddyDictationManager.cancelCurrentDictation()
         overlayWindowManager.hideOverlay()
+        isWaitingForRealtimeAudioQueueDrain = false
+        clearRealtimeResponseBubble()
         transientHideTask?.cancel()
-
-        currentResponseTask?.cancel()
-        currentResponseTask = nil
         shortcutTransitionCancellable?.cancel()
-        voiceStateCancellable?.cancel()
-        audioPowerCancellable?.cancel()
+        voiceSettingCancellable?.cancel()
+        prewarmConnectionTask?.cancel()
+        prewarmConnectionTask = nil
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
+        RealtimeTelemetry.shared.endSession()
+        openAIRealtimeClient.disconnect()
     }
 
     func refreshAllPermissions() {
@@ -365,18 +353,21 @@ final class CompanionManager: ObservableObject {
         if previouslyHadAccessibility != hasAccessibilityPermission
             || previouslyHadScreenRecording != hasScreenRecordingPermission
             || previouslyHadMicrophone != hasMicrophonePermission {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
+            #endif
         }
 
         // Track individual permission grants as they happen
         if !previouslyHadAccessibility && hasAccessibilityPermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "accessibility")
+            SkillyAnalytics.trackPermissionGranted(permission: "accessibility")
         }
         if !previouslyHadScreenRecording && hasScreenRecordingPermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "screen_recording")
+            SkillyAnalytics.trackPermissionGranted(permission: "screen_recording")
         }
         if !previouslyHadMicrophone && hasMicrophonePermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "microphone")
+            SkillyAnalytics.trackPermissionGranted(permission: "microphone")
         }
         // Screen content permission is persisted — once the user has approved the
         // SCShareableContent picker, we don't need to re-check it.
@@ -385,7 +376,10 @@ final class CompanionManager: ObservableObject {
         }
 
         if !previouslyHadAll && allPermissionsGranted {
-            ClickyAnalytics.trackAllPermissionsGranted()
+            SkillyAnalytics.trackAllPermissionsGranted()
+            if hasCompletedOnboarding {
+                startRealtimeSessionPrewarmIfNeeded()
+            }
         }
     }
 
@@ -412,23 +406,29 @@ final class CompanionManager: ObservableObject {
                 // Verify the capture actually returned real content — a 0x0 or
                 // fully-empty image means the user denied the prompt.
                 let didCapture = image.width > 0 && image.height > 0
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
+                #endif
                 await MainActor.run {
                     isRequestingScreenContent = false
                     guard didCapture else { return }
                     hasScreenContentPermission = true
                     UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
-                    ClickyAnalytics.trackPermissionGranted(permission: "screen_content")
+                    SkillyAnalytics.trackPermissionGranted(permission: "screen_content")
 
                     // If onboarding was already completed, show the cursor overlay now
-                    if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isClickyCursorEnabled {
+                    if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isSkillyCursorEnabled {
                         overlayWindowManager.hasShownOverlayBefore = true
                         overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
                         isOverlayVisible = true
                     }
                 }
             } catch {
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("⚠️ Screen content permission request failed: \(error)")
+                #endif
                 await MainActor.run { isRequestingScreenContent = false }
             }
         }
@@ -458,48 +458,6 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func bindAudioPowerLevel() {
-        audioPowerCancellable = buddyDictationManager.$currentAudioPowerLevel
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] powerLevel in
-                self?.currentAudioPowerLevel = powerLevel
-            }
-    }
-
-    private func bindVoiceStateObservation() {
-        voiceStateCancellable = buddyDictationManager.$isRecordingFromKeyboardShortcut
-            .combineLatest(
-                buddyDictationManager.$isFinalizingTranscript,
-                buddyDictationManager.$isPreparingToRecord
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording, isFinalizing, isPreparing in
-                guard let self else { return }
-                // Don't override .responding — the AI response pipeline
-                // manages that state directly until streaming finishes.
-                guard self.voiceState != .responding else { return }
-
-                if isFinalizing {
-                    self.voiceState = .processing
-                } else if isRecording {
-                    self.voiceState = .listening
-                } else if isPreparing {
-                    self.voiceState = .processing
-                } else {
-                    self.voiceState = .idle
-                    // If the user pressed and released the hotkey without
-                    // saying anything, no response task runs — schedule the
-                    // transient hide here so the overlay doesn't get stuck.
-                    // Only do this when no response is in flight, otherwise
-                    // the brief idle gap between recording and processing
-                    // would prematurely hide the overlay.
-                    if self.currentResponseTask == nil {
-                        self.scheduleTransientHideIfNeeded()
-                    }
-                }
-            }
-    }
-
     private func bindShortcutTransitions() {
         shortcutTransitionCancellable = globalPushToTalkShortcutMonitor
             .shortcutTransitionPublisher
@@ -517,41 +475,143 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    private func bindSettingsObservers() {
+        voiceSettingCancellable = AppSettings.shared.$voiceName
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newVoiceName in
+                guard let self else { return }
+                Task { @MainActor in
+                    do {
+                        try await self.openAIRealtimeClient.updateVoice(voiceName: newVoiceName)
+                    } catch {
+                        #if DEBUG
+                        print("⚠️ OpenAI Realtime: failed to update voice to \(newVoiceName): \(error)")
+                        #endif
+                    }
+                }
+            }
+    }
+
+    private func startRealtimeSessionPrewarmIfNeeded() {
+        guard prewarmConnectionTask == nil else { return }
+        guard !openAIRealtimeClient.isConnected else { return }
+
+        let configuredVoiceName = AppSettings.shared.voiceName
+        let currentSystemPrompt = composedSystemPrompt
+        prewarmConnectionTask = Task { @MainActor in
+            try await openAIRealtimeClient.connect(
+                systemPrompt: currentSystemPrompt,
+                voiceName: configuredVoiceName
+            )
+            ensureRealtimeEventSubscriptionAndAudioPlayer()
+        }
+    }
+
+    private func ensureRealtimeEventSubscriptionAndAudioPlayer() {
+        if realtimeEventSubscription == nil {
+            realtimeEventSubscription = openAIRealtimeClient.eventPublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] event in
+                    self?.handleRealtimeEvent(event)
+                }
+        }
+
+        if realtimeAudioPlayer == nil {
+            let realtimeAudioPlayer = RealtimeAudioPlayer()
+            realtimeAudioPlayer.onQueueDrained = { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handleRealtimeAudioQueueDrained()
+                }
+            }
+            self.realtimeAudioPlayer = realtimeAudioPlayer
+        }
+    }
+
+    private func ensureRealtimeSessionReadyForTurn() async throws {
+        let configuredVoiceName = AppSettings.shared.voiceName
+        let currentSystemPrompt = composedSystemPrompt
+
+        if let prewarmConnectionTask {
+            defer { self.prewarmConnectionTask = nil }
+            _ = try await prewarmConnectionTask.value
+        }
+
+        if !openAIRealtimeClient.isConnected {
+            try await openAIRealtimeClient.connect(
+                systemPrompt: currentSystemPrompt,
+                voiceName: configuredVoiceName
+            )
+            RealtimeTelemetry.shared.beginSession(model: openAIRealtimeClient.currentModel)
+        } else {
+            try await openAIRealtimeClient.updateSessionConfiguration(
+                systemPrompt: currentSystemPrompt,
+                voiceName: configuredVoiceName
+            )
+        }
+
+        ensureRealtimeEventSubscriptionAndAudioPlayer()
+    }
+
     // MARK: - Skilly — Escape Key Cancel Handler
 
     private func handleEscapeKeyPressed() {
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🛑 Escape handler: voiceState=\(voiceState), isModelSpeaking=\(openAIRealtimeClient.isModelSpeaking)")
+        #endif
 
         // Check if the model is speaking even if voiceState hasn't updated
         if openAIRealtimeClient.isModelSpeaking {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🛑 Escape: stopping AI response (model still speaking)")
+            #endif
             openAIRealtimeClient.cancelResponse()
             realtimeAudioPlayer?.stop()
+            isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
+            clearRealtimeResponseBubble()
             return
         }
 
         switch voiceState {
         case .listening:
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🛑 Escape: cancelling recording")
+            #endif
             realtimeAudioEngine?.stop()
             realtimeAudioEngine?.inputNode.removeTap(onBus: 0)
             realtimeAudioEngine = nil
             realtimePushToTalkTask?.cancel()
             realtimePushToTalkTask = nil
             openAIRealtimeClient.clearAudioBuffer()
+            isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
+            clearRealtimeResponseBubble()
 
         case .processing:
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🛑 Escape: cancelling pending response")
+            #endif
             openAIRealtimeClient.cancelResponse()
+            isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
+            clearRealtimeResponseBubble()
 
         case .responding:
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🛑 Escape: stopping AI response")
+            #endif
             openAIRealtimeClient.cancelResponse()
             realtimeAudioPlayer?.stop()
+            isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
+            clearRealtimeResponseBubble()
 
         case .idle:
             break
@@ -561,7 +621,6 @@ final class CompanionManager: ObservableObject {
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
-            guard !buddyDictationManager.isDictationInProgress else { return }
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
@@ -570,19 +629,18 @@ final class CompanionManager: ObservableObject {
             transientHideTask = nil
 
             // If the cursor is hidden, bring it back transiently for this interaction
-            if !isClickyCursorEnabled && !isOverlayVisible {
+            if !isSkillyCursorEnabled && !isOverlayVisible {
                 overlayWindowManager.hasShownOverlayBefore = true
                 overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
                 isOverlayVisible = true
             }
 
             // Dismiss the menu bar panel so it doesn't cover the screen
-            NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+            NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
 
-            // Cancel any in-progress response and TTS from a previous utterance
-            currentResponseTask?.cancel()
-            elevenLabsTTSClient.stopPlayback()
+            // MARK: - Skilly — Clear stale pointing state from previous utterance
             clearDetectedElementLocation()
+            clearRealtimeResponseBubble()
 
             // Dismiss the onboarding prompt if it's showing
             if showOnboardingPrompt {
@@ -596,13 +654,13 @@ final class CompanionManager: ObservableObject {
             }
     
 
-            ClickyAnalytics.trackPushToTalkStarted()
+            SkillyAnalytics.trackPushToTalkStarted()
 
             // MARK: - Skilly — OpenAI Realtime pipeline
             startOpenAIRealtimePushToTalk()
 
         case .released:
-            ClickyAnalytics.trackPushToTalkReleased()
+            SkillyAnalytics.trackPushToTalkReleased()
             stopOpenAIRealtimePushToTalk()
         case .none:
             break
@@ -611,7 +669,8 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Companion Prompt
 
-    private static let companionVoiceResponseSystemPrompt = """
+    // MARK: - Skilly — Base prompt for realtime assistant responses
+    private static let realtimeCompanionBasePrompt = """
     you're skilly, a friendly always-on teaching companion that lives in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation — you remember everything they've said before.
 
     rules:
@@ -635,6 +694,8 @@ final class CompanionManager: ObservableObject {
 
     when you point, append a coordinate tag at the very end of your response, AFTER your spoken text. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
 
+    the [POINT:...] tag is control metadata for the cursor only. do not read the tag aloud, do not narrate coordinates, and do not say the word "point". keep it silent metadata at the end.
+
     format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
 
     if pointing wouldn't help, append [POINT:none].
@@ -646,254 +707,17 @@ final class CompanionManager: ObservableObject {
     - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
     """
 
-    // MARK: - AI Response Pipeline
-
-    /// Captures a screenshot, sends it along with the transcript to Claude,
-    /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
-    /// the spinner/processing state until TTS audio begins playing.
-    /// Claude's response may include a [POINT:x,y:label] tag which triggers
-    /// the buddy to fly to that element on screen.
-    private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
-        currentResponseTask?.cancel()
-        elevenLabsTTSClient.stopPlayback()
-        streamingTTSQueue.stopAndClear()
-
-        currentResponseTask = Task {
-            // Stay in processing (spinner) state — no streaming text displayed
-            voiceState = .processing
-
-            do {
-                // MARK: - Skilly — Pipeline timing instrumentation
-                let pipelineStartTime = CFAbsoluteTimeGetCurrent()
-
-                // MARK: - Skilly — Capture only the cursor screen for speed
-                // On multi-monitor setups, capturing all screens adds ~0.5MB+
-                // of image data per extra monitor, significantly increasing
-                // Claude's processing time. We capture only the cursor screen
-                // by default. The full multi-screen capture is still available
-                // if needed in the future.
-                let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-                let screenCaptures = [allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures[0]]
-
-                guard !Task.isCancelled else { return }
-
-                // Build image labels with the actual screenshot pixel dimensions
-                // so Claude's coordinate space matches the image it sees. We
-                // scale from screenshot pixels to display points ourselves.
-                let labeledImages = screenCaptures.map { capture in
-                    let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                    return (data: capture.imageData, label: capture.label + dimensionInfo)
-                }
-
-                let screenshotTime = CFAbsoluteTimeGetCurrent()
-                let screenshotSizeKB = screenCaptures.reduce(0) { $0 + $1.imageData.count } / 1024
-                print("⏱️ Pipeline: screenshot captured in \(Int((screenshotTime - pipelineStartTime) * 1000))ms (\(screenshotSizeKB)KB, \(screenCaptures.count) screen)")
-
-                // Pass conversation history so Claude remembers prior exchanges
-                let historyForAPI = conversationHistory.map { entry in
-                    (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
-                }
-
-                // MARK: - Skilly — Sentence-level streaming TTS
-                // As Claude streams its response, we detect sentence boundaries
-                // and send each complete sentence to ElevenLabs immediately.
-                // This dramatically reduces perceived latency because the user
-                // hears the first sentence while Claude is still generating.
-                var streamingTextBuffer = ""
-                var sentencesSentToTTS: [String] = []
-                var firstChunkTime: CFAbsoluteTime?
-                var firstSentenceSentTime: CFAbsoluteTime?
-
-                streamingTTSQueue.stopAndClear()
-                streamingTTSQueue.onFirstAudioStarted = { [weak self] in
-                    self?.voiceState = .responding
-                    let firstAudioTime = CFAbsoluteTimeGetCurrent()
-                    print("⏱️ Pipeline: first audio playing at \(Int((firstAudioTime - pipelineStartTime) * 1000))ms from start")
-                }
-
-                let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
-                    images: labeledImages,
-                    systemPrompt: composedSystemPrompt,
-                    conversationHistory: historyForAPI,
-                    userPrompt: transcript,
-                    onTextChunk: { [weak self] chunk in
-                        guard let self else { return }
-
-                        if firstChunkTime == nil {
-                            firstChunkTime = CFAbsoluteTimeGetCurrent()
-                            print("⏱️ Pipeline: first Claude token at \(Int((firstChunkTime! - pipelineStartTime) * 1000))ms from start")
-                        }
-
-                        streamingTextBuffer += chunk
-
-                        // Don't send anything that might contain the [POINT:] tag.
-                        // The tag is always at the very end, so we hold back text
-                        // after the last sentence boundary.
-                        guard !streamingTextBuffer.contains("[POINT") else { return }
-
-                        // Extract complete sentences (ending with . ! ?)
-                        let completeSentences = Self.extractCompleteSentences(from: &streamingTextBuffer)
-                        for sentence in completeSentences {
-                            if firstSentenceSentTime == nil {
-                                firstSentenceSentTime = CFAbsoluteTimeGetCurrent()
-                                print("⏱️ Pipeline: first sentence to TTS at \(Int((firstSentenceSentTime! - pipelineStartTime) * 1000))ms — \"\(sentence.prefix(50))...\"")
-                            }
-                            sentencesSentToTTS.append(sentence)
-                            self.streamingTTSQueue.queueSentence(sentence)
-                        }
-                    }
-                )
-
-                guard !Task.isCancelled else {
-                    streamingTTSQueue.stopAndClear()
-                    return
-                }
-
-                // Parse the [POINT:...] tag from Claude's response
-                let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
-                let spokenText = parseResult.spokenText
-
-                // Send any remaining buffered text that wasn't sent during streaming
-                // (the last partial sentence, or text before the POINT tag)
-                let alreadySentText = sentencesSentToTTS.joined()
-                let remainingText = String(spokenText.dropFirst(alreadySentText.count))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !remainingText.isEmpty {
-                    streamingTTSQueue.queueSentence(remainingText)
-                }
-                streamingTTSQueue.markFinalSegmentQueued()
-
-                // Handle element pointing if Claude returned coordinates.
-                // Switch to idle BEFORE setting the location so the triangle
-                // becomes visible and can fly to the target. Without this, the
-                // spinner hides the triangle and the flight animation is invisible.
-                let hasPointCoordinate = parseResult.coordinate != nil
-                if hasPointCoordinate {
-                    voiceState = .idle
-                }
-
-                // Pick the screen capture matching Claude's screen number,
-                // falling back to the cursor screen if not specified.
-                let targetScreenCapture: CompanionScreenCapture? = {
-                    if let screenNumber = parseResult.screenNumber,
-                       screenNumber >= 1 && screenNumber <= screenCaptures.count {
-                        return screenCaptures[screenNumber - 1]
-                    }
-                    return screenCaptures.first(where: { $0.isCursorScreen })
-                }()
-
-                if let pointCoordinate = parseResult.coordinate,
-                   let targetScreenCapture {
-                    // Claude's coordinates are in the screenshot's pixel space
-                    // (top-left origin, e.g. 1280x831). Scale to the display's
-                    // point space (e.g. 1512x982), then convert to AppKit global coords.
-                    let screenshotWidth = CGFloat(targetScreenCapture.screenshotWidthInPixels)
-                    let screenshotHeight = CGFloat(targetScreenCapture.screenshotHeightInPixels)
-                    let displayWidth = CGFloat(targetScreenCapture.displayWidthInPoints)
-                    let displayHeight = CGFloat(targetScreenCapture.displayHeightInPoints)
-                    let displayFrame = targetScreenCapture.displayFrame
-
-                    // Clamp to screenshot coordinate space
-                    let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
-                    let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
-
-                    // MARK: - Skilly — Edge-proximity confidence fallback
-                    // If the coordinate is within 5% of any screen edge, suppress
-                    // the cursor animation. A missed point is better than a wrong
-                    // point. The verbal response still plays via TTS; only the
-                    // cursor flight is skipped. See PRD Section 7.3.
-                    let edgeMarginFraction: CGFloat = 0.05
-                    let isNearLeftEdge = clampedX < screenshotWidth * edgeMarginFraction
-                    let isNearRightEdge = clampedX > screenshotWidth * (1 - edgeMarginFraction)
-                    let isNearTopEdge = clampedY < screenshotHeight * edgeMarginFraction
-                    let isNearBottomEdge = clampedY > screenshotHeight * (1 - edgeMarginFraction)
-                    let isNearScreenEdge = isNearLeftEdge || isNearRightEdge || isNearTopEdge || isNearBottomEdge
-
-                    if isNearScreenEdge {
-                        // Suppress pointing animation — coordinate is unreliable
-                        ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-                        print("🎯 Element pointing suppressed (near screen edge): (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
-                    } else {
-                        // Scale from screenshot pixels to display points
-                        let displayLocalX = clampedX * (displayWidth / screenshotWidth)
-                        let displayLocalY = clampedY * (displayHeight / screenshotHeight)
-
-                        // Convert from top-left origin (screenshot) to bottom-left origin (AppKit)
-                        let appKitY = displayHeight - displayLocalY
-
-                        // Convert display-local coords to global screen coords
-                        let globalLocation = CGPoint(
-                            x: displayLocalX + displayFrame.origin.x,
-                            y: appKitY + displayFrame.origin.y
-                        )
-
-                        detectedElementScreenLocation = globalLocation
-                        detectedElementDisplayFrame = displayFrame
-                        ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-                        print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
-                    }
-                } else {
-                    print("🎯 Element pointing: \(parseResult.elementLabel ?? "no element")")
-                }
-
-                // Save this exchange to conversation history (with the point tag
-                // stripped so it doesn't confuse future context)
-                conversationHistory.append((
-                    userTranscript: transcript,
-                    assistantResponse: spokenText
-                ))
-
-                // Keep only the last 10 exchanges to avoid unbounded context growth
-                if conversationHistory.count > 10 {
-                    conversationHistory.removeFirst(conversationHistory.count - 10)
-                }
-
-                print("🧠 Conversation history: \(conversationHistory.count) exchanges")
-
-                // MARK: - Skilly — Post-response curriculum signal observation
-                // Fire BEFORE the history cap applies so no signals are lost.
-                // The curriculum engine's signal buffer is persisted separately
-                // from conversation history. See PRD Section 10.6.
-                skillManager?.didReceiveInteraction(
-                    transcript: transcript,
-                    assistantResponse: spokenText
-                )
-
-                ClickyAnalytics.trackAIResponseReceived(response: spokenText)
-
-                // TTS is handled by the streaming queue — sentences were already
-                // sent during Claude's streaming response. The queue transitions
-                // voiceState to .responding when the first audio starts playing.
-                // If no sentences were queued (empty response), reset to idle.
-                if spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    voiceState = .idle
-                }
-            } catch is CancellationError {
-                // User spoke again — response was interrupted
-            } catch {
-                ClickyAnalytics.trackResponseError(error: error.localizedDescription)
-                print("⚠️ Companion response error: \(error)")
-                speakCreditsErrorFallback()
-            }
-
-            if !Task.isCancelled {
-                voiceState = .idle
-                scheduleTransientHideIfNeeded()
-            }
-        }
-    }
-
-    /// If the cursor is in transient mode (user toggled "Show Clicky" off),
+    /// If the cursor is in transient mode (user toggled "Show Skilly" off),
     /// waits for TTS playback and any pointing animation to finish, then
     /// fades out the overlay after a 1-second pause. Cancelled automatically
     /// if the user starts another push-to-talk interaction.
     private func scheduleTransientHideIfNeeded() {
-        guard !isClickyCursorEnabled && isOverlayVisible else { return }
+        guard !isSkillyCursorEnabled && isOverlayVisible else { return }
 
         transientHideTask?.cancel()
         transientHideTask = Task {
-            // Wait for TTS audio to finish playing
-            while elevenLabsTTSClient.isPlaying {
+            // MARK: - Skilly — Wait for realtime response playback to finish
+            while openAIRealtimeClient.isModelSpeaking || voiceState == .responding {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }
@@ -913,56 +737,171 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Speaks a hardcoded error message using macOS system TTS when API
-    /// credits run out. Uses NSSpeechSynthesizer so it works even when
-    /// ElevenLabs is down.
-    private func speakCreditsErrorFallback() {
-        let utterance = "I'm all out of credits. Please visit tryskilly.app for help."
-        let synthesizer = NSSpeechSynthesizer()
-        synthesizer.startSpeaking(utterance)
-        voiceState = .responding
+    // MARK: - Realtime Response Bubble
+
+    private func showRealtimeResponseBubble() {
+        isShowingRealtimeResponseBubble = true
     }
 
-    // MARK: - Point Tag Parsing
+    private func clearRealtimeResponseBubble() {
+        isShowingRealtimeResponseBubble = false
+        realtimeResponseBubbleText = ""
+    }
 
-    /// Result of parsing a [POINT:...] tag from Claude's response.
-    struct PointingParseResult {
-        /// The response text with the [POINT:...] tag removed — this is what gets spoken.
-        let spokenText: String
-        /// The parsed pixel coordinate, or nil if Claude said "none" or no tag was found.
-        let coordinate: CGPoint?
-        /// Short label describing the element (e.g. "run button"), or "none".
-        let elementLabel: String?
-        /// Which screen the coordinate refers to (1-based), or nil to default to cursor screen.
-        let screenNumber: Int?
+    /// Keeps the transcript bubble clean while the model streams. This strips
+    /// complete [POINT:...] tags and also hides a partially streamed trailing
+    /// [POINT:... fragment so users never see protocol metadata.
+    private func updateRealtimeResponseBubble(usingRawModelResponse rawModelResponseText: String) {
+        let responseTextWithoutCompletePointTag = rawModelResponseText.replacingOccurrences(
+            of: #"\s*\[POINT:[^\]]+\]\s*$"#,
+            with: "",
+            options: .regularExpression
+        )
+        let responseTextWithoutPointTagMetadata = responseTextWithoutCompletePointTag.replacingOccurrences(
+            of: #"\s*\[POINT:[^\]]*$"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        let cleanedResponseBubbleText = responseTextWithoutPointTagMetadata.trimmingCharacters(in: .whitespacesAndNewlines)
+        realtimeResponseBubbleText = cleanedResponseBubbleText
+        isShowingRealtimeResponseBubble = !cleanedResponseBubbleText.isEmpty
+    }
+
+    // MARK: - Point Directive Parsing
+
+    private struct ParsedPointDirective {
+        let screenshotXInPixels: Int
+        let screenshotYInPixels: Int
+        let elementLabel: String
+        let oneBasedScreenNumber: Int?
+    }
+
+    private func applyPointDirectiveIfPresent(in fullModelResponseText: String) {
+        guard let parsedPointDirective = parsePointDirective(from: fullModelResponseText),
+              let targetScreenCapture = resolveTargetScreenCapture(for: parsedPointDirective) else {
+            return
+        }
+
+        let screenLocation = mapScreenshotPixelCoordinateToGlobalScreenPoint(
+            screenshotXInPixels: parsedPointDirective.screenshotXInPixels,
+            screenshotYInPixels: parsedPointDirective.screenshotYInPixels,
+            screenCapture: targetScreenCapture
+        )
+
+        detectedElementScreenLocation = screenLocation
+        detectedElementDisplayFrame = targetScreenCapture.displayFrame
+        detectedElementBubbleText = parsedPointDirective.elementLabel
+        SkillyAnalytics.trackElementPointed(elementLabel: parsedPointDirective.elementLabel)
+    }
+
+    private func parsePointDirective(from responseText: String) -> ParsedPointDirective? {
+        guard let regularExpression = try? NSRegularExpression(pattern: #"\[POINT:([^\]]+)\]"#) else {
+            return nil
+        }
+
+        let fullResponseRange = NSRange(responseText.startIndex..<responseText.endIndex, in: responseText)
+        let allMatches = regularExpression.matches(in: responseText, range: fullResponseRange)
+        guard let lastPointMatch = allMatches.last,
+              lastPointMatch.numberOfRanges > 1,
+              let payloadRange = Range(lastPointMatch.range(at: 1), in: responseText) else {
+            return nil
+        }
+
+        let payload = responseText[payloadRange].trimmingCharacters(in: .whitespacesAndNewlines)
+        if payload.caseInsensitiveCompare("none") == .orderedSame {
+            return nil
+        }
+
+        let payloadSegments = payload
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        guard payloadSegments.count >= 2 else { return nil }
+
+        let coordinateSegment = payloadSegments[0]
+        let coordinateComponents = coordinateSegment
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard coordinateComponents.count == 2,
+              let screenshotXInPixels = Int(coordinateComponents[0]),
+              let screenshotYInPixels = Int(coordinateComponents[1]) else {
+            return nil
+        }
+
+        var labelSegments = Array(payloadSegments.dropFirst())
+        var oneBasedScreenNumber: Int?
+        if let lastSegment = labelSegments.last?.lowercased(),
+           lastSegment.hasPrefix("screen"),
+           let parsedScreenNumber = Int(lastSegment.replacingOccurrences(of: "screen", with: "")) {
+            oneBasedScreenNumber = parsedScreenNumber
+            labelSegments.removeLast()
+        }
+
+        let elementLabel = labelSegments
+            .joined(separator: ":")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !elementLabel.isEmpty else { return nil }
+
+        return ParsedPointDirective(
+            screenshotXInPixels: screenshotXInPixels,
+            screenshotYInPixels: screenshotYInPixels,
+            elementLabel: elementLabel,
+            oneBasedScreenNumber: oneBasedScreenNumber
+        )
+    }
+
+    private func resolveTargetScreenCapture(for parsedPointDirective: ParsedPointDirective) -> CompanionScreenCapture? {
+        guard !currentTurnScreenCaptures.isEmpty else {
+            return nil
+        }
+
+        if let oneBasedScreenNumber = parsedPointDirective.oneBasedScreenNumber {
+            let zeroBasedScreenIndex = oneBasedScreenNumber - 1
+            if currentTurnScreenCaptures.indices.contains(zeroBasedScreenIndex) {
+                return currentTurnScreenCaptures[zeroBasedScreenIndex]
+            }
+        }
+
+        return currentTurnScreenCaptures.first(where: { $0.isCursorScreen }) ?? currentTurnScreenCaptures.first
+    }
+
+    private func mapScreenshotPixelCoordinateToGlobalScreenPoint(
+        screenshotXInPixels: Int,
+        screenshotYInPixels: Int,
+        screenCapture: CompanionScreenCapture
+    ) -> CGPoint {
+        let clampedXInPixels = max(0, min(screenshotXInPixels, screenCapture.screenshotWidthInPixels))
+        let clampedYInPixels = max(0, min(screenshotYInPixels, screenCapture.screenshotHeightInPixels))
+
+        let normalizedX = CGFloat(clampedXInPixels) / CGFloat(max(screenCapture.screenshotWidthInPixels, 1))
+        let normalizedY = CGFloat(clampedYInPixels) / CGFloat(max(screenCapture.screenshotHeightInPixels, 1))
+
+        let globalX = screenCapture.displayFrame.minX + (screenCapture.displayFrame.width * normalizedX)
+        let globalY = screenCapture.displayFrame.maxY - (screenCapture.displayFrame.height * normalizedY)
+        return CGPoint(x: globalX, y: globalY)
     }
 
     // MARK: - Skilly — OpenAI Realtime Push-to-Talk Pipeline
 
     private func startOpenAIRealtimePushToTalk() {
         realtimePushToTalkTask?.cancel()
+        // MARK: - Skilly — Reset response transcript buffer for each new turn
+        realtimeResponseText = ""
+        currentTurnUserTranscript = nil
+        currentTurnScreenCaptures = []
+        isSuppressingPointTagAudioForCurrentTurn = false
+        hasEndedAssistantSpeechForCurrentTurn = false
+        isWaitingForRealtimeAudioQueueDrain = false
+        clearRealtimeResponseBubble()
 
         realtimePushToTalkTask = Task {
             let pipelineStartTime = CFAbsoluteTimeGetCurrent()
             voiceState = .listening
 
             do {
-                // Connect if not already connected
-                if !openAIRealtimeClient.isConnected {
-                    try await openAIRealtimeClient.connect(
-                        systemPrompt: composedSystemPrompt
-                    )
-
-                    // Subscribe to response events
-                    realtimeEventSubscription = openAIRealtimeClient.eventPublisher
-                        .receive(on: DispatchQueue.main)
-                        .sink { [weak self] event in
-                            self?.handleRealtimeEvent(event)
-                        }
-
-                    // Initialize audio player
-                    realtimeAudioPlayer = RealtimeAudioPlayer()  // Same format: PCM16 24kHz
-                }
+                try await ensureRealtimeSessionReadyForTurn()
+                RealtimeTelemetry.shared.beginTurn()
 
                 guard !Task.isCancelled else { return }
 
@@ -970,12 +909,31 @@ final class CompanionManager: ObservableObject {
                 openAIRealtimeClient.clearAudioBuffer()
                 realtimeAudioChunksSent = 0
 
-                // Capture and send screenshot immediately
+                // Capture and send all screens immediately so the model can reason
+                // across multi-monitor setups and map [POINT] tags correctly.
                 let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-                if let cursorScreen = allScreenCaptures.first(where: { $0.isCursorScreen }) ?? allScreenCaptures.first {
-                    openAIRealtimeClient.sendScreenshot(cursorScreen.imageData, withText: "This is what the user currently sees on their screen.")
-                    print("⏱️ OpenAI Realtime: screenshot sent (\(cursorScreen.imageData.count / 1024)KB) at \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+                currentTurnScreenCaptures = allScreenCaptures
+                RealtimeTelemetry.shared.recordVisionUsed()
+                for (screenIndex, screenCapture) in allScreenCaptures.enumerated() {
+                    let screenshotDescription = """
+                    \(screenCapture.label). \
+                    coordinate space: \(screenCapture.screenshotWidthInPixels)x\(screenCapture.screenshotHeightInPixels) pixels. \
+                    app display frame in points: \(Int(screenCapture.displayFrame.width))x\(Int(screenCapture.displayFrame.height)). \
+                    screen number: \(screenIndex + 1).
+                    """
+                    openAIRealtimeClient.sendScreenshot(
+                        screenCapture.imageData,
+                        withText: screenshotDescription
+                    )
+
+                    // MARK: - Skilly — Debug logging (stripped in release)
+                    #if DEBUG
+                    let sendLatencyMilliseconds = Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000)
+                    print("⏱️ OpenAI Realtime: screen \(screenIndex + 1)/\(allScreenCaptures.count) sent (\(screenCapture.imageData.count / 1024)KB) at \(sendLatencyMilliseconds)ms")
+                    #endif
                 }
+
+                RealtimeTelemetry.shared.beginUserSpeech()
 
                 // Start audio capture and stream to OpenAI
                 let audioEngine = AVAudioEngine()
@@ -994,11 +952,18 @@ final class CompanionManager: ObservableObject {
                 audioEngine.prepare()
                 try audioEngine.start()
 
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("⏱️ OpenAI Realtime: audio streaming started at \(Int((CFAbsoluteTimeGetCurrent() - pipelineStartTime) * 1000))ms")
+                #endif
 
             } catch {
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("⚠️ OpenAI Realtime: failed to start: \(error)")
+                #endif
                 voiceState = .idle
+                clearRealtimeResponseBubble()
             }
         }
     }
@@ -1014,13 +979,22 @@ final class CompanionManager: ObservableObject {
         realtimePushToTalkTask = nil
 
         // Only commit if we've actually sent audio
-        if realtimeAudioChunksSent > 5 {  // At least ~100ms of audio
+        if realtimeAudioChunksSent >= minimumAudioChunksRequiredToCommit {
+            RealtimeTelemetry.shared.endUserSpeech()
             openAIRealtimeClient.commitAudioAndRespond()
             voiceState = .processing
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🎙️ OpenAI Realtime: committed \(realtimeAudioChunksSent) audio chunks")
+            #endif
         } else {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("⚠️ OpenAI Realtime: not enough audio captured (\(realtimeAudioChunksSent) chunks), skipping commit")
+            #endif
+            isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
+            clearRealtimeResponseBubble()
         }
         realtimeAudioChunksSent = 0
     }
@@ -1033,40 +1007,90 @@ final class CompanionManager: ObservableObject {
         case .audioChunk(let pcm16Data):
             if voiceState != .responding {
                 voiceState = .responding
+                isWaitingForRealtimeAudioQueueDrain = false
+                showRealtimeResponseBubble()
+                RealtimeTelemetry.shared.beginAssistantSpeech()
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("🔊 OpenAI Realtime: voiceState → responding")
+                #endif
+            }
+            if isSuppressingPointTagAudioForCurrentTurn {
+                return
             }
             realtimeAudioPlayer?.enqueueAudio(pcm16Data)
 
         case .audioTranscriptDelta(let text):
-            // Model's speech transcript — could display in overlay
-            break
+            // MARK: - Skilly — Stream AI response text to cursor overlay
+            realtimeResponseText += text
+            if !isSuppressingPointTagAudioForCurrentTurn,
+               realtimeResponseText.range(of: "[point:", options: .caseInsensitive) != nil {
+                // The model has started emitting control metadata. Stop audio playback
+                // so users never hear the raw [POINT:x,y:...] tag spoken aloud.
+                isSuppressingPointTagAudioForCurrentTurn = true
+                realtimeAudioPlayer?.stop()
+            }
+            updateRealtimeResponseBubble(usingRawModelResponse: realtimeResponseText)
 
         case .inputTranscriptDone(let transcript):
             // What the user said (STT result)
             lastTranscript = transcript
-            ClickyAnalytics.trackUserMessageSent(transcript: transcript)
+            currentTurnUserTranscript = transcript
+            SkillyAnalytics.trackUserMessageSent(transcript: transcript)
 
-            // Curriculum signal observation
-            skillManager?.didReceiveInteraction(
-                transcript: transcript,
-                assistantResponse: ""
-            )
-
-        case .responseDone:
-            // Don't go idle immediately — audio player may still be draining.
-            // Wait a short moment so Escape can still cancel during playback.
-            Task {
-                try? await Task.sleep(for: .seconds(2))
-                if voiceState == .responding {
-                    voiceState = .idle
-                    print("🔊 OpenAI Realtime: voiceState → idle (after playback drain)")
-                }
+        case .responseDone(let usage):
+            RealtimeTelemetry.shared.endTurn(usage: usage)
+            if !hasEndedAssistantSpeechForCurrentTurn {
+                RealtimeTelemetry.shared.endAssistantSpeech()
+                hasEndedAssistantSpeechForCurrentTurn = true
+            }
+            applyPointDirectiveIfPresent(in: realtimeResponseText)
+            if let currentTurnUserTranscript {
+                let cleanedAssistantResponse = realtimeResponseText.replacingOccurrences(
+                    of: #"\s*\[POINT:[^\]]+\]\s*$"#,
+                    with: "",
+                    options: .regularExpression
+                )
+                skillManager?.didReceiveInteraction(
+                    transcript: currentTurnUserTranscript,
+                    assistantResponse: cleanedAssistantResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+            self.currentTurnUserTranscript = nil
+            // Wait for audio queue drain instead of a fixed timer so the
+            // transcript remains visible for the full spoken response.
+            isWaitingForRealtimeAudioQueueDrain = true
+            if realtimeAudioPlayer?.hasPendingAudio != true {
+                handleRealtimeAudioQueueDrained()
             }
 
         case .error(let message):
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("⚠️ OpenAI Realtime error: \(message)")
+            #endif
+            isSuppressingPointTagAudioForCurrentTurn = false
+            hasEndedAssistantSpeechForCurrentTurn = false
+            isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
+            clearRealtimeResponseBubble()
         }
+    }
+
+    private func handleRealtimeAudioQueueDrained() {
+        guard isWaitingForRealtimeAudioQueueDrain else { return }
+        isWaitingForRealtimeAudioQueueDrain = false
+        voiceState = .idle
+        clearRealtimeResponseBubble()
+        scheduleTransientHideIfNeeded()
+        if !hasEndedAssistantSpeechForCurrentTurn {
+            RealtimeTelemetry.shared.endAssistantSpeech()
+            hasEndedAssistantSpeechForCurrentTurn = true
+        }
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
+        print("🔊 OpenAI Realtime: voiceState → idle (audio queue drained)")
+        #endif
     }
 
     private func updateRealtimeAudioPowerLevel(from buffer: AVAudioPCMBuffer) {
@@ -1098,77 +1122,14 @@ final class CompanionManager: ObservableObject {
         return pcm16
     }
 
-    // MARK: - Skilly — Sentence Extraction for Streaming TTS
-
-    /// Extracts complete sentences from a text buffer, leaving any incomplete
-    /// trailing sentence in the buffer for the next chunk. A sentence ends
-    /// with '.', '!', or '?' followed by a space or end of string.
-    static func extractCompleteSentences(from buffer: inout String) -> [String] {
-        var sentences: [String] = []
-        let sentenceEndPattern = /[.!?]\s/
-
-        while let match = buffer.firstMatch(of: sentenceEndPattern) {
-            let sentenceEndIndex = match.range.upperBound
-            let sentence = String(buffer[buffer.startIndex..<sentenceEndIndex])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !sentence.isEmpty {
-                sentences.append(sentence)
-            }
-            buffer = String(buffer[sentenceEndIndex...])
-        }
-
-        return sentences
-    }
-
-    /// Parses a [POINT:x,y:label:screenN] or [POINT:none] tag from the end of Claude's response.
-    /// Returns the spoken text (tag removed) and the optional coordinate + label + screen number.
-    static func parsePointingCoordinates(from responseText: String) -> PointingParseResult {
-        // Match [POINT:none] or [POINT:123,456:label] or [POINT:123,456:label:screen2]
-        let pattern = #"\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?)\]\s*$"#
-
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: responseText, range: NSRange(responseText.startIndex..., in: responseText)) else {
-            // No tag found at all
-            return PointingParseResult(spokenText: responseText, coordinate: nil, elementLabel: nil, screenNumber: nil)
-        }
-
-        // Remove the tag from the spoken text
-        let tagRange = Range(match.range, in: responseText)!
-        let spokenText = String(responseText[..<tagRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Check if it's [POINT:none]
-        guard match.numberOfRanges >= 3,
-              let xRange = Range(match.range(at: 1), in: responseText),
-              let yRange = Range(match.range(at: 2), in: responseText),
-              let x = Double(responseText[xRange]),
-              let y = Double(responseText[yRange]) else {
-            return PointingParseResult(spokenText: spokenText, coordinate: nil, elementLabel: "none", screenNumber: nil)
-        }
-
-        var elementLabel: String? = nil
-        if match.numberOfRanges >= 4, let labelRange = Range(match.range(at: 3), in: responseText) {
-            elementLabel = String(responseText[labelRange]).trimmingCharacters(in: .whitespaces)
-        }
-
-        var screenNumber: Int? = nil
-        if match.numberOfRanges >= 5, let screenRange = Range(match.range(at: 4), in: responseText) {
-            screenNumber = Int(responseText[screenRange])
-        }
-
-        return PointingParseResult(
-            spokenText: spokenText,
-            coordinate: CGPoint(x: x, y: y),
-            elementLabel: elementLabel,
-            screenNumber: screenNumber
-        )
-    }
-
     // MARK: - Onboarding Video
 
     /// Sets up the onboarding video player, starts playback, and schedules
     /// the demo interaction at 40s. Called by BlueCursorView when onboarding starts.
     func setupOnboardingVideo() {
-        guard let videoURL = URL(string: "https://stream.mux.com/e5jB8UuSrtFABVnTHCR7k3sIsmcUHCyhtLu1tzqLlfs.m3u8") else { return }
+        // MARK: - Skilly — Onboarding video URL is now configurable via AppSettings
+        let videoURLString = AppSettings.shared.onboardingVideoURL
+        guard !videoURLString.isEmpty, let videoURL = URL(string: videoURLString) else { return }
 
         let player = AVPlayer(url: videoURL)
         player.isMuted = false
@@ -1190,13 +1151,13 @@ final class CompanionManager: ObservableObject {
         }
 
         // At 40 seconds into the video, trigger the onboarding demo where
-        // Clicky flies to something interesting on screen and comments on it
+        // Skilly flies to something interesting on screen and comments on it
         let demoTriggerTime = CMTime(seconds: 40, preferredTimescale: 600)
         onboardingDemoTimeObserver = player.addBoundaryTimeObserver(
             forTimes: [NSValue(time: demoTriggerTime)],
             queue: .main
         ) { [weak self] in
-            ClickyAnalytics.trackOnboardingDemoTriggered()
+            SkillyAnalytics.trackOnboardingDemoTriggered()
             self?.performOnboardingDemoInteraction()
         }
 
@@ -1207,7 +1168,7 @@ final class CompanionManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            ClickyAnalytics.trackOnboardingVideoCompleted()
+            SkillyAnalytics.trackOnboardingVideoCompleted()
             self.onboardingVideoOpacity = 0.0
             // Wait for the 2s fade-out animation to complete before tearing down
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -1288,80 +1249,7 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Onboarding Demo Interaction
 
-    private static let onboardingDemoSystemPrompt = """
-    you're skilly, a small blue cursor buddy living on the user's screen. you're showing off during onboarding — look at their screen and find ONE specific, concrete thing to point at. pick something with a clear name or identity: a specific app icon (say its name), a specific word or phrase of text you can read, a specific filename, a specific button label, a specific tab title, a specific image you can describe. do NOT point at vague things like "a window" or "some text" — be specific about exactly what you see.
-
-    make a short quirky 3-6 word observation about the specific thing you picked — something fun, playful, or curious that shows you actually read/recognized it. no emojis ever. NEVER quote or repeat text you see on screen — just react to it. keep it to 6 words max, no exceptions.
-
-    CRITICAL COORDINATE RULE: you MUST only pick elements near the CENTER of the screen. your x coordinate must be between 20%-80% of the image width. your y coordinate must be between 20%-80% of the image height. do NOT pick anything in the top 20%, bottom 20%, left 20%, or right 20% of the screen. no menu bar items, no dock icons, no sidebar items, no items near any edge. only things clearly in the middle area of the screen. if the only interesting things are near the edges, pick something boring in the center instead.
-
-    respond with ONLY your short comment followed by the coordinate tag. nothing else. all lowercase.
-
-    format: your comment [POINT:x,y:label]
-
-    the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. origin (0,0) is top-left. x increases rightward, y increases downward.
-    """
-
-    /// Captures a screenshot and asks Claude to find something interesting to
-    /// point at, then triggers the buddy's flight animation. Used during
-    /// onboarding to demo the pointing feature while the intro video plays.
     func performOnboardingDemoInteraction() {
-        // Don't interrupt an active voice response
-        guard voiceState == .idle || voiceState == .responding else { return }
-
-        Task {
-            do {
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-
-                // Only send the cursor screen so Claude can't pick something
-                // on a different monitor that we can't point at.
-                guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen }) else {
-                    print("🎯 Onboarding demo: no cursor screen found")
-                    return
-                }
-
-                let dimensionInfo = " (image dimensions: \(cursorScreenCapture.screenshotWidthInPixels)x\(cursorScreenCapture.screenshotHeightInPixels) pixels)"
-                let labeledImages = [(data: cursorScreenCapture.imageData, label: cursorScreenCapture.label + dimensionInfo)]
-
-                let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
-                    images: labeledImages,
-                    systemPrompt: Self.onboardingDemoSystemPrompt,
-                    userPrompt: "look around my screen and find something interesting to point at",
-                    onTextChunk: { _ in }
-                )
-
-                let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
-
-                guard let pointCoordinate = parseResult.coordinate else {
-                    print("🎯 Onboarding demo: no element to point at")
-                    return
-                }
-
-                let screenshotWidth = CGFloat(cursorScreenCapture.screenshotWidthInPixels)
-                let screenshotHeight = CGFloat(cursorScreenCapture.screenshotHeightInPixels)
-                let displayWidth = CGFloat(cursorScreenCapture.displayWidthInPoints)
-                let displayHeight = CGFloat(cursorScreenCapture.displayHeightInPoints)
-                let displayFrame = cursorScreenCapture.displayFrame
-
-                let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
-                let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
-                let displayLocalX = clampedX * (displayWidth / screenshotWidth)
-                let displayLocalY = clampedY * (displayHeight / screenshotHeight)
-                let appKitY = displayHeight - displayLocalY
-                let globalLocation = CGPoint(
-                    x: displayLocalX + displayFrame.origin.x,
-                    y: appKitY + displayFrame.origin.y
-                )
-
-                // Set custom bubble text so the pointing animation uses Claude's
-                // comment instead of a random phrase
-                detectedElementBubbleText = parseResult.spokenText
-                detectedElementScreenLocation = globalLocation
-                detectedElementDisplayFrame = displayFrame
-                print("🎯 Onboarding demo: pointing at \"\(parseResult.elementLabel ?? "element")\" — \"\(parseResult.spokenText)\"")
-            } catch {
-                print("⚠️ Onboarding demo error: \(error)")
-            }
-        }
+        // MARK: - Skilly — Onboarding demo uses realtime pipeline (classic Claude pipeline removed)
     }
 }

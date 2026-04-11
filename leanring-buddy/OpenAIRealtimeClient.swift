@@ -19,6 +19,61 @@ import AVFoundation
 import Combine
 import Foundation
 
+// MARK: - Realtime Usage Model
+
+struct RealtimeUsage: Codable {
+    let input_tokens: Int?
+    let output_tokens: Int?
+    let total_tokens: Int?
+    let input_token_details: InputTokenDetails?
+    let output_token_details: OutputTokenDetails?
+
+    struct InputTokenDetails: Codable {
+        let cached_tokens: Int?
+        let audio_tokens: Int?
+    }
+
+    struct OutputTokenDetails: Codable {
+        let audio_tokens: Int?
+        let reasoning_tokens: Int?
+    }
+
+    var audio_input_tokens: Int? { input_token_details?.audio_tokens }
+    var audio_output_tokens: Int? { output_token_details?.audio_tokens }
+    var cached_input_tokens: Int? { input_token_details?.cached_tokens }
+    var text_input_tokens: Int? {
+        guard let total = input_tokens else { return nil }
+        return total - (cached_input_tokens ?? 0) - (audio_input_tokens ?? 0)
+    }
+    var text_output_tokens: Int? {
+        guard let total = output_tokens else { return nil }
+        return total - (audio_output_tokens ?? 0)
+    }
+
+    static func parse(from json: [String: Any]) -> RealtimeUsage? {
+        guard let raw = json["usage"] as? [String: Any] else { return nil }
+        return RealtimeUsage(
+            input_tokens: raw["input_tokens"] as? Int,
+            output_tokens: raw["output_tokens"] as? Int,
+            total_tokens: raw["total_tokens"] as? Int,
+            input_token_details: {
+                guard let d = raw["input_token_details"] as? [String: Any] else { return nil }
+                return InputTokenDetails(
+                    cached_tokens: d["cached_tokens"] as? Int,
+                    audio_tokens: d["audio_tokens"] as? Int
+                )
+            }(),
+            output_token_details: {
+                guard let d = raw["output_token_details"] as? [String: Any] else { return nil }
+                return OutputTokenDetails(
+                    audio_tokens: d["audio_tokens"] as? Int,
+                    reasoning_tokens: d["reasoning_tokens"] as? Int
+                )
+            }()
+        )
+    }
+}
+
 // MARK: - Response Events
 
 enum OpenAIRealtimeEvent {
@@ -26,7 +81,7 @@ enum OpenAIRealtimeEvent {
     case audioChunk(Data)               // PCM16 24kHz audio delta
     case audioTranscriptDelta(String)    // Text transcript of model's speech
     case inputTranscriptDone(String)     // Transcript of what the user said (STT result)
-    case responseDone
+    case responseDone(RealtimeUsage?)   // Includes token usage from response.done
     case error(String)
 }
 
@@ -35,7 +90,6 @@ enum OpenAIRealtimeEvent {
 @MainActor
 final class OpenAIRealtimeClient: ObservableObject {
 
-    private static let workerBaseURL = "https://skilly-proxy.eng-mohamedszaied.workers.dev"
     private static let realtimeEndpoint = "wss://api.openai.com/v1/realtime"
     private static let defaultModel = "gpt-4o-realtime-preview"
 
@@ -43,6 +97,7 @@ final class OpenAIRealtimeClient: ObservableObject {
 
     @Published private(set) var isConnected = false
     @Published private(set) var isModelSpeaking = false
+    @Published private(set) var currentModel: String = "unknown"
 
     let eventPublisher = PassthroughSubject<OpenAIRealtimeEvent, Never>()
 
@@ -61,7 +116,7 @@ final class OpenAIRealtimeClient: ObservableObject {
     private func fetchToken() async throws -> OpenAITokenResponse {
         if let cached = cachedToken { return cached }
 
-        let url = URL(string: "\(Self.workerBaseURL)/openai/token")!
+        let url = URL(string: "\(AppSettings.shared.workerBaseURL)/openai/token")!
         let (data, response) = try await URLSession.shared.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse,
@@ -83,13 +138,20 @@ final class OpenAIRealtimeClient: ObservableObject {
         voiceName: String = "coral"
     ) async throws {
         let token = try await fetchToken()
+        currentModel = token.model
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🔑 OpenAI Realtime: token fetched, model=\(token.model)")
+        #endif
 
         guard let url = URL(string: "\(Self.realtimeEndpoint)?model=\(token.model)") else {
             throw OpenAIRealtimeError.connectionFailed("Invalid URL")
         }
 
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🔌 OpenAI Realtime: connecting to WebSocket...")
+        #endif
 
         // OpenAI uses Authorization header, not query parameter
         var request = URLRequest(url: url)
@@ -106,7 +168,10 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         // Wait for WebSocket handshake
         try await delegate.waitForOpen(timeout: 15)
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🔌 OpenAI Realtime: WebSocket handshake complete")
+        #endif
 
         // Start receiving events
         startReceiving()
@@ -126,7 +191,21 @@ final class OpenAIRealtimeClient: ObservableObject {
             group.cancelAll()
         }
 
-        // Read language and voice from AppSettings
+        try await updateSessionConfiguration(systemPrompt: systemPrompt, voiceName: voiceName)
+
+        isConnected = true
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
+        print("🟢 OpenAI Realtime: connected and session configured")
+        #endif
+    }
+
+    func updateSessionConfiguration(
+        systemPrompt: String? = nil,
+        voiceName: String? = nil
+    ) async throws {
+        guard isConnected || webSocketTask != nil else { return }
+
         let settings = await AppSettings.shared
         let languageCode = settings.preferredLanguage
         let languageName = AppSettings.languageName(for: languageCode)
@@ -139,29 +218,41 @@ final class OpenAIRealtimeClient: ObservableObject {
             languageInstruction = "\n\nLANGUAGE: You MUST always respond in \(languageName). All spoken responses must be in \(languageName). Never switch to another language."
         }
 
-        // Build transcription config — only set language if not auto-detecting
         var transcriptionConfig: [String: Any] = ["model": "gpt-4o-mini-transcribe"]
         if !autoDetect {
             transcriptionConfig["language"] = languageCode
         }
 
+        var sessionObject: [String: Any] = [
+            "modalities": ["text", "audio"],
+            "input_audio_format": "pcm16",
+            "output_audio_format": "pcm16",
+            "input_audio_transcription": transcriptionConfig,
+            "turn_detection": NSNull()
+        ]
+
+        if let systemPrompt {
+            sessionObject["instructions"] = systemPrompt + languageInstruction
+        }
+
+        if let voiceName {
+            sessionObject["voice"] = voiceName
+        }
+
         let sessionUpdate: [String: Any] = [
             "type": "session.update",
-            "session": [
-                "modalities": ["text", "audio"],
-                "instructions": (systemPrompt ?? "You are a helpful assistant.") + languageInstruction,
-                "voice": voiceName,
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "input_audio_transcription": transcriptionConfig,
-                "turn_detection": NSNull()  // Disable server VAD — we use push-to-talk
-            ]
+            "session": sessionObject
         ]
 
         try await sendEvent(sessionUpdate)
+    }
 
-        isConnected = true
-        print("🟢 OpenAI Realtime: connected and session configured")
+    func updateVoice(voiceName: String) async throws {
+        try await updateSessionConfiguration(systemPrompt: nil, voiceName: voiceName)
+
+        #if DEBUG
+        print("🎤 OpenAI Realtime: voice updated to \(voiceName)")
+        #endif
     }
 
     func disconnect() {
@@ -169,8 +260,12 @@ final class OpenAIRealtimeClient: ObservableObject {
         webSocketTask = nil
         isConnected = false
         isModelSpeaking = false
+        currentModel = "unknown"
         cachedToken = nil
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🔴 OpenAI Realtime: disconnected")
+        #endif
     }
 
     // MARK: - Audio Input
@@ -226,7 +321,10 @@ final class OpenAIRealtimeClient: ObservableObject {
         let event: [String: Any] = ["type": "response.cancel"]
         Task {
             try? await sendEvent(event)
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🛑 OpenAI Realtime: response cancelled")
+            #endif
         }
         isModelSpeaking = false
     }
@@ -262,7 +360,10 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         Task {
             try? await sendEvent(event)
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("📸 OpenAI Realtime: sent screenshot (\(jpegData.count / 1024)KB)")
+            #endif
         }
     }
 
@@ -289,7 +390,10 @@ final class OpenAIRealtimeClient: ObservableObject {
                     self.startReceiving()
 
                 case .failure(let error):
+                    // MARK: - Skilly — Debug logging (stripped in release)
+                    #if DEBUG
                     print("⚠️ OpenAI Realtime: WebSocket error: \(error)")
+                    #endif
 
                     if let continuation = self.sessionCreatedContinuation {
                         self.sessionCreatedContinuation = nil
@@ -322,18 +426,27 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         switch eventType {
         case "session.created":
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("📩 OpenAI Realtime: session.created")
+            #endif
             sessionCreatedContinuation?.resume()
             sessionCreatedContinuation = nil
 
         case "session.updated":
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("📩 OpenAI Realtime: session.updated")
+            #endif
 
         case "response.audio.delta", "response.output_audio.delta":
             if let audioBase64 = json["delta"] as? String,
                let audioData = Data(base64Encoded: audioBase64) {
                 if !isModelSpeaking {
+                    // MARK: - Skilly — Debug logging (stripped in release)
+                    #if DEBUG
                     print("🔊 OpenAI Realtime: first audio chunk received (\(audioData.count) bytes)")
+                    #endif
                 }
                 isModelSpeaking = true
                 eventPublisher.send(.audioChunk(audioData))
@@ -347,34 +460,56 @@ final class OpenAIRealtimeClient: ObservableObject {
         case "conversation.item.input_audio_transcription.completed":
             if let transcript = json["transcript"] as? String {
                 eventPublisher.send(.inputTranscriptDone(transcript))
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("🗣️ OpenAI Realtime STT: \"\(transcript.prefix(80))\"")
+                #endif
             }
 
         case "response.done":
             isModelSpeaking = false
-            eventPublisher.send(.responseDone)
+            let usage = RealtimeUsage.parse(from: json)
+            eventPublisher.send(.responseDone(usage))
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🎯 OpenAI Realtime: response complete")
+            #endif
 
         case "error":
             if let errorObj = json["error"] as? [String: Any],
                let errorMessage = errorObj["message"] as? String {
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("⚠️ OpenAI Realtime error: \(errorMessage)")
+                #endif
                 eventPublisher.send(.error(errorMessage))
             }
 
         case "input_audio_buffer.speech_started":
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🎙️ OpenAI Realtime: speech detected")
+            #endif
 
         case "input_audio_buffer.speech_stopped":
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("🎙️ OpenAI Realtime: speech ended")
+            #endif
 
         case "input_audio_buffer.committed":
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("📩 OpenAI Realtime: audio buffer committed")
+            #endif
 
         default:
             // Log unknown events for debugging
             if !eventType.starts(with: "response.") && !eventType.starts(with: "rate_limits") {
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
                 print("📩 OpenAI Realtime: \(eventType)")
+                #endif
             }
         }
     }
@@ -416,18 +551,27 @@ private final class RealtimeWebSocketDelegate: NSObject, URLSessionWebSocketDele
     }
 
     nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🔌 OpenAI Realtime: WebSocket didOpen")
+        #endif
         openBox.resume()
     }
 
     nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         let reasonStr = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "none"
+        // MARK: - Skilly — Debug logging (stripped in release)
+        #if DEBUG
         print("🔴 OpenAI Realtime: WebSocket didClose (code: \(closeCode.rawValue), reason: \(reasonStr))")
+        #endif
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
+            // MARK: - Skilly — Debug logging (stripped in release)
+            #if DEBUG
             print("⚠️ OpenAI Realtime: task error: \(error)")
+            #endif
             openBox.resumeWithError(OpenAIRealtimeClient.OpenAIRealtimeError.connectionFailed(error.localizedDescription))
         }
     }
