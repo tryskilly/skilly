@@ -1,35 +1,42 @@
-# Hi, this is Clicky.
-It's an AI teacher that lives as a buddy next to your cursor. It can see your screen, talk to you, and even point at stuff. Kinda like having a real teacher next to you.
+# Skilly
 
-Download it [here](https://www.clicky.so/) for free.
+An AI teaching companion that lives in your macOS menu bar. It sees your screen, talks to you, and physically points at UI elements — like having an expert tutor sitting next to you.
 
-Here's the [original tweet](https://x.com/FarzaTV/status/2041314633978659092) that kinda blew up for a demo for more context.
+Built for learning creative software: Figma, Blender, After Effects, and more. Each app gets a domain-specific teaching skill with curriculum stages, UI vocabulary, and expert knowledge.
 
-![Clicky — an ai buddy that lives on your mac](clicky-demo.gif)
+**[tryskilly.app](https://tryskilly.app)** | **[Download](https://downloads.tryskilly.app/Skilly.dmg)**
 
-This is the open-source version of Clicky for those that want to hack on it, build their own features, or just see how it works under the hood.
+## How it works
 
-## Get started with Claude Code
+1. **Push to talk** (ctrl + option) or enable **Live Tutor** for always-on listening
+2. Skilly captures your screen, hears your question, and responds with voice
+3. A blue cursor flies to and points at the UI element it's referencing
+4. Teaching skills provide structured learning with curriculum stages
 
-The fastest way to get this running is with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+The entire voice pipeline runs through a single OpenAI Realtime WebSocket — audio in, screenshots, transcription, vision, LLM response, and TTS all in one connection.
 
-Once you get Claude running, paste this:
+## Features
+
+- **Screen-aware tutoring** — sees your screen and references specific UI elements
+- **Cursor pointing** — blue cursor animates to elements via tool-call-based `point_at_element`
+- **Teaching skills** — SKILL.md files with curriculum stages, completion signals, and UI vocabulary
+- **Live Tutor mode** — always-on listening with server-side VAD (no hotkey needed)
+- **Multi-monitor** — captures and points across all connected displays
+- **15-minute free trial** — no card required, then $19/month for 3 hours of tutoring
+
+## Quick start with Claude Code
 
 ```
 Hi Claude.
 
-Clone https://github.com/farzaa/clicky.git into my current directory.
+Clone https://github.com/engmsaleh/clicky.git into my current directory.
 
-Then read the CLAUDE.md. I want to get Clicky running locally on my Mac.
+Then read the CLAUDE.md. I want to get Skilly running locally on my Mac.
 
 Help me set up everything — the Cloudflare Worker with my own API keys, the proxy URLs, and getting it building in Xcode. Walk me through it.
 ```
 
-That's it. It'll clone the repo, read the docs, and walk you through the whole setup. Once you're running you can just keep talking to it — build features, fix bugs, whatever. Go crazy.
-
 ## Manual setup
-
-If you want to do it yourself, here's the deal.
 
 ### Prerequisites
 
@@ -41,113 +48,104 @@ If you want to do it yourself, here's the deal.
 
 ### 1. Set up the Cloudflare Worker
 
-The Worker is a tiny proxy that holds your API keys. The app talks to the Worker, the Worker talks to the APIs. This way your keys never ship in the app binary.
+The Worker is a proxy that holds your API keys and handles auth, billing, and API routing. Nothing sensitive ships in the app binary.
 
 ```bash
 cd worker
 npm install
 ```
 
-Now add your secrets. Wrangler will prompt you to paste each one:
+Add your secrets:
 
 ```bash
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put WORKOS_API_KEY
 npx wrangler secret put SESSION_TOKEN_SECRET
+npx wrangler secret put POLAR_API_KEY
+npx wrangler secret put POLAR_WEBHOOK_SECRET
 ```
 
-For the WorkOS config, open `wrangler.toml` and set it there (these are not sensitive):
-
-```toml
-[vars]
-WORKOS_CLIENT_ID = "your-workos-client-id"
-WORKOS_REDIRECT_URI = "https://your-worker-name.your-subdomain.workers.dev/auth/callback"
-```
-
-Deploy it:
+Configure `wrangler.toml` with your WorkOS and Polar settings, then deploy:
 
 ```bash
 npx wrangler deploy
 ```
 
-It'll give you a URL like `https://your-worker-name.your-subdomain.workers.dev`. Copy that.
-
-### 2. Run the Worker locally (for development)
-
-If you want to test changes to the Worker without deploying:
-
-```bash
-cd worker
-npx wrangler dev
-```
-
-This starts a local server (usually `http://localhost:8787`) that behaves exactly like the deployed Worker. You'll need to create a `.dev.vars` file in the `worker/` directory with your keys:
-
-```
-OPENAI_API_KEY=sk-...
-WORKOS_API_KEY=...
-WORKOS_CLIENT_ID=...
-WORKOS_REDIRECT_URI=https://your-worker-name.your-subdomain.workers.dev/auth/callback
-```
-
-Then update the worker base URL in app settings (or defaults) to point to `http://localhost:8787` instead of the deployed Worker URL while developing.
-
-### 3. Update the proxy URLs in the app
-
-The app reads the Worker URL from settings (`workerBaseURL`). For security, point it to your own Worker deployment. Do not rely on shared/public Worker URLs for production usage.
-
-### 4. Open in Xcode and run
+### 2. Open in Xcode and run
 
 ```bash
 open leanring-buddy.xcodeproj
 ```
 
-In Xcode:
-1. Select the `leanring-buddy` scheme (yes, the typo is intentional, long story)
+1. Select the `leanring-buddy` scheme (the typo is intentional/legacy)
 2. Set your signing team under Signing & Capabilities
 3. Hit **Cmd + R** to build and run
 
-The app will appear in your menu bar (not the dock). Click the icon to open the panel, grant the permissions it asks for, and you're good.
+The app appears in your menu bar (not the dock). Click the icon to open the panel.
 
-### Permissions the app needs
+**Do NOT run `xcodebuild` from the terminal** — it invalidates TCC permissions and the app will need to re-request screen recording, accessibility, etc.
 
-- **Microphone** — for push-to-talk voice capture
-- **Accessibility** — for the global keyboard shortcut (Control + Option)
-- **Screen Recording** — for taking screenshots when you use the hotkey
-- **Screen Content** — for ScreenCaptureKit access
+### Permissions
+
+- **Microphone** — push-to-talk voice capture
+- **Accessibility** — global keyboard shortcut
+- **Screen Recording** — screenshots when you talk
 
 ## Architecture
 
-If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
+Menu bar app (`LSUIElement=true`) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay.
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio + screenshots to **OpenAI Realtime** over WebSocket (STT + vision + LLM + audio response). The response text is shown beside the floating cursor while speaking. The model can embed `[POINT:x,y:label:screenN]` tags; Skilly parses them and animates the cursor to the referenced UI element across monitors. Cloudflare Worker still proxies auth and external API routes.
+Push-to-talk or Live Tutor mode streams audio + screenshots to **OpenAI Realtime** over WebSocket. The model calls the `point_at_element` tool to animate the cursor to UI elements across monitors. Teaching skills layer domain expertise into the system prompt with curriculum tracking and UI vocabulary.
+
+All API calls route through a Cloudflare Worker proxy with signed session tokens and authenticated endpoints.
+
+For the full technical breakdown, read [`CLAUDE.md`](CLAUDE.md).
 
 ## Project structure
 
 ```
-leanring-buddy/          # Swift source (yes, the typo stays)
-  CompanionManager.swift    # Central state machine
-  CompanionPanelView.swift  # Menu bar panel UI
-  OpenAIRealtimeClient.swift # OpenAI Realtime websocket client
-  AuthManager.swift          # WorkOS auth flow + keychain session
-  SkillManager.swift         # Skill loading/activation/progress
-  OverlayWindow.swift       # Blue cursor overlay
-  CompanionScreenCaptureUtility.swift # Multi-screen capture
-  GlobalPushToTalkShortcutMonitor.swift # Global hotkey capture
-worker/                  # Cloudflare Worker proxy
-  src/index.ts              # /openai/token, /auth/*, and legacy proxy routes
-CLAUDE.md                # Full architecture doc (agents read this)
+leanring-buddy/             # Swift source (the typo stays)
+  CompanionManager.swift      # Central state machine + voice pipeline
+  OpenAIRealtimeClient.swift  # OpenAI Realtime WebSocket client
+  SkillManager.swift          # Skill loading, activation, curriculum
+  SkillPromptComposer.swift   # 5-layer system prompt composition
+  AuthManager.swift           # WorkOS auth + Keychain session
+  EntitlementManager.swift    # Billing entitlement + trial tracking
+  OverlayWindow.swift         # Blue cursor overlay + pointing animation
+  PanelBodyView.swift         # Main panel with skills + plan strip
+  SettingsView.swift          # Settings (Account, Voice, General)
+worker/                     # Cloudflare Worker proxy
+  src/index.ts                # Auth, billing, OpenAI token relay
+skills/                     # Bundled teaching skills
+  blender-fundamentals/       # Blender 4.x skill (6 stages)
+docs/                       # Security audits, privacy inventory
 ```
 
-## Contributing
+## Installing skills
 
-PRs welcome. If you're using Claude Code, it already knows the codebase — just tell it what you want to build and point it at `CLAUDE.md`.
+Skills are SKILL.md files that turn Skilly into a domain expert. Drop them in `~/.skilly/skills/`:
 
-Got feedback? DM me on X [@farzatv](https://x.com/farzatv).
+```bash
+mkdir -p ~/.skilly/skills
+cp -r skills/blender-fundamentals ~/.skilly/skills/
+```
+
+Skills auto-activate when you open their target app (e.g., the Blender skill activates when Blender is frontmost).
+
+## Fork origin
+
+This is a fork of [farzaa/clicky](https://github.com/farzaa/clicky) (MIT License). Original upstream code is attributed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Skilly-specific additions are marked with `// MARK: - Skilly` throughout the codebase.
 
 ## Security
 
-- Vulnerability reporting process: [`SECURITY.md`](SECURITY.md)
+- Vulnerability reporting: [`SECURITY.md`](SECURITY.md)
 - Third-party notices: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
-- Privacy data inventory for release labels: [`docs/privacy-data-inventory.md`](docs/privacy-data-inventory.md)
-- Latest remediation summary: [`docs/security-remediation-rvb-launch-2026-04-13.md`](docs/security-remediation-rvb-launch-2026-04-13.md)
+- Privacy data inventory: [`docs/privacy-data-inventory.md`](docs/privacy-data-inventory.md)
+
+## License
+
+Copyright 2026 Mohamed Saleh Zaied ([moelabs.dev](https://moelabs.dev))
+
+Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE) for details.
+
+Original [Clicky](https://github.com/farzaa/clicky) code by Farza, licensed under MIT.
