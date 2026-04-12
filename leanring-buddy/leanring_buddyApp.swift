@@ -146,7 +146,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         print("🎯 Skilly Auth: Received auth callback with code")
         #endif
-        authManager.handleAuthCallback(code: code)
+        let state = components?.queryItems?.first(where: { $0.name == "state" })?.value
+        authManager.handleAuthCallback(code: code, state: state)
         Task { await EntitlementManager.shared.refresh() }
     }
 

@@ -47,7 +47,12 @@ final class AuthManager: ObservableObject {
     private static let keychainServiceName = "app.tryskilly.skilly.auth"
     private static let keychainAccessTokenKey = "accessToken"
     private static let keychainRefreshTokenKey = "refreshToken"
+    private static let keychainWorkerSessionTokenKey = "workerSessionToken"
     private static let keychainUserKey = "currentUser"
+    private static let oauthStateLifetimeSeconds: TimeInterval = 10 * 60
+
+    private var pendingOAuthState: String?
+    private var pendingOAuthStateCreatedAt: Date?
 
     var isSignedIn: Bool {
         currentUser != nil
@@ -72,8 +77,18 @@ final class AuthManager: ObservableObject {
 
         Task {
             do {
+                let oauthState = Self.generateOAuthState()
+                pendingOAuthState = oauthState
+                pendingOAuthStateCreatedAt = Date()
+
                 // Get the auth URL from the Worker
-                let url = URL(string: "\(workerBaseURL)/auth/url")!
+                var components = URLComponents(string: "\(workerBaseURL)/auth/url")!
+                components.queryItems = [
+                    URLQueryItem(name: "state", value: oauthState),
+                ]
+                guard let url = components.url else {
+                    throw AuthError.invalidResponse
+                }
                 let (data, _) = try await URLSession.shared.data(from: url)
                 let response = try JSONDecoder().decode(AuthURLResponse.self, from: data)
 
@@ -84,6 +99,8 @@ final class AuthManager: ObservableObject {
             } catch {
                 isAuthenticating = false
                 authError = "Failed to start sign in: \(error.localizedDescription)"
+                pendingOAuthState = nil
+                pendingOAuthStateCreatedAt = nil
                 // MARK: - Skilly — Debug logging (stripped in release)
                 #if DEBUG
                 print("⚠️ Skilly Auth: Failed to get auth URL: \(error)")
@@ -92,9 +109,18 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    /// Called when the app receives the skilly://auth/callback?code=XXX deep link.
+    /// Called when the app receives the skilly://auth/callback?code=XXX&state=YYY deep link.
     /// Exchanges the authorization code for a user profile via the Worker proxy.
-    func handleAuthCallback(code: String) {
+    func handleAuthCallback(code: String, state: String?) {
+        guard validateOAuthState(state) else {
+            isAuthenticating = false
+            authError = "Sign in failed: invalid OAuth state"
+            #if DEBUG
+            print("⚠️ Skilly Auth: OAuth state mismatch")
+            #endif
+            return
+        }
+
         isAuthenticating = true
         authError = nil
 
@@ -124,6 +150,7 @@ final class AuthManager: ObservableObject {
                 if let refreshToken = authResponse.refreshToken {
                     saveToKeychain(key: Self.keychainRefreshTokenKey, value: refreshToken)
                 }
+                saveToKeychain(key: Self.keychainWorkerSessionTokenKey, value: authResponse.sessionToken)
 
                 // Store user profile
                 let userData = try JSONEncoder().encode(authResponse.user)
@@ -133,6 +160,8 @@ final class AuthManager: ObservableObject {
                 isAuthenticated = true
                 isAuthenticating = false
                 authError = nil
+                pendingOAuthState = nil
+                pendingOAuthStateCreatedAt = nil
 
                 let user = authResponse.user
                 let signupDate = ISO8601DateFormatter().string(from: Date())
@@ -154,6 +183,8 @@ final class AuthManager: ObservableObject {
             } catch {
                 isAuthenticating = false
                 authError = "Sign in failed: \(error.localizedDescription)"
+                pendingOAuthState = nil
+                pendingOAuthStateCreatedAt = nil
                 // MARK: - Skilly — Debug logging (stripped in release)
                 #if DEBUG
                 print("⚠️ Skilly Auth: Token exchange failed: \(error)")
@@ -167,9 +198,12 @@ final class AuthManager: ObservableObject {
     func signOut() {
         deleteFromKeychain(key: Self.keychainAccessTokenKey)
         deleteFromKeychain(key: Self.keychainRefreshTokenKey)
+        deleteFromKeychain(key: Self.keychainWorkerSessionTokenKey)
         deleteFromKeychain(key: Self.keychainUserKey)
         currentUser = nil
         isAuthenticated = false
+        pendingOAuthState = nil
+        pendingOAuthStateCreatedAt = nil
         // MARK: - Skilly — Debug logging (stripped in release)
         #if DEBUG
         print("🎯 Skilly Auth: Signed out")
@@ -209,6 +243,7 @@ final class AuthManager: ObservableObject {
         if let newRefreshToken = authResponse.refreshToken {
             saveToKeychain(key: Self.keychainRefreshTokenKey, value: newRefreshToken)
         }
+        saveToKeychain(key: Self.keychainWorkerSessionTokenKey, value: authResponse.sessionToken)
 
         let userData = try JSONEncoder().encode(authResponse.user)
         saveToKeychain(key: Self.keychainUserKey, value: String(data: userData, encoding: .utf8) ?? "")
@@ -221,6 +256,7 @@ final class AuthManager: ObservableObject {
 
     private func loadStoredUser() {
         guard let userJSON = loadFromKeychain(key: Self.keychainUserKey),
+              loadFromKeychain(key: Self.keychainWorkerSessionTokenKey) != nil,
               let userData = userJSON.data(using: .utf8),
               let user = try? JSONDecoder().decode(SkillyUser.self, from: userData) else {
             return
@@ -231,6 +267,42 @@ final class AuthManager: ObservableObject {
         #if DEBUG
         print("🎯 Skilly Auth: Restored session for \(user.email)")
         #endif
+    }
+
+    // MARK: - Worker Auth
+
+    func applyWorkerSessionAuthorization(to request: inout URLRequest) -> Bool {
+        guard let workerSessionToken = loadFromKeychain(key: Self.keychainWorkerSessionTokenKey) else {
+            return false
+        }
+        request.setValue("Bearer \(workerSessionToken)", forHTTPHeaderField: "Authorization")
+        return true
+    }
+
+    // MARK: - OAuth State
+
+    private static func generateOAuthState() -> String {
+        let randomBytes = (0..<32).map { _ in UInt8.random(in: 0...255) }
+        let randomData = Data(randomBytes)
+        return randomData.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func validateOAuthState(_ callbackState: String?) -> Bool {
+        guard let pendingOAuthState,
+              let pendingOAuthStateCreatedAt,
+              let callbackState else {
+            return false
+        }
+
+        let stateAgeInSeconds = Date().timeIntervalSince(pendingOAuthStateCreatedAt)
+        guard stateAgeInSeconds <= Self.oauthStateLifetimeSeconds else {
+            return false
+        }
+
+        return callbackState == pendingOAuthState
     }
 
     // MARK: - Keychain Helpers
@@ -296,6 +368,7 @@ final class AuthManager: ObservableObject {
         let user: SkillyUser
         let accessToken: String
         let refreshToken: String?
+        let sessionToken: String
     }
 
     // MARK: - Errors

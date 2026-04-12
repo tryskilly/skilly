@@ -10,7 +10,7 @@
 //    Audio in + Screenshots → OpenAI (STT + Vision + LLM + TTS) → Audio out
 //
 //  Protocol: JSON events over WebSocket. Audio is base64-encoded PCM16.
-//  Endpoint: wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview
+//  Endpoint: wss://api.openai.com/v1/realtime?model=gpt-realtime
 //
 //  See: https://developers.openai.com/api/docs/guides/realtime-websocket
 //
@@ -95,7 +95,7 @@ enum OpenAIRealtimeEvent {
 final class OpenAIRealtimeClient: ObservableObject {
 
     private static let realtimeEndpoint = "wss://api.openai.com/v1/realtime"
-    private static let defaultModel = "gpt-4o-realtime-preview"
+    private static let defaultModel = "gpt-realtime"
 
     static let availableVoices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]
 
@@ -111,17 +111,28 @@ final class OpenAIRealtimeClient: ObservableObject {
     // MARK: - Token Relay
 
     private struct OpenAITokenResponse: Codable {
-        let apiKey: String
+        let clientSecret: String
+        let expiresAt: Int
         let model: String
     }
 
     private var cachedToken: OpenAITokenResponse?
 
     private func fetchToken() async throws -> OpenAITokenResponse {
-        if let cached = cachedToken { return cached }
+        if let cached = cachedToken {
+            let nowInSeconds = Int(Date().timeIntervalSince1970)
+            if cached.expiresAt > (nowInSeconds + 10) {
+                return cached
+            }
+        }
 
         let url = URL(string: "\(AppSettings.shared.workerBaseURL)/openai/token")!
-        let (data, response) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+            throw OpenAIRealtimeError.connectionFailed("Please sign in before starting a voice session")
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
@@ -159,7 +170,7 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         // OpenAI uses Authorization header, not query parameter
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(token.apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token.clientSecret)", forHTTPHeaderField: "Authorization")
         request.setValue("realtime=v1", forHTTPHeaderField: "OpenAI-Beta")
         request.timeoutInterval = 30
 

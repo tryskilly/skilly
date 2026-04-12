@@ -110,6 +110,10 @@ final class EntitlementManager: ObservableObject {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.setValue("application/json", forHTTPHeaderField: forContentType)
+            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+                status = .none
+                return
+            }
 
             let (data, _) = try await URLSession.shared.data(for: request)
             let record = try JSONDecoder().decode(EntitlementRecord.self, from: data)
@@ -213,6 +217,9 @@ final class EntitlementManager: ObservableObject {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+                return
+            }
             struct CheckoutPayload: Codable { let user_id: String; let email: String }
             request.httpBody = try JSONEncoder().encode(CheckoutPayload(user_id: userId, email: email))
 
@@ -228,6 +235,36 @@ final class EntitlementManager: ObservableObject {
                 // updates without requiring the deep link or a relaunch.
                 startPostCheckoutPolling()
             }
+        } catch {
+            // Log error silently
+        }
+    }
+
+    /// Opens the authenticated user's billing portal in the default browser.
+    func startCustomerPortal() async {
+        guard AuthManager.shared.isAuthenticated else { return }
+
+        do {
+            guard let url = URL(string: "\(workerBaseURL)/portal") else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+                return
+            }
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return
+            }
+
+            struct PortalResponse: Codable {
+                let portal_url: String
+            }
+            let decodedResponse = try JSONDecoder().decode(PortalResponse.self, from: data)
+            guard let portalURL = URL(string: decodedResponse.portal_url) else { return }
+            NSWorkspace.shared.open(portalURL)
         } catch {
             // Log error silently
         }

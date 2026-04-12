@@ -31,7 +31,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 
 | Route | Method | Upstream | Purpose |
 |-------|--------|----------|---------|
-| `/openai/token` | GET | — | Returns OpenAI API key for Realtime WebSocket auth |
+| `/openai/token` | GET | `api.openai.com/v1/realtime/client_secrets` | Returns short-lived OpenAI Realtime client secret (not raw API key) |
 | `/auth/url` | GET | — | Returns WorkOS AuthKit authorization URL |
 | `/auth/callback` | GET | — | Catches WorkOS redirect, redirects to `skilly://auth/callback` |
 | `/auth/token` | POST | `api.workos.com/user_management/authenticate` | Exchanges auth code for user profile + tokens |
@@ -39,7 +39,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `/tts` | POST | `api.elevenlabs.io/v1/text-to-speech/{voiceId}` | ElevenLabs TTS (legacy, unused by current pipeline) |
 | `/transcribe-token` | POST | `streaming.assemblyai.com/v3/token` | AssemblyAI token (legacy, unused by current pipeline) |
 
-Worker secrets: `OPENAI_API_KEY`, `WORKOS_API_KEY`
+Worker secrets: `OPENAI_API_KEY`, `WORKOS_API_KEY`, `SESSION_TOKEN_SECRET`
 Worker vars: `WORKOS_CLIENT_ID`, `WORKOS_REDIRECT_URI`
 Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`
 
@@ -53,13 +53,13 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 **OpenAI Realtime Pipeline**: A single WebSocket connection to OpenAI handles the entire voice interaction: audio in (PCM16 mono 16kHz via `appendAudioChunk()`), screenshots (JPEG via `sendScreenshot()`), transcription, vision, LLM response, and TTS audio out (PCM16 24kHz via `response.audio.delta`). This replaces the previous chained pipeline of AssemblyAI + Claude + ElevenLabs.
 
-**Token Relay**: OpenAI API key lives as a Worker secret. The app fetches it via `GET /openai/token` at session start, enabling direct WebSocket connection to `api.openai.com/v1/realtime`.
+**Token Relay**: OpenAI API key lives as a Worker secret. The app fetches a short-lived Realtime client secret via `GET /openai/token` at session start, so the raw OpenAI API key is never returned to the client.
 
 **Transient Cursor Mode**: When "Show Skilly" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
 **Skill Prompt Composition**: When a skill is active, the system prompt is composed in 5 layers: base Skilly prompt → teaching instructions → curriculum context → UI vocabulary (budget-trimmed) → pointing mode instruction. When no skill is active, the original base prompt is used unchanged.
 
-**WorkOS Auth Flow**: User clicks "Sign in" → browser opens to WorkOS AuthKit → authenticates → WorkOS redirects to Worker `/auth/callback` → Worker serves HTML that redirects to `skilly://auth/callback?code=XXX` → app catches deep link → exchanges code for user profile via Worker `/auth/token` → stores session in Keychain.
+**WorkOS Auth Flow**: User clicks "Sign in" → app generates OAuth `state` → browser opens WorkOS AuthKit via Worker `/auth/url?state=...` → WorkOS redirects to Worker `/auth/callback` → Worker serves HTML that redirects to `skilly://auth/callback?code=XXX&state=YYY` → app validates `state` and exchanges code via Worker `/auth/token` → stores access/refresh + Worker session token in Keychain.
 
 ## Key Files
 
@@ -88,7 +88,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `AuthManager.swift` | ~210 | WorkOS AuthKit flow: browser sign-in via `/auth/url`, deep link callback `skilly://auth/callback`, code exchange via `/auth/token`, Keychain storage with `ThisDeviceOnly` accessibility, refresh token support. |
+| `AuthManager.swift` | ~280 | WorkOS AuthKit flow: browser sign-in via `/auth/url`, OAuth `state` generation/validation, deep link callback `skilly://auth/callback`, code exchange via `/auth/token`, Keychain storage with `ThisDeviceOnly` accessibility (access/refresh/session tokens), refresh token support. |
 | `SkillyAnalytics.swift` | ~125 | PostHog analytics. Privacy-first: no transcript/response text captured, only character counts and element labels. Gated by `analyticsEnabled` setting. |
 
 ### Skill System
@@ -112,7 +112,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `worker/src/index.ts` | ~391 | Worker proxy. Routes: `/openai/token` (active), `/auth/url`, `/auth/callback`, `/auth/token` (active), `/chat`, `/tts`, `/transcribe-token` (legacy). All API keys stored as secrets. |
+| `worker/src/index.ts` | ~560 | Worker proxy. Routes: `/openai/token` (active, authenticated, ephemeral secret mint), `/auth/url`, `/auth/callback`, `/auth/token` (active), `/checkout/create`, `/entitlement`, `/portal` (authenticated), `/chat`, `/tts`, `/transcribe-token` (legacy, authenticated). All API keys stored as secrets. |
 
 ### Skill Files
 
@@ -146,6 +146,7 @@ npm install
 # Add secrets (use --name skilly-proxy if running from outside worker/)
 npx wrangler secret put OPENAI_API_KEY --name skilly-proxy
 npx wrangler secret put WORKOS_API_KEY --name skilly-proxy
+npx wrangler secret put SESSION_TOKEN_SECRET --name skilly-proxy
 
 # Legacy secrets (unused by current pipeline but required for worker compatibility)
 npx wrangler secret put ANTHROPIC_API_KEY --name skilly-proxy

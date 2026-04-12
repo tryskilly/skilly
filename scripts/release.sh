@@ -5,7 +5,7 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:$PATH"
 
 # =============================================================================
-# release.sh — Automates the full release pipeline for makesomething
+# release.sh — Automates the full release pipeline for Skilly
 #
 # What it does (in order):
 #   1. Auto-detects version + build from the latest GitHub Release
@@ -16,7 +16,7 @@ export PATH="/opt/homebrew/bin:$PATH"
 #   6. Signs the DMG with your Sparkle EdDSA key
 #   7. Generates/updates appcast.xml automatically
 #   8. Creates a GitHub Release with the DMG attached
-#   9. Pushes the updated appcast.xml to the releases repo (makesomething-mac-app)
+#   9. Pushes the updated appcast.xml to the configured releases repo
 #
 # Usage:
 #   ./scripts/release.sh              Auto-bumps: 1.5 → 1.6, build 6 → 7
@@ -34,7 +34,8 @@ export PATH="/opt/homebrew/bin:$PATH"
 # ── Configuration ────────────────────────────────────────────────────────────
 
 SCHEME="leanring-buddy"
-APP_NAME="makesomething"
+# Keep the release artifact name aligned with PRODUCT_NAME in Xcode.
+APP_NAME="${APP_NAME:-Skilly}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build"
 ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
@@ -43,7 +44,7 @@ DMG_OUTPUT_DIR="${BUILD_DIR}/dmg"
 RELEASES_DIR="${PROJECT_DIR}/releases"  # where generate_appcast reads DMGs from
 DMG_BACKGROUND="${PROJECT_DIR}/dmg-background.png"
 
-GITHUB_REPO="julianjear/makesomething-mac-app"
+GITHUB_REPO="${GITHUB_REPO:-julianjear/makesomething-mac-app}"
 
 # Sparkle tools (auto-discovered from Xcode's SPM cache)
 SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/leanring-buddy*/SourcePackages/artifacts/sparkle/Sparkle/bin -maxdepth 0 2>/dev/null | head -1)
@@ -245,11 +246,11 @@ echo "🏷️  Creating GitHub Release ${TAG}..."
 gh release create "${TAG}" "${DMG_PATH}" \
     --repo "${GITHUB_REPO}" \
     --title "v${MARKETING_VERSION}" \
-    --notes "makesomething v${MARKETING_VERSION}" \
+    --notes "${APP_NAME} v${MARKETING_VERSION}" \
     --latest
 
 # ── Step 9: Push appcast.xml to the releases repo ───────────────────────────
-# The appcast lives in makesomething-mac-app (the releases repo), not in the
+# The appcast lives in the releases repo, not in the
 # source code repo. We clone it to a temp dir, copy the new appcast, and push.
 
 echo "📝 Pushing appcast.xml to ${GITHUB_REPO}..."

@@ -194,10 +194,7 @@ struct PlanCard: View {
         switch effectiveStatus {
         case .active, .canceled:
             Button(action: {
-                if let email = AuthManager.shared.currentUser?.email {
-                    let portalURL = "\(AppSettings.shared.workerBaseURL)/portal?email=\(email)"
-                    openURL(portalURL)
-                }
+                Task { await EntitlementManager.shared.startCustomerPortal() }
             }) {
                 manageButtonContent(
                     label: "Manage subscription",
@@ -235,11 +232,6 @@ struct PlanCard: View {
             RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
                 .fill(color.opacity(0.10))
         )
-    }
-
-    private func openURL(_ string: String) {
-        guard let url = URL(string: string) else { return }
-        NSWorkspace.shared.open(url)
     }
 
     // MARK: - Formatting

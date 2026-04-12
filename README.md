@@ -53,6 +53,7 @@ Now add your secrets. Wrangler will prompt you to paste each one:
 ```bash
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put WORKOS_API_KEY
+npx wrangler secret put SESSION_TOKEN_SECRET
 ```
 
 For the WorkOS config, open `wrangler.toml` and set it there (these are not sensitive):
@@ -93,7 +94,7 @@ Then update the worker base URL in app settings (or defaults) to point to `http:
 
 ### 3. Update the proxy URLs in the app
 
-The app reads the Worker URL from settings (`workerBaseURL`). Default points to the Skilly proxy. You can override it for your own deployment.
+The app reads the Worker URL from settings (`workerBaseURL`). For security, point it to your own Worker deployment. Do not rely on shared/public Worker URLs for production usage.
 
 ### 4. Open in Xcode and run
 
@@ -143,3 +144,10 @@ CLAUDE.md                # Full architecture doc (agents read this)
 PRs welcome. If you're using Claude Code, it already knows the codebase — just tell it what you want to build and point it at `CLAUDE.md`.
 
 Got feedback? DM me on X [@farzatv](https://x.com/farzatv).
+
+## Security
+
+- Vulnerability reporting process: [`SECURITY.md`](SECURITY.md)
+- Third-party notices: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+- Privacy data inventory for release labels: [`docs/privacy-data-inventory.md`](docs/privacy-data-inventory.md)
+- Latest remediation summary: [`docs/security-remediation-rvb-launch-2026-04-13.md`](docs/security-remediation-rvb-launch-2026-04-13.md)

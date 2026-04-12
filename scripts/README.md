@@ -1,6 +1,6 @@
 # Release Scripts
 
-## `release.sh` — Ship a new version of makesomething
+## `release.sh` — Ship a new version of Skilly
 
 Automates the full release pipeline: build → sign → DMG → notarize → Sparkle appcast → GitHub Release.
 
