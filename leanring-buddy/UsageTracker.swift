@@ -1,4 +1,5 @@
 import Foundation
+import PostHog
 
 /// Tracks the 3-hour monthly usage cap for paid subscribers.
 /// Period boundaries come from EntitlementManager, not rolling windows.

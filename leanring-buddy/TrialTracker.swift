@@ -1,4 +1,5 @@
 import Foundation
+import PostHog
 
 /// Tracks the 15-minute lifetime free trial per WorkOS user.
 /// Keys are suffixed with the WorkOS user ID from AuthManager.shared.currentUser?.id.
