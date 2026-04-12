@@ -4,9 +4,11 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
-	<!-- MARK: - Skilly — Sparkle auto-update removed for open-source.
-	     The SUFeedURL pointed to the original Clicky author's repo.
-	     Forks should add their own Sparkle configuration if desired. -->
+	<!-- MARK: - Skilly — Sparkle auto-update configuration -->
+	<key>SUPublicEDKey</key>
+	<string>KiUhtvrpYp4WVEBSq2rACO173YwD/q6/8f1v3RfU6uE=</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/tryskilly/skilly/main/appcast.xml</string>
 	<key>VoiceTranscriptionProvider</key>
 	<string>assemblyai</string>
 	<key>NSMicrophoneUsageDescription</key>
