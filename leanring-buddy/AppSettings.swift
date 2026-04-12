@@ -121,6 +121,21 @@ final class AppSettings: ObservableObject {
 
     // Pipeline is always OpenAI Realtime — classic pipeline removed.
 
+    // MARK: - Voice Input Mode
+
+    /// Controls how voice input is captured. "pushToTalk" requires holding the hotkey;
+    /// "liveTutor" uses always-on listening with server-side VAD for a hands-free experience.
+    /// Valid values: "pushToTalk", "liveTutor".
+    @Published var voiceInputMode: String {
+        didSet { UserDefaults.standard.set(voiceInputMode, forKey: "voiceInputMode") }
+    }
+
+    /// Number of minutes of silence after which Live Tutor mode automatically sleeps.
+    /// When 0, Live Tutor never auto-sleeps. Only applies when voiceInputMode is "liveTutor".
+    @Published var liveTutorAutoSleepMinutes: Int {
+        didSet { UserDefaults.standard.set(liveTutorAutoSleepMinutes, forKey: "liveTutorAutoSleepMinutes") }
+    }
+
     // MARK: - Init
 
     private init() {
@@ -166,6 +181,12 @@ final class AppSettings: ObservableObject {
 
         // Voice
         self.voiceName = UserDefaults.standard.string(forKey: "voiceName") ?? "coral"
+
+        // Voice Input Mode
+        self.voiceInputMode = UserDefaults.standard.string(forKey: "voiceInputMode") ?? "pushToTalk"
+        self.liveTutorAutoSleepMinutes = UserDefaults.standard.object(forKey: "liveTutorAutoSleepMinutes") == nil
+            ? 5  // Default: auto-sleep after 5 minutes of silence
+            : UserDefaults.standard.integer(forKey: "liveTutorAutoSleepMinutes")
 
         // Pipeline is always OpenAI Realtime
     }
