@@ -6,8 +6,8 @@ compatibility_date = "2024-01-01"
 ELEVENLABS_VOICE_ID = "kPzsL2i3teMYv0FxEYQ6"
 WORKOS_CLIENT_ID = "client_01KNQKDAG6M4YEPVCEXDA4PRND"
 WORKOS_REDIRECT_URI = "https://skilly-proxy.eng-mohamedszaied.workers.dev/auth/callback"
-POLAR_BETA_PRODUCT_ID = "your-polar-product-id-here"
+POLAR_BETA_PRODUCT_ID = "2706ed5f-04b2-4429-a62a-27f9bd9f1ec9"
 
 [[kv_namespaces]]
 binding = "SKILLY_ENTITLEMENTS"
-id = "your-kv-namespace-id-here"
+id = "d05cca70637d4355b982da6e0a15a1fa"
