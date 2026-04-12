@@ -64,6 +64,9 @@ export default {
         if (url.pathname === "/entitlement") {
           return await handleEntitlement(url, env);
         }
+        if (url.pathname === "/portal") {
+          return await handleCustomerPortal(url, env);
+        }
         if (url.pathname === "/auth/url") {
           return handleAuthURL(env);
         }
@@ -579,6 +582,81 @@ async function handleEntitlement(url: URL, env: Env): Promise<Response> {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+/// Creates a Polar customer portal session and redirects to it.
+/// The portal lets customers manage their subscription (cancel, update payment).
+/// Usage: GET /portal?email=user@example.com
+async function handleCustomerPortal(url: URL, env: Env): Promise<Response> {
+  const email = url.searchParams.get("email");
+  if (!email) {
+    return new Response("Missing email", { status: 400 });
+  }
+
+  const polarBase = env.POLAR_API_BASE || "https://api.polar.sh";
+
+  try {
+    // Look up the customer by email
+    const customerRes = await fetch(
+      `${polarBase}/v1/customers?email=${encodeURIComponent(email)}`,
+      {
+        headers: { Authorization: `Bearer ${env.POLAR_API_KEY}` },
+      }
+    );
+
+    if (!customerRes.ok) {
+      return new Response(JSON.stringify({ error: "Customer lookup failed" }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const customers = await customerRes.json() as { items: Array<{ id: string }> };
+    if (!customers.items?.length) {
+      return new Response(JSON.stringify({ error: "No customer found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const customerId = customers.items[0].id;
+
+    // Create a customer portal session
+    const sessionRes = await fetch(`${polarBase}/v1/customer-sessions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.POLAR_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ customer_id: customerId }),
+    });
+
+    if (!sessionRes.ok) {
+      const errText = await sessionRes.text();
+      console.error("[/portal] Session creation failed:", errText);
+      return new Response(JSON.stringify({ error: "Portal session failed" }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const session = await sessionRes.json() as { customer_portal_url?: string };
+    if (session.customer_portal_url) {
+      // Redirect the user's browser directly to the portal
+      return Response.redirect(session.customer_portal_url, 302);
+    }
+
+    return new Response(JSON.stringify({ error: "No portal URL returned" }), {
+      status: 502,
+      headers: { "content-type": "application/json" },
+    });
+  } catch (error) {
+    console.error("[/portal] Error:", error);
+    return new Response(JSON.stringify({ error: "Internal error" }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
 }
 
 /// Verify a Standard Webhooks signature (used by Polar).

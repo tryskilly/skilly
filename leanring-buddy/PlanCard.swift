@@ -193,8 +193,12 @@ struct PlanCard: View {
     private var manageButton: some View {
         switch effectiveStatus {
         case .active, .canceled:
-            // TODO: Switch to https://polar.sh/purchases/subscriptions for production
-            Button(action: { openURL("https://sandbox.polar.sh/purchases/subscriptions") }) {
+            Button(action: {
+                if let email = AuthManager.shared.currentUser?.email {
+                    let portalURL = "\(AppSettings.shared.workerBaseURL)/portal?email=\(email)"
+                    openURL(portalURL)
+                }
+            }) {
                 manageButtonContent(
                     label: "Manage subscription",
                     color: Color(hex: "#60A5FA")
