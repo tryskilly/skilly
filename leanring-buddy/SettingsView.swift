@@ -181,6 +181,30 @@ struct SettingsView: View {
 
         divider
 
+        sectionHeader("INPUT MODE")
+        settingsRow("Voice input") {
+            settingsPicker(
+                selection: $settings.voiceInputMode,
+                options: [
+                    ("pushToTalk", "Push to Talk"),
+                    ("liveTutor", "Live Tutor"),
+                ]
+            )
+        }
+
+        if settings.voiceInputMode == "liveTutor" {
+            toggleRow(
+                title: "Auto-sleep after silence",
+                subtitle: "Pause mic after \(settings.liveTutorAutoSleepMinutes) min of silence to save cost.",
+                isOn: Binding(
+                    get: { settings.liveTutorAutoSleepMinutes > 0 },
+                    set: { settings.liveTutorAutoSleepMinutes = $0 ? 5 : 0 }
+                )
+            )
+        }
+
+        divider
+
         sectionHeader("LANGUAGE")
         settingsRow("Preferred language") {
             settingsPicker(
@@ -198,20 +222,28 @@ struct SettingsView: View {
         divider
 
         sectionHeader("SHORTCUTS")
-        settingsRow("Push to talk") {
-            settingsPicker(
-                selection: $settings.pushToTalkShortcut,
-                options: [
-                    ("controlOption", "Ctrl + Option"),
-                    ("shiftControl", "Shift + Ctrl"),
-                    ("shiftFunction", "Shift + Fn"),
-                    ("controlOptionSpace", "Ctrl + Option + Space"),
-                    ("shiftControlSpace", "Shift + Ctrl + Space"),
-                ]
-            )
+        if settings.voiceInputMode == "pushToTalk" {
+            settingsRow("Push to talk") {
+                settingsPicker(
+                    selection: $settings.pushToTalkShortcut,
+                    options: [
+                        ("controlOption", "Ctrl + Option"),
+                        ("shiftControl", "Shift + Ctrl"),
+                        ("shiftFunction", "Shift + Fn"),
+                        ("controlOptionSpace", "Ctrl + Option + Space"),
+                        ("shiftControlSpace", "Shift + Ctrl + Space"),
+                    ]
+                )
+            }
         }
         settingsRow("Cancel / Stop") {
             keyBadge(settings.cancelKeyDisplayName)
+        }
+        if settings.voiceInputMode == "liveTutor" {
+            Text("In Live Tutor mode, just start talking. Skilly listens automatically.")
+                .font(.system(size: 10))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
