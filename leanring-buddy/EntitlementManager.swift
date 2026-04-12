@@ -46,15 +46,26 @@ struct EntitlementRecord: Codable {
     let period_end: String?
     let plan: String?
 
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    /// Parse an ISO 8601 date string, trying with and without fractional seconds.
+    private static func parseISO8601(_ string: String) -> Date? {
+        iso8601Formatter.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+    }
+
     var parsedStatus: EntitlementStatus {
         switch status {
         case "active":
-            if let endStr = period_end, let end = ISO8601DateFormatter().date(from: endStr) {
+            if let endStr = period_end, let end = Self.parseISO8601(endStr) {
                 return .active(periodEnd: end)
             }
             return .none
         case "canceled":
-            if let endStr = period_end, let end = ISO8601DateFormatter().date(from: endStr) {
+            if let endStr = period_end, let end = Self.parseISO8601(endStr) {
                 return .canceled(accessUntil: end)
             }
             return .expired
