@@ -24,6 +24,7 @@ interface Env {
   POLAR_API_KEY: string;
   POLAR_WEBHOOK_SECRET: string;
   POLAR_BETA_PRODUCT_ID: string;
+  POLAR_BETA_PRICE_ID: string;
   SKILLY_ENTITLEMENTS: {
     get<T>(key: string, type: "json"): Promise<T | null>;
     put(key: string, value: string): Promise<void>;
@@ -446,18 +447,17 @@ async function handleCheckoutCreate(request: Request, env: Env): Promise<Respons
   }
 
   try {
-    const polarResponse = await fetch("https://api.polar.sh/v1/checkout", {
+    const polarResponse = await fetch("https://api.polar.sh/v1/checkouts", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.POLAR_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        product_id: env.POLAR_BETA_PRODUCT_ID,
+        product_price_id: env.POLAR_BETA_PRICE_ID,
         customer_email: email,
         metadata: { user_id },
         success_url: "https://tryskilly.app/checkout-success",
-        cancel_url: "https://tryskilly.app/checkout-cancel",
       }),
     });
 
