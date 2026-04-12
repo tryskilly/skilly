@@ -1428,6 +1428,11 @@ final class CompanionManager: ObservableObject {
             #if DEBUG
             print("⚠️ OpenAI Realtime error: \(message)")
             #endif
+            // Stop Live Tutor if active — the WebSocket is dead and the
+            // audio tap would pump chunks into a disconnected client.
+            if isLiveTutorModeActive {
+                stopLiveTutorMode()
+            }
             hasEndedAssistantSpeechForCurrentTurn = false
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
