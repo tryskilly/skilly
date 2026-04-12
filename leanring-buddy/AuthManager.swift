@@ -51,8 +51,22 @@ final class AuthManager: ObservableObject {
     private static let keychainUserKey = "currentUser"
     private static let oauthStateLifetimeSeconds: TimeInterval = 10 * 60
 
-    private var pendingOAuthState: String?
-    private var pendingOAuthStateCreatedAt: Date?
+    // Persisted to UserDefaults so the state survives an app restart
+    // during the auth flow (e.g., if the release script rebuilds the app
+    // while the user is completing sign-in in the browser).
+    private var pendingOAuthState: String? {
+        get { UserDefaults.standard.string(forKey: "pendingOAuthState") }
+        set { UserDefaults.standard.set(newValue, forKey: "pendingOAuthState") }
+    }
+    private var pendingOAuthStateCreatedAt: Date? {
+        get {
+            let ts = UserDefaults.standard.double(forKey: "pendingOAuthStateCreatedAt")
+            return ts > 0 ? Date(timeIntervalSince1970: ts) : nil
+        }
+        set {
+            UserDefaults.standard.set(newValue?.timeIntervalSince1970 ?? 0, forKey: "pendingOAuthStateCreatedAt")
+        }
+    }
 
     var isSignedIn: Bool {
         currentUser != nil
