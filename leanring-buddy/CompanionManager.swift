@@ -128,8 +128,11 @@ final class CompanionManager: ObservableObject {
     private var voiceSettingCancellable: AnyCancellable?
     private var prewarmConnectionTask: Task<Void, Error>?
     private let minimumAudioChunksRequiredToCommit = 1
-    private var isSuppressingPointTagAudioForCurrentTurn = false
     private var hasEndedAssistantSpeechForCurrentTurn = false
+    private var didReceivePointToolCallForCurrentTurn = false
+    private var didReceiveAnyAudioChunkForCurrentTurn = false
+    private var pendingToolCallIdForCurrentTurn: String?
+    private var isAwaitingForcedSpokenFollowUp = false
 
     /// True when all three required permissions (accessibility, screen recording,
     /// microphone) are granted. Used by the panel to show a single "all good" state.
@@ -718,23 +721,28 @@ final class CompanionManager: ObservableObject {
     - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
 
     element pointing:
-    you have a small blue triangle cursor that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
+    you have a small blue cursor that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
 
     don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
 
-    when you point, append a coordinate tag at the very end of your response, AFTER your spoken text. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
+    ABSOLUTE RULE: you must ALWAYS speak a spoken response to the user. speech is mandatory on every single turn. pointing is optional and additional. never respond with only a tool call and no speech — if you do, the user hears nothing and thinks skilly is broken. speak first, point second (in the same response).
 
-    the [POINT:...] tag is control metadata for the cursor only. do not read the tag aloud, do not narrate coordinates, and do not say the word "point". keep it silent metadata at the end.
+    to point, call the `point_at_element` tool IN ADDITION to your spoken response. you emit both the spoken message AND the tool call as part of the same response. the tool takes:
+    - x, y — integer pixel coordinates in the screenshot's coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward. the screenshot images are labeled with their pixel dimensions — use those dimensions as the coordinate space.
+    - label — a short 1-3 word name of the element, like "frame tool" or "save button".
+    - screen — optional 1-based screen number when there are multiple screenshots. omit if the element is on the cursor's screen. include it if the element is on a DIFFERENT screen (use the screen number from the image label). this is important — without the screen number, the cursor will point at the wrong place.
 
-    format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
+    never say "point", never read coordinates out loud, never mention the tool name, and never describe the tool call in your spoken response. the tool call is silent metadata — just speak naturally about what the user should do, and call the tool in parallel.
 
-    if pointing wouldn't help, append [POINT:none].
+    if pointing wouldn't help (general question, nothing relevant on screen, obvious location), simply do not call the tool. still speak as normal. never call the tool with dummy values.
 
-    examples:
-    - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
-    - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
-    - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
-    - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+    when the user says things like "show me", "where is it", "can you point", "guide me" — they are asking for BOTH a spoken explanation AND the cursor moving. you must deliver both. do not interpret "show me" as "skip speech and only call the tool". always include the spoken explanation.
+
+    examples (every example shows BOTH the spoken response AND the tool call — never one without the other when pointing):
+    - user: "how do i color grade in final cut?" → you say: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves." AND you call point_at_element with x=1100, y=42, label="color inspector"
+    - user: "what is html?" → you say: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at?" (no tool call — general knowledge question, speech only)
+    - user: "can you show me how to commit in xcode?" → you say: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut." AND you call point_at_element with x=285, y=11, label="source control"
+    - user: "where's my terminal?" (on another monitor) → you say: "that's over on your other monitor — see the terminal window?" AND you call point_at_element with x=400, y=300, label="terminal", screen=2
     """
 
     /// If the cursor is in transient mode (user toggled "Show Skilly" off),
@@ -810,6 +818,75 @@ final class CompanionManager: ObservableObject {
     private func applyPointDirectiveIfPresent(in fullModelResponseText: String) {
         guard let parsedPointDirective = parsePointDirective(from: fullModelResponseText),
               let targetScreenCapture = resolveTargetScreenCapture(for: parsedPointDirective) else {
+            return
+        }
+
+        let screenLocation = mapScreenshotPixelCoordinateToGlobalScreenPoint(
+            screenshotXInPixels: parsedPointDirective.screenshotXInPixels,
+            screenshotYInPixels: parsedPointDirective.screenshotYInPixels,
+            screenCapture: targetScreenCapture
+        )
+
+        detectedElementScreenLocation = screenLocation
+        detectedElementDisplayFrame = targetScreenCapture.displayFrame
+        detectedElementBubbleText = parsedPointDirective.elementLabel
+        SkillyAnalytics.trackElementPointed(elementLabel: parsedPointDirective.elementLabel)
+    }
+
+    // MARK: - Skilly — Tool-call pointing directive
+    /// Applies a pointing directive that arrived as a structured function
+    /// call from gpt-realtime, instead of as an inline [POINT:...] text tag.
+    /// This is the preferred path — it keeps coordinates out of the audio
+    /// and text streams entirely, so the TTS never voices them.
+    private func applyPointDirectiveFromToolCall(argumentsJSON: String) {
+        guard let argumentsData = argumentsJSON.data(using: .utf8),
+              let parsedArguments = try? JSONSerialization.jsonObject(with: argumentsData) as? [String: Any] else {
+            #if DEBUG
+            print("⚠️ point_at_element: could not parse arguments JSON")
+            #endif
+            return
+        }
+
+        // Accept integers or doubles for x/y.
+        let screenshotXInPixels: Int
+        let screenshotYInPixels: Int
+        if let integerX = parsedArguments["x"] as? Int {
+            screenshotXInPixels = integerX
+        } else if let doubleX = parsedArguments["x"] as? Double {
+            screenshotXInPixels = Int(doubleX)
+        } else {
+            return
+        }
+        if let integerY = parsedArguments["y"] as? Int {
+            screenshotYInPixels = integerY
+        } else if let doubleY = parsedArguments["y"] as? Double {
+            screenshotYInPixels = Int(doubleY)
+        } else {
+            return
+        }
+
+        guard let elementLabel = (parsedArguments["label"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !elementLabel.isEmpty else {
+            return
+        }
+
+        // Optional 1-based screen index when the model is pointing on a
+        // different display than the one the cursor is currently on.
+        var oneBasedScreenNumber: Int?
+        if let integerScreen = parsedArguments["screen"] as? Int {
+            oneBasedScreenNumber = integerScreen
+        } else if let doubleScreen = parsedArguments["screen"] as? Double {
+            oneBasedScreenNumber = Int(doubleScreen)
+        }
+
+        let parsedPointDirective = ParsedPointDirective(
+            screenshotXInPixels: screenshotXInPixels,
+            screenshotYInPixels: screenshotYInPixels,
+            elementLabel: elementLabel,
+            oneBasedScreenNumber: oneBasedScreenNumber
+        )
+        guard let targetScreenCapture = resolveTargetScreenCapture(for: parsedPointDirective) else {
             return
         }
 
@@ -920,8 +997,11 @@ final class CompanionManager: ObservableObject {
         realtimeResponseText = ""
         currentTurnUserTranscript = nil
         currentTurnScreenCaptures = []
-        isSuppressingPointTagAudioForCurrentTurn = false
         hasEndedAssistantSpeechForCurrentTurn = false
+        didReceivePointToolCallForCurrentTurn = false
+        didReceiveAnyAudioChunkForCurrentTurn = false
+        pendingToolCallIdForCurrentTurn = nil
+        isAwaitingForcedSpokenFollowUp = false
         isWaitingForRealtimeAudioQueueDrain = false
         // MARK: - Skilly — Record turn start for usage tracking (key press → response.done)
         currentTurnStartTime = Date()
@@ -1047,25 +1127,23 @@ final class CompanionManager: ObservableObject {
                 print("🔊 OpenAI Realtime: voiceState → responding")
                 #endif
             }
-            if isSuppressingPointTagAudioForCurrentTurn {
-                return
-            }
+            // MARK: - Skilly — Track whether this turn produced any spoken
+            // audio. If a response completes with a tool call but no audio,
+            // we force a spoken follow-up in .responseDone below.
+            didReceiveAnyAudioChunkForCurrentTurn = true
             realtimeAudioPlayer?.enqueueAudio(pcm16Data)
 
         case .audioTranscriptDelta(let text):
             // MARK: - Skilly — Stream AI response text to cursor overlay
             realtimeResponseText += text
-            // When the model starts emitting the [POINT:...] control tag,
-            // we flag the turn so subsequent audio deltas are dropped.
-            // We intentionally do NOT call realtimeAudioPlayer.stop() here
-            // because that kills audio already scheduled for playback and
-            // cuts off the spoken response mid-sentence. The audio.delta
-            // handler checks isSuppressingPointTagAudioForCurrentTurn and
-            // drops new chunks without enqueuing them.
-            if !isSuppressingPointTagAudioForCurrentTurn,
-               realtimeResponseText.range(of: "[point:", options: .caseInsensitive) != nil {
-                isSuppressingPointTagAudioForCurrentTurn = true
-            }
+            // The [POINT:...] tag is silent-metadata per the system prompt
+            // (gpt-realtime does not generate speech tokens for text it is
+            // told to treat as silent directives). We used to drop audio
+            // chunks whenever "[point:" appeared in the text stream, but that
+            // cut off real speech whenever the model emitted the tag inline
+            // instead of strictly at the end. The tag is stripped from the
+            // visible bubble by updateRealtimeResponseBubble and from the
+            // curriculum transcript in .responseDone below.
             updateRealtimeResponseBubble(usingRawModelResponse: realtimeResponseText)
 
         case .inputTranscriptDone(let transcript):
@@ -1075,6 +1153,40 @@ final class CompanionManager: ObservableObject {
             SkillyAnalytics.trackUserMessageSent(transcript: transcript)
 
         case .responseDone(let usage):
+            // MARK: - Skilly — Runtime recovery for tool-call-only responses
+            // gpt-realtime sometimes emits a function_call item with no
+            // message item, which means no audio is generated and the user
+            // hears silence. When we detect that, close the tool call with
+            // a trivial function_call_output and immediately request a
+            // forced spoken follow-up (tool_choice: "none"). The follow-up
+            // will arrive as a NEW .responseDone event; this second pass
+            // takes the normal completion path below.
+            let shouldForceSpokenFollowUp = didReceivePointToolCallForCurrentTurn
+                && !didReceiveAnyAudioChunkForCurrentTurn
+                && !isAwaitingForcedSpokenFollowUp
+            if shouldForceSpokenFollowUp {
+                #if DEBUG
+                print("🗣️ OpenAI Realtime: tool-only response detected, forcing spoken follow-up")
+                #endif
+                if let pendingToolCallId = pendingToolCallIdForCurrentTurn {
+                    openAIRealtimeClient.sendFunctionCallOutput(
+                        callId: pendingToolCallId,
+                        output: #"{"ok":true}"#
+                    )
+                }
+                isAwaitingForcedSpokenFollowUp = true
+                // We intentionally do NOT reset didReceivePointToolCallForCurrentTurn
+                // here — the point was already applied and we don't want the
+                // second response to point again. We DO need to allow new audio
+                // to arrive for the follow-up, which is already allowed because
+                // didReceiveAnyAudioChunkForCurrentTurn simply gets set when
+                // the first forced-speech chunk arrives.
+                openAIRealtimeClient.requestForcedSpokenResponse(
+                    instruction: "Now provide your normal spoken explanation for the user's last question. Speak naturally and conversationally, as if you were answering them out loud. Do not call any tools. Do not mention that you are pointing, do not say coordinates, and do not refer to the tool you just invoked. Just give the explanation."
+                )
+                return
+            }
+
             RealtimeTelemetry.shared.endTurn(usage: usage)
             if !hasEndedAssistantSpeechForCurrentTurn {
                 RealtimeTelemetry.shared.endAssistantSpeech()
@@ -1091,7 +1203,14 @@ final class CompanionManager: ObservableObject {
                 SkillyNotificationManager.shared.checkAndSendUsage80PercentWarning()
             }
             currentTurnStartTime = nil
-            applyPointDirectiveIfPresent(in: realtimeResponseText)
+            isAwaitingForcedSpokenFollowUp = false
+            // Fallback: only parse inline [POINT:...] text tags if the model
+            // did NOT already call the point_at_element tool for this turn.
+            // New turns should always use the tool; legacy inline tags are
+            // kept as a safety net in case the model ignores the tool.
+            if !didReceivePointToolCallForCurrentTurn {
+                applyPointDirectiveIfPresent(in: realtimeResponseText)
+            }
             if let currentTurnUserTranscript {
                 let cleanedAssistantResponse = realtimeResponseText.replacingOccurrences(
                     of: #"\s*\[POINT:[^\]]+\]\s*$"#,
@@ -1111,12 +1230,24 @@ final class CompanionManager: ObservableObject {
                 handleRealtimeAudioQueueDrained()
             }
 
+        case .functionCallDone(let name, let argumentsJSON, let callId):
+            // MARK: - Skilly — Tool call handler
+            // gpt-realtime invokes point_at_element as a structured function
+            // call that arrives alongside (but separately from) the spoken
+            // message. We route it straight to the pointing animation without
+            // touching the audio/text stream. We also save the call_id so
+            // we can close the call with function_call_output in .responseDone.
+            if name == "point_at_element" {
+                applyPointDirectiveFromToolCall(argumentsJSON: argumentsJSON)
+                didReceivePointToolCallForCurrentTurn = true
+                pendingToolCallIdForCurrentTurn = callId
+            }
+
         case .error(let message):
             // MARK: - Skilly — Debug logging (stripped in release)
             #if DEBUG
             print("⚠️ OpenAI Realtime error: \(message)")
             #endif
-            isSuppressingPointTagAudioForCurrentTurn = false
             hasEndedAssistantSpeechForCurrentTurn = false
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle

@@ -82,6 +82,7 @@ enum OpenAIRealtimeEvent {
     case audioTranscriptDelta(String)    // Text transcript of model's speech
     case inputTranscriptDone(String)     // Transcript of what the user said (STT result)
     case responseDone(RealtimeUsage?)   // Includes token usage from response.done
+    case functionCallDone(name: String, argumentsJSON: String, callId: String) // Model called a tool
     case error(String)
 }
 
@@ -223,12 +224,47 @@ final class OpenAIRealtimeClient: ObservableObject {
             transcriptionConfig["language"] = languageCode
         }
 
+        // MARK: - Skilly — point_at_element tool
+        // Defining pointing as a proper function call (instead of an inline
+        // [POINT:x,y:label] text tag) keeps the directive completely out of
+        // the text/audio stream. gpt-realtime calls this tool alongside its
+        // spoken message item, with zero TTS output for the tool arguments.
+        let pointAtElementTool: [String: Any] = [
+            "type": "function",
+            "name": "point_at_element",
+            "description": "Point the blue cursor at a UI element on the user's screen. This tool is ONLY an addition to your spoken response — it is never a replacement for speech. You must ALWAYS produce a normal spoken audio message explaining what the user should do, and then additionally call this tool in the same response to point at the element you just described. Never call this tool without also speaking. Never use this tool as your entire response. If pointing is not useful, simply do not call the tool and speak as normal. Do not mention coordinates, the word 'point', or this tool's name in your spoken response.",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "x": [
+                        "type": "integer",
+                        "description": "X pixel coordinate in the screenshot's coordinate space. Origin (0,0) is the top-left corner of the image; x increases rightward."
+                    ],
+                    "y": [
+                        "type": "integer",
+                        "description": "Y pixel coordinate in the screenshot's coordinate space. Origin (0,0) is the top-left corner of the image; y increases downward."
+                    ],
+                    "label": [
+                        "type": "string",
+                        "description": "Short 1-3 word name of the element you are pointing at, for example 'Frame tool' or 'Save button'."
+                    ],
+                    "screen": [
+                        "type": "integer",
+                        "description": "1-based screen index when multiple screenshots were provided. Omit if the element is on the screen where the user's cursor currently is."
+                    ]
+                ],
+                "required": ["x", "y", "label"]
+            ]
+        ]
+
         var sessionObject: [String: Any] = [
             "modalities": ["text", "audio"],
             "input_audio_format": "pcm16",
             "output_audio_format": "pcm16",
             "input_audio_transcription": transcriptionConfig,
-            "turn_detection": NSNull()
+            "turn_detection": NSNull(),
+            "tools": [pointAtElementTool],
+            "tool_choice": "auto"
         ]
 
         if let systemPrompt {
@@ -312,6 +348,58 @@ final class OpenAIRealtimeClient: ObservableObject {
     }
 
     // MARK: - Cancel / Interrupt
+
+    // MARK: - Skilly — Tool call completion and forced follow-up speech
+
+    /// Close a function call by sending a `function_call_output` item.
+    /// Per the Realtime protocol, every function_call in the conversation
+    /// history should have a corresponding output, so the model has a
+    /// well-formed transcript on its next response. The output is opaque
+    /// to us — for `point_at_element` we just acknowledge success.
+    func sendFunctionCallOutput(callId: String, output: String) {
+        guard isConnected else { return }
+
+        let event: [String: Any] = [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "function_call_output",
+                "call_id": callId,
+                "output": output
+            ]
+        ]
+
+        Task {
+            try? await sendEvent(event)
+            #if DEBUG
+            print("🛠️ OpenAI Realtime: sent function_call_output for \(callId)")
+            #endif
+        }
+    }
+
+    /// Request a new response that MUST be spoken and MUST NOT call any
+    /// tools. Used as a runtime recovery path when gpt-realtime emits a
+    /// tool-call-only response with no audio — we detect the silence and
+    /// force the model to produce the spoken explanation it should have
+    /// given in the first place.
+    func requestForcedSpokenResponse(instruction: String) {
+        guard isConnected else { return }
+
+        let responseEvent: [String: Any] = [
+            "type": "response.create",
+            "response": [
+                "modalities": ["text", "audio"],
+                "tool_choice": "none",
+                "instructions": instruction
+            ]
+        ]
+
+        Task {
+            try? await sendEvent(responseEvent)
+            #if DEBUG
+            print("🗣️ OpenAI Realtime: requested forced spoken response")
+            #endif
+        }
+    }
 
     /// Cancel the current response. Stops the model from generating
     /// more audio/text, saving tokens. Call this when the user presses
@@ -464,6 +552,24 @@ final class OpenAIRealtimeClient: ObservableObject {
                 #if DEBUG
                 print("🗣️ OpenAI Realtime STT: \"\(transcript.prefix(80))\"")
                 #endif
+            }
+
+        case "response.output_item.done":
+            // MARK: - Skilly — Tool call dispatch
+            // When the model calls the point_at_element tool, the final item
+            // arrives here with item.type == "function_call", item.name, and
+            // item.arguments (JSON string). This fires BEFORE response.done.
+            if let item = json["item"] as? [String: Any],
+               let itemType = item["type"] as? String,
+               itemType == "function_call",
+               let name = item["name"] as? String,
+               let argumentsJSON = item["arguments"] as? String,
+               let callId = item["call_id"] as? String {
+                // MARK: - Skilly — Debug logging (stripped in release)
+                #if DEBUG
+                print("🛠️ OpenAI Realtime: function call '\(name)' \(argumentsJSON)")
+                #endif
+                eventPublisher.send(.functionCallDone(name: name, argumentsJSON: argumentsJSON, callId: callId))
             }
 
         case "response.done":

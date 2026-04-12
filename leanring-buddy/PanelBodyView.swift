@@ -21,6 +21,7 @@ struct PanelBodyView: View {
     @State private var hoveredSkillId: String?
     @State private var pendingDeletion: PendingDeletion?
     @State private var showImportPicker = false
+    @State private var expandedStageListSkillId: String?
 
     private struct PendingDeletion: Identifiable {
         let id: String
@@ -174,47 +175,69 @@ struct PanelBodyView: View {
         let totalStages = skill.curriculumStages.count
         let currentStageName = skill.curriculumStages.first(where: { $0.id == progress?.currentStageId })?.name
             ?? "Getting started"
+        let isStageListExpanded = expandedStageListSkillId == skill.metadata.id
 
-        return HStack(alignment: .top, spacing: 10) {
-            Circle()
-                .fill(isPaused ? DS.Colors.textTertiary : DS.Colors.success)
-                .frame(width: 8, height: 8)
-                .padding(.top, 5)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                Circle()
+                    .fill(isPaused ? DS.Colors.textTertiary : DS.Colors.success)
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 5)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(skill.metadata.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(skill.metadata.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .lineLimit(1)
 
-                    Spacer(minLength: 6)
+                        Spacer(minLength: 6)
 
-                    stateBadge(isPaused: isPaused)
+                        stateBadge(isPaused: isPaused)
 
-                    if isHovered {
-                        SkillRowActionMenu(
-                            skill: skill,
-                            skillManager: skillManager,
-                            isActive: true,
-                            isPaused: isPaused,
-                            onRemoveRequested: {
-                                pendingDeletion = PendingDeletion(
-                                    id: skill.metadata.id,
-                                    name: skill.metadata.name
-                                )
-                            }
-                        )
+                        if isHovered {
+                            SkillRowActionMenu(
+                                skill: skill,
+                                skillManager: skillManager,
+                                isActive: true,
+                                isPaused: isPaused,
+                                onRemoveRequested: {
+                                    pendingDeletion = PendingDeletion(
+                                        id: skill.metadata.id,
+                                        name: skill.metadata.name
+                                    )
+                                }
+                            )
+                        }
                     }
+
+                    // MARK: - Skilly — Tap the stage label to expand/collapse the full curriculum
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            expandedStageListSkillId = isStageListExpanded ? nil : skill.metadata.id
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Text("Stage \(stageNumber) of \(totalStages) · \(currentStageName)")
+                                .font(.system(size: 11))
+                                .foregroundColor(DS.Colors.textTertiary)
+                                .lineLimit(1)
+                            Image(systemName: isStageListExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundColor(DS.Colors.textTertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+
+                    progressBar(completed: progress?.completedStageIds.count ?? 0, total: totalStages)
+                        .padding(.top, 2)
                 }
+            }
 
-                Text("Stage \(stageNumber) of \(totalStages) · \(currentStageName)")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .lineLimit(1)
-
-                progressBar(completed: progress?.completedStageIds.count ?? 0, total: totalStages)
-                    .padding(.top, 2)
+            if isStageListExpanded {
+                stageList(skill: skill, progress: progress)
+                    .padding(.leading, 18)
             }
         }
         .padding(10)
@@ -263,6 +286,83 @@ struct PanelBodyView: View {
             }
         }
         .frame(height: 3)
+    }
+
+    // MARK: - Stage List (expanded curriculum view)
+
+    /// Full curriculum stage list shown when the user taps the stage label
+    /// on the active skill card. Each row is tappable to manually jump to
+    /// that stage — useful when the user wants to replay a section or
+    /// skip ahead past content they already know.
+    @ViewBuilder
+    private func stageList(skill: SkillDefinition, progress: SkillProgress?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(skill.curriculumStages.enumerated()), id: \.element.id) { index, stage in
+                stageRow(
+                    stage: stage,
+                    stageNumber: index + 1,
+                    progress: progress
+                )
+            }
+        }
+    }
+
+    private func stageRow(
+        stage: CurriculumStage,
+        stageNumber: Int,
+        progress: SkillProgress?
+    ) -> some View {
+        let isCompleted = progress?.completedStageIds.contains(stage.id) ?? false
+        let isCurrent = progress?.currentStageId == stage.id
+
+        let statusSymbol: String = {
+            if isCompleted { return "checkmark.circle.fill" }
+            if isCurrent { return "circle.fill" }
+            return "circle"
+        }()
+
+        let symbolColor: Color = {
+            if isCompleted { return DS.Colors.success }
+            if isCurrent { return DS.Colors.accentText }
+            return DS.Colors.textTertiary
+        }()
+
+        let textColor: Color = {
+            if isCurrent { return DS.Colors.textPrimary }
+            if isCompleted { return DS.Colors.textSecondary }
+            return DS.Colors.textTertiary
+        }()
+
+        return Button(action: {
+            skillManager.manuallySetCurrentStage(stageId: stage.id)
+        }) {
+            HStack(spacing: 7) {
+                Image(systemName: statusSymbol)
+                    .font(.system(size: 10))
+                    .foregroundColor(symbolColor)
+                    .frame(width: 12)
+
+                Text("\(stageNumber).")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(textColor)
+                    .frame(width: 16, alignment: .leading)
+
+                Text(stage.name)
+                    .font(.system(size: 11))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+
+                Spacer()
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .fill(isCurrent ? DS.Colors.accent.opacity(0.12) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Installed Section
