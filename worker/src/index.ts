@@ -25,6 +25,7 @@ interface Env {
   POLAR_WEBHOOK_SECRET: string;
   POLAR_BETA_PRODUCT_ID: string;
   POLAR_BETA_PRICE_ID: string;
+  POLAR_API_BASE: string; // "https://api.polar.sh" or "https://sandbox-api.polar.sh"
   SKILLY_ENTITLEMENTS: {
     get<T>(key: string, type: "json"): Promise<T | null>;
     put(key: string, value: string): Promise<void>;
@@ -447,7 +448,8 @@ async function handleCheckoutCreate(request: Request, env: Env): Promise<Respons
   }
 
   try {
-    const polarResponse = await fetch("https://api.polar.sh/v1/checkouts", {
+    const polarBase = env.POLAR_API_BASE || "https://api.polar.sh";
+    const polarResponse = await fetch(`${polarBase}/v1/checkouts`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.POLAR_API_KEY}`,
@@ -485,11 +487,20 @@ async function handleCheckoutCreate(request: Request, env: Env): Promise<Respons
 }
 
 async function handlePolarWebhook(request: Request, env: Env): Promise<Response> {
-  const signature = request.headers.get("polar-signature");
+  // Polar uses the Standard Webhooks specification.
+  // Headers: webhook-id, webhook-timestamp, webhook-signature
+  // Signature: v1,<base64_hmac_sha256>
+  // Signing payload: {msg_id}.{timestamp}.{body}
+  const webhookId = request.headers.get("webhook-id");
+  const webhookTimestamp = request.headers.get("webhook-timestamp");
+  const webhookSignature = request.headers.get("webhook-signature");
   const rawBody = await request.text();
 
-  const isValid = await verifyPolarSignature(rawBody, signature ?? "", env.POLAR_WEBHOOK_SECRET);
+  const isValid = await verifyStandardWebhookSignature(
+    rawBody, webhookId ?? "", webhookTimestamp ?? "", webhookSignature ?? "", env.POLAR_WEBHOOK_SECRET
+  );
   if (!isValid) {
+    console.error("[/webhooks/polar] Signature verification failed");
     return new Response("Invalid signature", { status: 401 });
   }
 
@@ -570,30 +581,69 @@ async function handleEntitlement(url: URL, env: Env): Promise<Response> {
   });
 }
 
-async function verifyPolarSignature(body: string, signature: string, secret: string): Promise<boolean> {
+/// Verify a Standard Webhooks signature (used by Polar).
+/// The secret is the full polar_whs_* string — used as raw UTF-8 key.
+/// Signature header format: "v1,<base64_hmac>" (may have multiple sigs).
+/// Signing payload: "{msg_id}.{timestamp}.{body}"
+async function verifyStandardWebhookSignature(
+  body: string,
+  msgId: string,
+  timestamp: string,
+  signatureHeader: string,
+  secret: string
+): Promise<boolean> {
   try {
-    const parts = Object.fromEntries(signature.split(",").map((part: string) => part.split("=")));
-    const timestamp = parts.t;
-    const receivedSig = parts.v1;
-    if (!timestamp || !receivedSig) {
-      return false;
-    }
+    if (!msgId || !timestamp || !signatureHeader) return false;
 
+    // Extract all v1 signatures (there may be multiple, space-separated)
+    const signatures = signatureHeader.split(" ");
+    const v1Sigs = signatures
+      .filter((s: string) => s.startsWith("v1,"))
+      .map((s: string) => s.substring(3));
+
+    if (v1Sigs.length === 0) return false;
+
+    // Signing payload: msg_id.timestamp.body
     const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    const signedData = encoder.encode(`${timestamp}.${body}`);
+    const signedData = encoder.encode(`${msgId}.${timestamp}.${body}`);
 
+    // Try using the secret as raw UTF-8 key first
+    const keyData = encoder.encode(secret);
     const cryptoKey = await crypto.subtle.importKey(
-      "raw",
-      keyData,
+      "raw", keyData,
       { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
+      false, ["sign"]
     );
     const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, signedData);
     const expectedSig = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
 
-    return expectedSig === receivedSig;
+    // Check if any of the provided signatures match
+    if (v1Sigs.includes(expectedSig)) return true;
+
+    // Fallback: try base64-decoding the secret (Standard Webhooks spec
+    // says secrets may be base64-encoded after a prefix like "whsec_").
+    // Polar secrets start with "polar_whs_" — try stripping and decoding.
+    const prefixes = ["polar_whs_", "whsec_"];
+    for (const prefix of prefixes) {
+      if (secret.startsWith(prefix)) {
+        try {
+          const secretBase64 = secret.substring(prefix.length);
+          const rawKey = Uint8Array.from(atob(secretBase64), (c: string) => c.charCodeAt(0));
+          const decodedCryptoKey = await crypto.subtle.importKey(
+            "raw", rawKey,
+            { name: "HMAC", hash: "SHA-256" },
+            false, ["sign"]
+          );
+          const decodedSigBuffer = await crypto.subtle.sign("HMAC", decodedCryptoKey, signedData);
+          const decodedExpectedSig = btoa(String.fromCharCode(...new Uint8Array(decodedSigBuffer)));
+          if (v1Sigs.includes(decodedExpectedSig)) return true;
+        } catch {
+          // Base64 decode failed — not base64 encoded, continue
+        }
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }
