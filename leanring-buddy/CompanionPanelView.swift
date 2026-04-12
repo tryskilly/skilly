@@ -18,36 +18,11 @@ struct CompanionPanelView: View {
     @State private var emailInput: String = ""
     // MARK: - Skilly — Settings
     @State private var showSettings = false
-    // MARK: - Skilly — Panel Navigation
-    @StateObject private var navigator = PanelNavigator()
-    // MARK: - Skilly — Push-to-talk hint (dismissible, shown once)
-    @AppStorage("hasSeenPTTHint") private var hasSeenPTTHint: Bool = false
 
     var body: some View {
-        Group {
-            if navigator.currentScreen == .skillsLibrary, let skillManager {
-                VStack(alignment: .leading, spacing: 0) {
-                    SkillLibraryView(skillManager: skillManager, navigator: navigator)
-                }
-                .frame(width: 300)
-                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
-                .background(panelBackground)
-                .preferredColorScheme(.dark)
-                .transition(.move(edge: .trailing))
-            } else {
-                mainScreen
-                    .transition(.move(edge: .leading))
-            }
-        }
-        .animation(.easeInOut(duration: 0.22), value: navigator.currentScreen)
-    }
-
-    // MARK: - Main Screen
-
-    @ViewBuilder
-    private var mainScreen: some View {
         VStack(alignment: .leading, spacing: 0) {
             panelHeader
+
             Divider()
                 .background(DS.Colors.borderSubtle)
                 .padding(.horizontal, 16)
@@ -82,32 +57,28 @@ struct CompanionPanelView: View {
                 onboardingStartButton
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
-            } else {
-                // Onboarded + authenticated + permissions granted → main content
-                if !hasSeenPTTHint {
-                    pttHintCard
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                }
+            } else if let skillManager {
+                // Main content — single unified view, no navigation
+                PanelBodyView(skillManager: skillManager)
+            }
 
-                if let skillManager {
-                    ActiveSkillsSection(
-                        skillManager: skillManager,
-                        onManageTapped: { navigator.push(.skillsLibrary) }
-                    )
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            // Always-visible push-to-talk hint strip
+            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                pttHintStrip
                     .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 12)
-                }
+                    .padding(.vertical, 9)
 
                 Divider()
                     .background(DS.Colors.borderSubtle)
-                    .padding(.horizontal, 16)
-
-                userStrip
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
             }
+
+            // Flat 3-link footer
+            flatFooter
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
         }
         .frame(width: 300)
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
@@ -115,100 +86,81 @@ struct CompanionPanelView: View {
         .preferredColorScheme(.dark)
     }
 
-    // MARK: - Push-to-talk Hint (dismissible, one-time)
+    // MARK: - Push-to-talk Hint Strip (always visible)
 
-    private var pttHintCard: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "info.circle.fill")
+    private var pttHintStrip: some View {
+        HStack(spacing: 6) {
+            Spacer()
+            Text("Hold")
                 .font(.system(size: 11))
-                .foregroundColor(DS.Colors.accentText)
+                .foregroundColor(DS.Colors.textTertiary)
+            keyCap("⌃")
+            keyCap("⌥")
+            Text("to talk")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
+            Spacer()
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Hold Ctrl + Option to talk")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(DS.Colors.textPrimary)
-                Text("Press Esc to cancel at any time")
-                    .font(.system(size: 10))
-                    .foregroundColor(DS.Colors.textTertiary)
+    private func keyCap(_ symbol: String) -> some View {
+        Text(symbol)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundColor(DS.Colors.textSecondary)
+            .frame(width: 18, height: 18)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+            )
+    }
+
+    // MARK: - Flat Footer (Feedback · Quit · Sign out)
+
+    private var flatFooter: some View {
+        HStack {
+            footerButton(label: "Feedback", icon: "bubble.left") {
+                if let url = URL(string: "https://tryskilly.app") {
+                    NSWorkspace.shared.open(url)
+                }
             }
 
             Spacer()
 
-            Button(action: {
-                withAnimation { hasSeenPTTHint = true }
-            }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 16, height: 16)
+            footerButton(label: "Quit", icon: nil) {
+                NSApp.terminate(nil)
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
+
+            Spacer()
+
+            if authManager?.isSignedIn == true {
+                footerButton(label: "Sign out", icon: nil) {
+                    authManager?.signOut()
+                }
+            } else {
+                // Keep spacing consistent when signed out
+                Color.clear.frame(width: 60, height: 1)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                .fill(DS.Colors.accent.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                .stroke(DS.Colors.accent.opacity(0.2), lineWidth: 0.5)
-        )
     }
 
-    // MARK: - User Strip (bottom)
-
-    @ViewBuilder
-    private var userStrip: some View {
-        if let user = authManager?.currentUser {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(DS.Colors.accentSubtle)
-                        .frame(width: 26, height: 26)
-                    Text(String(user.displayName.prefix(1)).uppercased())
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.accentText)
-                }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(user.displayName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
-                    Text(user.email)
+    private func footerButton(label: String, icon: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if let icon {
+                    Image(systemName: icon)
                         .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .lineLimit(1)
                 }
-
-                Spacer()
-
-                Menu {
-                    Button("Replay intro") { companionManager.replayOnboarding() }
-                    Button("Send feedback") {
-                        if let url = URL(string: "https://tryskilly.app") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    Divider()
-                    Button("Sign out", role: .destructive) { authManager?.signOut() }
-                    Button("Quit Skilly") { NSApp.terminate(nil) }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .frame(width: 24, height: 24)
-                        .background(
-                            Circle().fill(Color.white.opacity(0.06))
-                        )
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
+                Text(label)
+                    .font(.system(size: 11))
             }
+            .foregroundColor(DS.Colors.textTertiary)
         }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Header
