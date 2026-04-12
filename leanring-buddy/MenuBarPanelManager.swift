@@ -16,6 +16,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let skillyDismissPanel = Notification.Name("skillyDismissPanel")
+    static let skillyTurnBlocked = Notification.Name("skillyTurnBlocked")
 }
 
 /// Custom NSPanel subclass that can become the key window even with

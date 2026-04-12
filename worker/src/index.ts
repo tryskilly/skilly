@@ -21,6 +21,13 @@ interface Env {
   WORKOS_CLIENT_ID: string;
   WORKOS_REDIRECT_URI: string;
   OPENAI_API_KEY: string;
+  POLAR_API_KEY: string;
+  POLAR_WEBHOOK_SECRET: string;
+  POLAR_BETA_PRODUCT_ID: string;
+  SKILLY_ENTITLEMENTS: {
+    get<T>(key: string, type: "json"): Promise<T | null>;
+    put(key: string, value: string): Promise<void>;
+  };
 }
 
 export default {
@@ -30,6 +37,12 @@ export default {
     try {
       // POST routes
       if (request.method === "POST") {
+        if (url.pathname === "/checkout/create") {
+          return await handleCheckoutCreate(request, env);
+        }
+        if (url.pathname === "/webhooks/polar") {
+          return await handlePolarWebhook(request, env);
+        }
         if (url.pathname === "/chat") {
           return await handleChat(request, env);
         }
@@ -46,6 +59,9 @@ export default {
 
       // GET routes
       if (request.method === "GET") {
+        if (url.pathname === "/entitlement") {
+          return await handleEntitlement(url, env);
+        }
         if (url.pathname === "/auth/url") {
           return handleAuthURL(env);
         }
@@ -388,4 +404,197 @@ function handleOpenAIToken(env: Env): Response {
       },
     }
   );
+}
+
+interface CheckoutPayload {
+  user_id: string;
+  email: string;
+}
+
+interface EntitlementData {
+  user_id: string;
+  status: "active" | "canceled" | "none";
+  period_start?: string;
+  period_end?: string;
+  plan?: string;
+}
+
+interface PolarWebhookEvent {
+  type: string;
+  data: {
+    id: string;
+    customer_email: string;
+    status: string;
+    current_period_end: string;
+    metadata?: {
+      user_id?: string;
+    };
+  };
+}
+
+async function handleCheckoutCreate(request: Request, env: Env): Promise<Response> {
+  let body: CheckoutPayload;
+  try {
+    body = await request.json() as CheckoutPayload;
+  } catch {
+    return new Response("Invalid JSON", { status: 400 });
+  }
+
+  const { user_id, email } = body;
+  if (!user_id || !email) {
+    return new Response("Missing user_id or email", { status: 400 });
+  }
+
+  try {
+    const polarResponse = await fetch("https://api.polar.sh/v1/checkout", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.POLAR_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        product_id: env.POLAR_BETA_PRODUCT_ID,
+        customer_email: email,
+        metadata: { user_id },
+        success_url: "https://tryskilly.app/checkout-success",
+        cancel_url: "https://tryskilly.app/checkout-cancel",
+      }),
+    });
+
+    if (!polarResponse.ok) {
+      const errorText = await polarResponse.text();
+      console.error("[/checkout/create] Polar API error:", errorText);
+      return new Response(JSON.stringify({ error: "Failed to create checkout" }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const polarData = await polarResponse.json() as { url?: string };
+    return new Response(JSON.stringify({ checkout_url: polarData.url }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  } catch (error) {
+    console.error("[/checkout/create] Error:", error);
+    return new Response(JSON.stringify({ error: "Internal error" }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
+async function handlePolarWebhook(request: Request, env: Env): Promise<Response> {
+  const signature = request.headers.get("polar-signature");
+  const rawBody = await request.text();
+
+  const isValid = await verifyPolarSignature(rawBody, signature ?? "", env.POLAR_WEBHOOK_SECRET);
+  if (!isValid) {
+    return new Response("Invalid signature", { status: 401 });
+  }
+
+  let event: PolarWebhookEvent;
+  try {
+    event = JSON.parse(rawBody) as PolarWebhookEvent;
+  } catch {
+    return new Response("Invalid JSON", { status: 400 });
+  }
+
+  const userId = event.data.metadata?.user_id;
+  if (!userId) {
+    return new Response("ok", { status: 200 });
+  }
+
+  const kvKey = `user:${userId}`;
+  let record: EntitlementData;
+
+  switch (event.type) {
+    case "subscription.created":
+    case "subscription.active": {
+      record = {
+        user_id: userId,
+        status: "active",
+        period_start: new Date().toISOString(),
+        period_end: event.data.current_period_end ?? "",
+        plan: "beta_19",
+      };
+      break;
+    }
+    case "subscription.canceled":
+    case "subscription.revoked": {
+      record = {
+        user_id: userId,
+        status: "canceled",
+        period_end: event.data.current_period_end ?? "",
+        plan: "beta_19",
+      };
+      break;
+    }
+    case "subscription.updated": {
+      const existing = await env.SKILLY_ENTITLEMENTS.get<EntitlementData>(kvKey, "json");
+      record = {
+        user_id: userId,
+        status: existing?.status ?? "active",
+        period_start: existing?.period_start ?? new Date().toISOString(),
+        period_end: event.data.current_period_end ?? "",
+        plan: "beta_19",
+      };
+      break;
+    }
+    default:
+      return new Response("ok", { status: 200 });
+  }
+
+  await env.SKILLY_ENTITLEMENTS.put(kvKey, JSON.stringify(record));
+
+  return new Response("ok", { status: 200 });
+}
+
+async function handleEntitlement(url: URL, env: Env): Promise<Response> {
+  const userId = url.searchParams.get("user_id");
+  if (!userId) {
+    return new Response("Missing user_id", { status: 400 });
+  }
+
+  const record = await env.SKILLY_ENTITLEMENTS.get<EntitlementData>(`user:${userId}`, "json");
+  if (!record) {
+    return new Response(JSON.stringify({ status: "none" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  return new Response(JSON.stringify(record), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function verifyPolarSignature(body: string, signature: string, secret: string): Promise<boolean> {
+  try {
+    const parts = Object.fromEntries(signature.split(",").map((part: string) => part.split("=")));
+    const timestamp = parts.t;
+    const receivedSig = parts.v1;
+    if (!timestamp || !receivedSig) {
+      return false;
+    }
+
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const signedData = encoder.encode(`${timestamp}.${body}`);
+
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, signedData);
+    const expectedSig = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+    return expectedSig === receivedSig;
+  } catch {
+    return false;
+  }
 }

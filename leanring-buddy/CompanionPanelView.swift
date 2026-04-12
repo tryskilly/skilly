@@ -732,6 +732,10 @@ struct CompanionPanelView: View {
                 .accessibilityLabel("Sign out")
                 .accessibilityHint("Signs out of your Skilly account")
             }
+
+            usageStrip
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
         }
     }
 
@@ -774,6 +778,146 @@ struct CompanionPanelView: View {
             return "Processing"
         case .responding:
             return "Responding"
+        }
+    }
+
+    // MARK: - Skilly — Usage Strip
+
+    @ViewBuilder
+    private var usageStrip: some View {
+        let status = EntitlementManager.shared.status
+
+        switch status {
+        case .trial:
+            if TrialTracker.shared.isExhausted {
+                trialExhaustedStrip
+            } else {
+                trialActiveStrip
+            }
+
+        case .active:
+            if UsageTracker.shared.isOverCap {
+                capReachedStrip
+            } else {
+                subscribedStrip
+            }
+
+        case .canceled(let accessUntil):
+            if accessUntil > Date() {
+                if UsageTracker.shared.isOverCap {
+                    capReachedStrip
+                } else {
+                    subscribedStrip
+                }
+            } else {
+                trialExhaustedStrip
+            }
+
+        case .none, .expired:
+            trialExhaustedStrip
+        }
+    }
+
+    private var trialActiveStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Trial: \(formatTime(Int(TrialTracker.shared.remainingSeconds))) remaining")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Spacer()
+            }
+            GeometryReader { geometry in
+                let progress = max(0, min(1, TrialTracker.shared.remainingSeconds / 900))
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(DS.Colors.blue400)
+                    .frame(width: geometry.size.width * progress, height: 4)
+            }
+            .frame(height: 4)
+        }
+        .frame(height: 32)
+    }
+
+    private var trialExhaustedStrip: some View {
+        Button(action: {
+            Task { await EntitlementManager.shared.startCheckout() }
+        }) {
+            HStack {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Trial ended — Subscribe to continue")
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(DS.Colors.error.opacity(0.15))
+            .cornerRadius(DS.CornerRadius.medium)
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .frame(height: 32)
+    }
+
+    private var subscribedStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                let usedSeconds = Int(UsageTracker.shared.secondsUsed)
+                let totalSeconds = 3 * 60 * 60
+                Text("Using \(formatTime(usedSeconds)) of 3h")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Spacer()
+                if UsageTracker.shared.usageProgress >= 0.8 {
+                    Text("80%+ of limit")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DS.Colors.warning)
+                }
+            }
+            GeometryReader { geometry in
+                let progress = max(0.0, min(1.0, UsageTracker.shared.usageProgress))
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(UsageTracker.shared.usageProgress >= 0.8 ? DS.Colors.warning : DS.Colors.blue400)
+                    .frame(width: geometry.size.width * progress, height: 4)
+            }
+            .frame(height: 4)
+        }
+        .frame(height: 32)
+    }
+
+    private var capReachedStrip: some View {
+        Button(action: {
+            Task { await EntitlementManager.shared.startCheckout() }
+        }) {
+            HStack {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Limit reached — Upgrade plan")
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(DS.Colors.error.opacity(0.15))
+            .cornerRadius(DS.CornerRadius.medium)
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .frame(height: 32)
+    }
+
+    private func formatTime(_ seconds: Int) -> String {
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
         }
     }
 

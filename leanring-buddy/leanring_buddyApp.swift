@@ -48,6 +48,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         SkillyAnalytics.configure()
         SkillyAnalytics.trackAppOpened()
+        SkillyNotificationManager.shared.requestAuthorization()
 
         // Inject skill manager into companion and panel
         companionManager.setSkillManager(skillManager)
@@ -68,6 +69,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             authManager: authManager
         )
         companionManager.start()
+        if authManager.isAuthenticated {
+            Task { await EntitlementManager.shared.refresh() }
+        }
         // Auto-open the panel if the user still needs to do something:
         // either they haven't onboarded yet, or permissions were revoked.
         if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
@@ -128,6 +132,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         print("🎯 Skilly Auth: Received auth callback with code")
         #endif
         authManager.handleAuthCallback(code: code)
+        Task { await EntitlementManager.shared.refresh() }
     }
 
     private func startSparkleUpdater() {

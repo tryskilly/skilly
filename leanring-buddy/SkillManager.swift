@@ -321,10 +321,23 @@ final class SkillManager: ObservableObject {
 
     // MARK: - Entitlements
 
-    /// Returns whether the user is entitled to access the given skill.
-    /// Phase 1: all installed skills are freely accessible.
-    func canAccessSkill(_ skill: SkillDefinition) -> Bool {
-        return true
+    enum SkillAccessError: LocalizedError {
+        case entitlementBlocked(BlockReason)
+
+        var errorDescription: String? {
+            switch self {
+            case .entitlementBlocked(let reason):
+                return reason.displayMessage
+            }
+        }
+    }
+
+    func canAccessSkill(_ skill: SkillDefinition) -> (allowed: Bool, error: SkillAccessError?) {
+        let (allowed, reason) = EntitlementManager.shared.canStartTurn()
+        if !allowed {
+            return (false, .entitlementBlocked(reason ?? .subscriptionInactive))
+        }
+        return (true, nil)
     }
 
     // MARK: - Skilly

@@ -152,8 +152,13 @@ final class RealtimeTelemetry: ObservableObject {
     // MARK: - Session State
 
     private(set) var sessionId: String?
-    private var sessionStartTime: Date?
+    private(set) var sessionStartTime: Date?
     private var model: String = "unknown"
+
+    var currentSessionDurationMs: Int {
+        guard let start = sessionStartTime else { return 0 }
+        return Int(Date().timeIntervalSince(start) * 1000)
+    }
 
     private var turnIndex: Int = 0
     private var turnStartTime: Date?
@@ -230,7 +235,8 @@ final class RealtimeTelemetry: ObservableObject {
             audioInputTokens: totalAudioInputTokens,
             audioOutputTokens: totalAudioOutputTokens,
             textInputTokens: totalTextInputTokens,
-            textOutputTokens: totalTextOutputTokens
+            textOutputTokens: totalTextOutputTokens,
+            cachedInputTokens: totalCachedInputTokens
         )
         SkillyAnalytics.trackSessionEnded(
             sessionId: sid,
@@ -353,7 +359,8 @@ final class RealtimeTelemetry: ObservableObject {
             audioInputTokens: usage?.audio_input_tokens,
             audioOutputTokens: usage?.audio_output_tokens,
             textInputTokens: usage?.text_input_tokens,
-            textOutputTokens: usage?.text_output_tokens
+            textOutputTokens: usage?.text_output_tokens,
+            cachedInputTokens: usage?.cached_input_tokens
         )
         SkillyAnalytics.trackTurnCompleted(
             sessionId: sessionId,

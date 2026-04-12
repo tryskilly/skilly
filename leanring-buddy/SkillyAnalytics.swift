@@ -193,4 +193,33 @@ enum SkillyAnalytics {
             "session_cost_usd": sessionCostUsd,
         ])
     }
+
+    static func trackCheckoutStarted(userId: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skilly_checkout_started", properties: [
+            "user_id": userId
+        ])
+    }
+
+    static func trackSubscriptionActivated(userId: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skilly_subscription_activated", properties: [
+            "user_id": userId
+        ])
+    }
+
+    static func trackSubscriptionCanceled(userId: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skilly_subscription_canceled", properties: [
+            "user_id": userId
+        ])
+    }
+
+    static func trackPaywallShown(userId: String, reason: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skilly_paywall_shown", properties: [
+            "user_id": userId,
+            "reason": reason
+        ])
+    }
 }

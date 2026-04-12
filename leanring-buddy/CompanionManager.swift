@@ -180,13 +180,6 @@ final class CompanionManager: ObservableObject {
 
         hasSubmittedEmail = true
         UserDefaults.standard.set(true, forKey: "hasSubmittedEmail")
-
-        // Identify user in PostHog (respects analyticsEnabled toggle)
-        if AppSettings.shared.analyticsEnabled {
-            PostHogSDK.shared.identify(trimmedEmail, userProperties: [
-                "email": trimmedEmail
-            ])
-        }
     }
 
     func start() {
@@ -325,8 +318,26 @@ final class CompanionManager: ObservableObject {
         prewarmConnectionTask = nil
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
+
+        let sessionDurationSeconds = RealtimeTelemetry.shared.currentSessionDurationMs / 1000
+        recordSessionSecondsIfNeeded(sessionDurationSeconds)
+        SkillyNotificationManager.shared.checkAndSendTrial80PercentWarning()
+        SkillyNotificationManager.shared.checkAndSendUsage80PercentWarning()
+
         RealtimeTelemetry.shared.endSession()
         openAIRealtimeClient.disconnect()
+    }
+
+    private func recordSessionSecondsIfNeeded(_ seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        switch EntitlementManager.shared.status {
+        case .trial:
+            TrialTracker.shared.recordSessionSeconds(seconds)
+        case .active, .canceled:
+            UsageTracker.shared.recordSessionSeconds(seconds)
+        case .none, .expired:
+            break
+        }
     }
 
     func refreshAllPermissions() {
@@ -532,6 +543,16 @@ final class CompanionManager: ObservableObject {
     private func ensureRealtimeSessionReadyForTurn() async throws {
         let configuredVoiceName = AppSettings.shared.voiceName
         let currentSystemPrompt = composedSystemPrompt
+
+        let (allowed, reason) = EntitlementManager.shared.canStartTurn()
+        if !allowed {
+            NotificationCenter.default.post(
+                name: .skillyTurnBlocked,
+                object: nil,
+                userInfo: reason.map { ["blockReason": $0] }
+            )
+            throw SkillManager.SkillAccessError.entitlementBlocked(reason ?? .subscriptionInactive)
+        }
 
         if let prewarmConnectionTask {
             defer { self.prewarmConnectionTask = nil }
