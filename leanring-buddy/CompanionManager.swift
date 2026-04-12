@@ -134,6 +134,12 @@ final class CompanionManager: ObservableObject {
     private var pendingToolCallIdForCurrentTurn: String?
     private var isAwaitingForcedSpokenFollowUp = false
 
+    // MARK: - Skilly — Live Tutor mode state
+    private var isLiveTutorModeActive = false
+    private var liveTutorAudioEngine: AVAudioEngine?
+    private var liveTutorAutoSleepTask: Task<Void, Never>?
+    private var liveTutorSettingsCancellable: AnyCancellable?
+
     /// True when all three required permissions (accessibility, screen recording,
     /// microphone) are granted. Used by the panel to show a single "all good" state.
     var allPermissionsGranted: Bool {
@@ -515,6 +521,20 @@ final class CompanionManager: ObservableObject {
                     }
                 }
             }
+
+        // MARK: - Skilly — Live Tutor: react to voiceInputMode changes
+        liveTutorSettingsCancellable = AppSettings.shared.$voiceInputMode
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newMode in
+                guard let self else { return }
+                if newMode == "liveTutor" {
+                    self.startLiveTutorMode()
+                } else {
+                    self.stopLiveTutorMode()
+                }
+            }
     }
 
     private func startRealtimeSessionPrewarmIfNeeded() {
@@ -656,6 +676,14 @@ final class CompanionManager: ObservableObject {
         case .pressed:
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
+
+            // MARK: - Skilly — In Live Tutor mode, the PTT shortcut toggles the
+            // mode off and falls back to push-to-talk for this press.
+            if isLiveTutorModeActive {
+                stopLiveTutorMode()
+                AppSettings.shared.voiceInputMode = "pushToTalk"
+                // Fall through to normal PTT behavior below
+            }
 
             // Cancel any pending transient hide so the overlay stays visible
             transientHideTask?.cancel()
@@ -1111,6 +1139,90 @@ final class CompanionManager: ObservableObject {
         realtimeAudioChunksSent = 0
     }
 
+    // MARK: - Skilly — Live Tutor Mode Pipeline
+
+    private func startLiveTutorMode() {
+        guard !isLiveTutorModeActive else { return }
+        isLiveTutorModeActive = true
+
+        #if DEBUG
+        print("🎓 Live Tutor: starting")
+        #endif
+
+        Task {
+            do {
+                try await ensureRealtimeSessionReadyForTurn()
+                try await openAIRealtimeClient.updateTurnDetection(enabled: true)
+            } catch {
+                #if DEBUG
+                print("⚠️ Live Tutor: failed to start session: \(error)")
+                #endif
+                isLiveTutorModeActive = false
+                return
+            }
+
+            let audioEngine = AVAudioEngine()
+            self.liveTutorAudioEngine = audioEngine
+
+            let inputNode = audioEngine.inputNode
+            let inputFormat = inputNode.outputFormat(forBus: 0)
+
+            inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { [weak self] buffer, _ in
+                guard let self, self.isLiveTutorModeActive else { return }
+                guard let pcm16Data = self.convertBufferToPCM16(buffer) else { return }
+                self.openAIRealtimeClient.appendAudioChunk(pcm16Data)
+            }
+
+            audioEngine.prepare()
+            try? audioEngine.start()
+
+            #if DEBUG
+            print("🎓 Live Tutor: mic streaming started")
+            #endif
+
+            resetLiveTutorAutoSleepTimer()
+        }
+    }
+
+    private func stopLiveTutorMode() {
+        guard isLiveTutorModeActive else { return }
+        isLiveTutorModeActive = false
+
+        #if DEBUG
+        print("🎓 Live Tutor: stopping")
+        #endif
+
+        liveTutorAutoSleepTask?.cancel()
+        liveTutorAutoSleepTask = nil
+
+        liveTutorAudioEngine?.stop()
+        liveTutorAudioEngine?.inputNode.removeTap(onBus: 0)
+        liveTutorAudioEngine = nil
+
+        Task {
+            try? await openAIRealtimeClient.updateTurnDetection(enabled: false)
+        }
+
+        voiceState = .idle
+        clearRealtimeResponseBubble()
+    }
+
+    private func resetLiveTutorAutoSleepTimer() {
+        liveTutorAutoSleepTask?.cancel()
+        let autoSleepMinutes = AppSettings.shared.liveTutorAutoSleepMinutes
+        guard autoSleepMinutes > 0 else { return }
+
+        liveTutorAutoSleepTask = Task {
+            try? await Task.sleep(for: .seconds(autoSleepMinutes * 60))
+            guard !Task.isCancelled, isLiveTutorModeActive else { return }
+            #if DEBUG
+            print("🎓 Live Tutor: auto-sleeping after \(autoSleepMinutes) minutes of silence")
+            #endif
+            stopLiveTutorMode()
+            AppSettings.shared.voiceInputMode = "pushToTalk"
+        }
+    }
+
     private func handleRealtimeEvent(_ event: OpenAIRealtimeEvent) {
         switch event {
         case .sessionCreated:
@@ -1242,6 +1354,74 @@ final class CompanionManager: ObservableObject {
                 didReceivePointToolCallForCurrentTurn = true
                 pendingToolCallIdForCurrentTurn = callId
             }
+
+        case .speechStarted:
+            // MARK: - Skilly — Live Tutor: server detected speech
+            guard isLiveTutorModeActive else { break }
+            resetLiveTutorAutoSleepTimer()
+
+            // If model is currently speaking, cancel (barge-in)
+            if voiceState == .responding {
+                openAIRealtimeClient.cancelResponse()
+                realtimeAudioPlayer?.stop()
+                #if DEBUG
+                print("🎓 Live Tutor: user interrupted model, cancelling response")
+                #endif
+            }
+
+            // Reset per-turn state
+            realtimeResponseText = ""
+            currentTurnUserTranscript = nil
+            currentTurnScreenCaptures = []
+            hasEndedAssistantSpeechForCurrentTurn = false
+            didReceivePointToolCallForCurrentTurn = false
+            didReceiveAnyAudioChunkForCurrentTurn = false
+            pendingToolCallIdForCurrentTurn = nil
+            isAwaitingForcedSpokenFollowUp = false
+            currentTurnStartTime = Date()
+            clearDetectedElementLocation()
+            clearRealtimeResponseBubble()
+
+            voiceState = .listening
+
+            // Show overlay if hidden
+            if !isSkillyCursorEnabled && !isOverlayVisible {
+                overlayWindowManager.hasShownOverlayBefore = true
+                overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+                isOverlayVisible = true
+            }
+
+            // Capture screenshots for visual context
+            Task {
+                do {
+                    let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                    currentTurnScreenCaptures = allScreenCaptures
+                    for (screenIndex, screenCapture) in allScreenCaptures.enumerated() {
+                        let screenshotDescription = """
+                        \(screenCapture.label). \
+                        coordinate space: \(screenCapture.screenshotWidthInPixels)x\(screenCapture.screenshotHeightInPixels) pixels. \
+                        app display frame in points: \(Int(screenCapture.displayFrame.width))x\(Int(screenCapture.displayFrame.height)). \
+                        screen number: \(screenIndex + 1).
+                        """
+                        openAIRealtimeClient.sendScreenshot(
+                            screenCapture.imageData,
+                            withText: screenshotDescription
+                        )
+                    }
+                } catch {
+                    #if DEBUG
+                    print("⚠️ Live Tutor: screenshot capture failed: \(error)")
+                    #endif
+                }
+            }
+
+        case .speechStopped:
+            // MARK: - Skilly — Live Tutor: server detected end of speech
+            guard isLiveTutorModeActive else { break }
+            voiceState = .processing
+            #if DEBUG
+            print("🎓 Live Tutor: speech ended, server auto-committed")
+            #endif
 
         case .error(let message):
             // MARK: - Skilly — Debug logging (stripped in release)
