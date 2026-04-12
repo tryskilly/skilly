@@ -193,7 +193,8 @@ struct PlanCard: View {
     private var manageButton: some View {
         switch effectiveStatus {
         case .active, .canceled:
-            Button(action: { openURL("https://polar.sh/purchases/subscriptions") }) {
+            // TODO: Switch to https://polar.sh/purchases/subscriptions for production
+            Button(action: { openURL("https://sandbox.polar.sh/purchases/subscriptions") }) {
                 manageButtonContent(
                     label: "Manage subscription",
                     color: Color(hex: "#60A5FA")
