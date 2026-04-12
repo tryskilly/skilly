@@ -83,10 +83,10 @@ final class CompanionManager: ObservableObject {
     /// otherwise falls back to the base Skilly prompt.
     private var composedSystemPrompt: String {
         if let skillManager,
-           let composed = skillManager.composedSystemPrompt(basePrompt: Self.realtimeCompanionBasePrompt) {
+           let composed = skillManager.composedSystemPrompt(basePrompt: modeAwareBasePrompt) {
             return composed
         }
-        return Self.realtimeCompanionBasePrompt
+        return modeAwareBasePrompt
     }
 
     // MARK: - Skilly Core
@@ -772,6 +772,22 @@ final class CompanionManager: ObservableObject {
     - user: "can you show me how to commit in xcode?" → you say: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut." AND you call point_at_element with x=285, y=11, label="source control"
     - user: "where's my terminal?" (on another monitor) → you say: "that's over on your other monitor — see the terminal window?" AND you call point_at_element with x=400, y=300, label="terminal", screen=2
     """
+
+    // MARK: - Skilly — Mode-aware prompt for Live Tutor vs push-to-talk
+
+    /// Returns the base prompt with a mode-specific preamble.
+    /// In Live Tutor mode, the model should know it's always listening
+    /// and should respond more concisely since there's no deliberate
+    /// push-to-talk action from the user.
+    private var modeAwareBasePrompt: String {
+        if isLiveTutorModeActive {
+            return Self.realtimeCompanionBasePrompt.replacingOccurrences(
+                of: "the user just spoke to you via push-to-talk",
+                with: "you're in live tutor mode — always listening. the user is working and talking to you naturally without pressing any buttons. they might think aloud, ask quick questions, or narrate what they're doing. be extra concise unless they ask for detail — they're in a flow state and interruptions should be short"
+            )
+        }
+        return Self.realtimeCompanionBasePrompt
+    }
 
     /// If the cursor is in transient mode (user toggled "Show Skilly" off),
     /// waits for TTS playback and any pointing animation to finish, then
