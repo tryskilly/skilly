@@ -319,7 +319,7 @@ final class CompanionManager: ObservableObject {
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
 
-        let sessionDurationSeconds = RealtimeTelemetry.shared.currentSessionDurationMs / 1000
+        let sessionDurationSeconds = TimeInterval(RealtimeTelemetry.shared.currentSessionDurationMs) / 1000
         recordSessionSecondsIfNeeded(sessionDurationSeconds)
         SkillyNotificationManager.shared.checkAndSendTrial80PercentWarning()
         SkillyNotificationManager.shared.checkAndSendUsage80PercentWarning()

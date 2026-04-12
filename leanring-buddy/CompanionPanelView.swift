@@ -18,94 +18,197 @@ struct CompanionPanelView: View {
     @State private var emailInput: String = ""
     // MARK: - Skilly — Settings
     @State private var showSettings = false
+    // MARK: - Skilly — Panel Navigation
+    @StateObject private var navigator = PanelNavigator()
+    // MARK: - Skilly — Push-to-talk hint (dismissible, shown once)
+    @AppStorage("hasSeenPTTHint") private var hasSeenPTTHint: Bool = false
 
     var body: some View {
+        Group {
+            if navigator.currentScreen == .skillsLibrary, let skillManager {
+                VStack(alignment: .leading, spacing: 0) {
+                    SkillLibraryView(skillManager: skillManager, navigator: navigator)
+                }
+                .frame(width: 300)
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
+                .background(panelBackground)
+                .preferredColorScheme(.dark)
+                .transition(.move(edge: .trailing))
+            } else {
+                mainScreen
+                    .transition(.move(edge: .leading))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: navigator.currentScreen)
+    }
+
+    // MARK: - Main Screen
+
+    @ViewBuilder
+    private var mainScreen: some View {
         VStack(alignment: .leading, spacing: 0) {
             panelHeader
             Divider()
                 .background(DS.Colors.borderSubtle)
                 .padding(.horizontal, 16)
 
-            permissionsCopySection
-                .padding(.top, 16)
-                .padding(.horizontal, 16)
-
-            // Model picker removed — OpenAI Realtime is the default pipeline.
-            // Model selection is handled in Settings if needed in the future.
-
             if !companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
+                permissionsCopySection
+                    .padding(.top, 16)
+                    .padding(.horizontal, 16)
+
+                Spacer().frame(height: 16)
 
                 settingsSection
                     .padding(.horizontal, 16)
-            }
+                    .padding(.bottom, 12)
+            } else if !(authManager?.isSignedIn ?? true) {
+                permissionsCopySection
+                    .padding(.top, 16)
+                    .padding(.horizontal, 16)
 
-            // Show sign-in button when not authenticated (regardless of onboarding state)
-            if companionManager.allPermissionsGranted && !(authManager?.isSignedIn ?? true) {
-                Spacer()
-                    .frame(height: 16)
+                Spacer().frame(height: 16)
 
                 startButton
                     .padding(.horizontal, 16)
-            }
+                    .padding(.bottom, 12)
+            } else if !companionManager.hasCompletedOnboarding {
+                permissionsCopySection
+                    .padding(.top, 16)
+                    .padding(.horizontal, 16)
 
-            // Show onboarding start button when authenticated but not yet onboarded
-            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && (authManager?.isSignedIn ?? true) {
-                Spacer()
-                    .frame(height: 16)
+                Spacer().frame(height: 16)
 
                 onboardingStartButton
                     .padding(.horizontal, 16)
-            }
+                    .padding(.bottom, 12)
+            } else {
+                // Onboarded + authenticated + permissions granted → main content
+                if !hasSeenPTTHint {
+                    pttHintCard
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                }
 
-            // Show Skilly toggle — hidden for now
-            // if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            //     Spacer()
-            //         .frame(height: 16)
-            //
-            //     showSkillyCursorToggleRow
-            //         .padding(.horizontal, 16)
-            // }
-
-            // MARK: - Skilly — Skill panel section
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted,
-               let skillManager {
-                Spacer()
-                    .frame(height: 12)
+                if let skillManager {
+                    ActiveSkillsSection(
+                        skillManager: skillManager,
+                        onManageTapped: { navigator.push(.skillsLibrary) }
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 12)
+                }
 
                 Divider()
                     .background(DS.Colors.borderSubtle)
                     .padding(.horizontal, 16)
 
-                SkillPanelSection(skillManager: skillManager)
-                    .padding(.top, 12)
+                userStrip
                     .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
             }
-
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                dmFarzaButton
-                    .padding(.horizontal, 16)
-            }
-
-            Spacer()
-                .frame(height: 12)
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
-
-            footerSection
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
         }
         .frame(width: 300)
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
         .background(panelBackground)
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Push-to-talk Hint (dismissible, one-time)
+
+    private var pttHintCard: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.accentText)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Hold Ctrl + Option to talk")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text("Press Esc to cancel at any time")
+                    .font(.system(size: 10))
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+
+            Spacer()
+
+            Button(action: {
+                withAnimation { hasSeenPTTHint = true }
+            }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .fill(DS.Colors.accent.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .stroke(DS.Colors.accent.opacity(0.2), lineWidth: 0.5)
+        )
+    }
+
+    // MARK: - User Strip (bottom)
+
+    @ViewBuilder
+    private var userStrip: some View {
+        if let user = authManager?.currentUser {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(DS.Colors.accentSubtle)
+                        .frame(width: 26, height: 26)
+                    Text(String(user.displayName.prefix(1)).uppercased())
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(DS.Colors.accentText)
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(user.displayName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(user.email)
+                        .font(.system(size: 10))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Menu {
+                    Button("Replay intro") { companionManager.replayOnboarding() }
+                    Button("Send feedback") {
+                        if let url = URL(string: "https://tryskilly.app") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    Divider()
+                    Button("Sign out", role: .destructive) { authManager?.signOut() }
+                    Button("Quit Skilly") { NSApp.terminate(nil) }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            Circle().fill(Color.white.opacity(0.06))
+                        )
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+        }
     }
 
     // MARK: - Header
@@ -140,7 +243,9 @@ struct CompanionPanelView: View {
             .popover(isPresented: $showSettings) {
                 SettingsView(
                     settings: AppSettings.shared,
-                    skillManager: skillManager
+                    skillManager: skillManager,
+                    authManager: authManager,
+                    companionManager: companionManager
                 )
             }
             // MARK: - Skilly — Accessibility

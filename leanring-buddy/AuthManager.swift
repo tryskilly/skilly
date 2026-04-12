@@ -34,8 +34,12 @@ struct SkillyUser: Codable, Sendable {
 /// Manages authentication state and the WorkOS AuthKit login flow.
 @MainActor
 final class AuthManager: ObservableObject {
+    // MARK: - Skilly — Shared singleton for non-injected consumers
+    /// Shared instance used by EntitlementManager, UsageTracker, and TrialTracker.
+    /// The app delegate creates this instance on launch and uses the same reference.
+    static let shared = AuthManager()
+
     @Published private(set) var currentUser: SkillyUser?
-    // MARK: - Skilly
     @Published private(set) var isAuthenticated: Bool = false
     @Published private(set) var isAuthenticating: Bool = false
     @Published private(set) var authError: String?

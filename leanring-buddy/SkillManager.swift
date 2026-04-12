@@ -32,6 +32,41 @@ final class SkillManager: ObservableObject {
     @Published var autoDetectionEnabled: Bool = true
     @Published private(set) var hasManuallySelectedSkill: Bool = false
 
+    // MARK: - Skilly — Pinned Skills
+    /// Set of skill IDs the user has pinned. Pinned skills stay visible in the
+    /// "Active Now" panel even when the frontmost app doesn't match them.
+    /// Persisted across launches via UserDefaults.
+    @Published private(set) var pinnedSkillIds: Set<String> = {
+        let stored = UserDefaults.standard.stringArray(forKey: "pinnedSkillIds") ?? []
+        return Set(stored)
+    }()
+
+    /// Returns true if the given skill is pinned.
+    func isPinned(_ skillId: String) -> Bool {
+        pinnedSkillIds.contains(skillId)
+    }
+
+    /// Pins a skill so it appears in "Active Now" regardless of frontmost app.
+    func pinSkill(_ skillId: String) {
+        pinnedSkillIds.insert(skillId)
+        UserDefaults.standard.set(Array(pinnedSkillIds), forKey: "pinnedSkillIds")
+    }
+
+    /// Unpins a skill. It will only appear in "Active Now" when auto-detection matches.
+    func unpinSkill(_ skillId: String) {
+        pinnedSkillIds.remove(skillId)
+        UserDefaults.standard.set(Array(pinnedSkillIds), forKey: "pinnedSkillIds")
+    }
+
+    /// Toggles the pinned state of a skill.
+    func togglePinned(_ skillId: String) {
+        if isPinned(skillId) {
+            unpinSkill(skillId)
+        } else {
+            pinSkill(skillId)
+        }
+    }
+
     // MARK: - Dependencies
 
     /// Processes voice interactions to detect mastery signals and advance curriculum stages.

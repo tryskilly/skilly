@@ -35,7 +35,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Skilly
     private let skillManager = SkillManager.createDefault()
-    let authManager = AuthManager()
+    let authManager = AuthManager.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // MARK: - Skilly — Debug logging (stripped in release)
