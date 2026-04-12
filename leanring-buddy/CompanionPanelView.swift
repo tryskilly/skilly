@@ -89,17 +89,36 @@ struct CompanionPanelView: View {
     // MARK: - Push-to-talk Hint Strip (always visible)
 
     private var pttHintStrip: some View {
-        HStack(spacing: 6) {
-            Spacer()
-            Text("Hold")
-                .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textTertiary)
-            keyCap("⌃")
-            keyCap("⌥")
-            Text("to talk")
-                .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textTertiary)
-            Spacer()
+        // MARK: - Skilly
+        // Show a Live Tutor indicator when in live tutor mode; otherwise show the standard PTT key capsules.
+        if AppSettings.shared.voiceInputMode == "liveTutor" {
+            AnyView(
+                HStack(spacing: 4) {
+                    Spacer()
+                    Circle()
+                        .fill(DS.Colors.success)
+                        .frame(width: 6, height: 6)
+                    Text("Live Tutor active · just start talking")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                    Spacer()
+                }
+            )
+        } else {
+            AnyView(
+                HStack(spacing: 6) {
+                    Spacer()
+                    Text("Hold")
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                    keyCap("⌃")
+                    keyCap("⌥")
+                    Text("to talk")
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                    Spacer()
+                }
+            )
         }
     }
 
