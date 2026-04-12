@@ -4,8 +4,10 @@ compatibility_date = "2024-01-01"
 
 [vars]
 ELEVENLABS_VOICE_ID = "kPzsL2i3teMYv0FxEYQ6"
-WORKOS_CLIENT_ID = "client_01KNQKDAG6M4YEPVCEXDA4PRND"
+WORKOS_CLIENT_ID = "client_01KP1VJPX4CG5WXEV8QSGTSTVZ"
 WORKOS_REDIRECT_URI = "https://skilly-proxy.eng-mohamedszaied.workers.dev/auth/callback"
+# Required secret for signed app session tokens:
+# npx wrangler secret put SESSION_TOKEN_SECRET --name skilly-proxy
 POLAR_API_BASE = "https://api.polar.sh"
 POLAR_BETA_PRODUCT_ID = "2706ed5f-04b2-4429-a62a-27f9bd9f1ec9"
 POLAR_BETA_PRICE_ID = "356345c2-5ce6-4828-8262-12e088a45daf"
