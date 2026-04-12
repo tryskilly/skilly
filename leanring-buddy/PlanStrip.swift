@@ -261,9 +261,7 @@ struct PlanStrip: View {
 
     private var upgradeButton: some View {
         Button(action: {
-            if let url = URL(string: "https://tryskilly.app/upgrade") {
-                NSWorkspace.shared.open(url)
-            }
+            Task { await EntitlementManager.shared.startCheckout() }
         }) {
             HStack(spacing: 3) {
                 Text("Upgrade")

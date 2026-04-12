@@ -193,7 +193,7 @@ struct PlanCard: View {
     private var manageButton: some View {
         switch effectiveStatus {
         case .active, .canceled:
-            Button(action: { openURL("https://tryskilly.app/account") }) {
+            Button(action: { openURL("https://polar.sh/purchases/subscriptions") }) {
                 manageButtonContent(
                     label: "Manage subscription",
                     color: Color(hex: "#60A5FA")
@@ -203,7 +203,7 @@ struct PlanCard: View {
             .pointerCursor()
 
         case .trial, .expired, .none:
-            Button(action: { openURL("https://tryskilly.app/upgrade") }) {
+            Button(action: { Task { await EntitlementManager.shared.startCheckout() } }) {
                 manageButtonContent(
                     label: trialTracker.isExhausted ? "Subscribe — $19 / month" : "Upgrade",
                     color: DS.Colors.accent
