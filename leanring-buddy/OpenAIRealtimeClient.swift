@@ -83,6 +83,9 @@ enum OpenAIRealtimeEvent {
     case inputTranscriptDone(String)     // Transcript of what the user said (STT result)
     case responseDone(RealtimeUsage?)   // Includes token usage from response.done
     case functionCallDone(name: String, argumentsJSON: String, callId: String) // Model called a tool
+    // MARK: - Skilly
+    case speechStarted           // Server VAD detected user started speaking
+    case speechStopped           // Server VAD detected user stopped speaking
     case error(String)
 }
 
@@ -288,6 +291,41 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         #if DEBUG
         print("🎤 OpenAI Realtime: voice updated to \(voiceName)")
+        #endif
+    }
+
+    // MARK: - Skilly
+
+    /// Toggle server-side VAD on or off.
+    /// When enabled, the server auto-detects speech boundaries and
+    /// auto-commits the audio buffer + triggers a response on silence.
+    /// When disabled (push-to-talk), the client controls commit timing.
+    func updateTurnDetection(enabled: Bool) async throws {
+        guard isConnected || webSocketTask != nil else { return }
+
+        let turnDetection: Any
+        if enabled {
+            turnDetection = [
+                "type": "server_vad",
+                "threshold": 0.5,
+                "prefix_padding_ms": 300,
+                "silence_duration_ms": 700
+            ] as [String: Any]
+        } else {
+            turnDetection = NSNull()
+        }
+
+        let sessionUpdate: [String: Any] = [
+            "type": "session.update",
+            "session": [
+                "turn_detection": turnDetection
+            ]
+        ]
+
+        try await sendEvent(sessionUpdate)
+
+        #if DEBUG
+        print("🎙️ OpenAI Realtime: turn detection \(enabled ? "enabled (server VAD)" : "disabled (push-to-talk)")")
         #endif
     }
 
@@ -596,12 +634,14 @@ final class OpenAIRealtimeClient: ObservableObject {
             #if DEBUG
             print("🎙️ OpenAI Realtime: speech detected")
             #endif
+            eventPublisher.send(.speechStarted)
 
         case "input_audio_buffer.speech_stopped":
             // MARK: - Skilly — Debug logging (stripped in release)
             #if DEBUG
             print("🎙️ OpenAI Realtime: speech ended")
             #endif
+            eventPublisher.send(.speechStopped)
 
         case "input_audio_buffer.committed":
             // MARK: - Skilly — Debug logging (stripped in release)
