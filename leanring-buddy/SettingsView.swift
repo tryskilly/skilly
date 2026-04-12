@@ -106,22 +106,8 @@ struct SettingsView: View {
 
         divider
 
-        sectionHeader("SUBSCRIPTION")
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Free trial")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textPrimary)
-                Spacer()
-                Text("15 min lifetime")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            Text("Upgrade for unlimited usage and priority access.")
-                .font(.system(size: 10))
-                .foregroundColor(DS.Colors.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        sectionHeader("PLAN")
+        PlanCard()
 
         divider
 

@@ -13,6 +13,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PanelBodyView: View {
     @ObservedObject var skillManager: SkillManager
@@ -58,7 +59,8 @@ struct PanelBodyView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
+            PlanStrip()
             activeNowSection
             installedSection
         }

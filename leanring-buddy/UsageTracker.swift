@@ -83,6 +83,8 @@ final class UsageTracker: ObservableObject {
         guard !isOverCap, let userId else { return }
         let previousUsed = secondsUsed
         secondsUsed = min(Self.maxSecondsPerPeriod, secondsUsed + seconds)
+        // MARK: - Skilly — Notify observers (PlanStrip, PlanCard) to refresh
+        objectWillChange.send()
 
         // 80% warning (one-time per period)
         if !hasSent80PercentWarning && secondsUsed >= Self.warningThresholdSeconds {

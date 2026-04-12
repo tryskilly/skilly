@@ -106,6 +106,9 @@ final class CompanionManager: ObservableObject {
     /// Screen capture metadata for the current turn, used to map [POINT:x,y]
     /// tags from screenshot pixel space back into global AppKit screen space.
     private var currentTurnScreenCaptures: [CompanionScreenCapture] = []
+    /// When the user pressed push-to-talk for the current turn. Used to
+    /// measure turn duration for usage tracking (recorded on response.done).
+    private var currentTurnStartTime: Date?
 
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
@@ -914,6 +917,8 @@ final class CompanionManager: ObservableObject {
         isSuppressingPointTagAudioForCurrentTurn = false
         hasEndedAssistantSpeechForCurrentTurn = false
         isWaitingForRealtimeAudioQueueDrain = false
+        // MARK: - Skilly — Record turn start for usage tracking (key press → response.done)
+        currentTurnStartTime = Date()
         clearRealtimeResponseBubble()
 
         realtimePushToTalkTask = Task {
@@ -1065,6 +1070,17 @@ final class CompanionManager: ObservableObject {
                 RealtimeTelemetry.shared.endAssistantSpeech()
                 hasEndedAssistantSpeechForCurrentTurn = true
             }
+            // MARK: - Skilly — Record per-turn usage for trial/cap tracking
+            if let turnStart = currentTurnStartTime {
+                let turnDurationSeconds = Date().timeIntervalSince(turnStart)
+                recordSessionSecondsIfNeeded(turnDurationSeconds)
+                // Fire the first-turn milestone on the very first trial turn
+                TrialTracker.shared.recordFirstTurn()
+                // Check for 80% warning thresholds after each recording
+                SkillyNotificationManager.shared.checkAndSendTrial80PercentWarning()
+                SkillyNotificationManager.shared.checkAndSendUsage80PercentWarning()
+            }
+            currentTurnStartTime = nil
             applyPointDirectiveIfPresent(in: realtimeResponseText)
             if let currentTurnUserTranscript {
                 let cleanedAssistantResponse = realtimeResponseText.replacingOccurrences(

@@ -104,6 +104,8 @@ final class TrialTracker: ObservableObject {
         guard let userId, hasStarted, !isExhausted else { return }
         let previousUsed = totalSecondsUsed
         totalSecondsUsed = min(Self.maxTrialSeconds, totalSecondsUsed + seconds)
+        // MARK: - Skilly — Notify observers (PlanStrip, PlanCard) to refresh
+        objectWillChange.send()
 
         let prevMinutes = Int(previousUsed / 60)
         let newMinutes = Int(totalSecondsUsed / 60)
