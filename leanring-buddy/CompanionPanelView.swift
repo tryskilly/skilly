@@ -853,7 +853,7 @@ struct CompanionPanelView: View {
             .foregroundColor(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(DS.Colors.error.opacity(0.15))
+                    .background(DS.Colors.destructive.opacity(0.15))
             .cornerRadius(DS.CornerRadius.medium)
         }
         .buttonStyle(.plain)
@@ -903,7 +903,7 @@ struct CompanionPanelView: View {
             .foregroundColor(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(DS.Colors.error.opacity(0.15))
+                    .background(DS.Colors.destructive.opacity(0.15))
             .cornerRadius(DS.CornerRadius.medium)
         }
         .buttonStyle(.plain)

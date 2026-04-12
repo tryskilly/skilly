@@ -8,7 +8,7 @@ struct TrialExhaustedModal: View {
             HStack {
                 Image(systemName: "clock.badge.exclamationmark")
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(DS.Colors.error)
+                    .foregroundColor(DS.Colors.destructive)
                 Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
