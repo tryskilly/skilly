@@ -211,9 +211,35 @@ final class EntitlementManager: ObservableObject {
 
             if let checkoutURL = URL(string: response.checkout_url) {
                 NSWorkspace.shared.open(checkoutURL)
+                // Start polling for entitlement changes. The webhook may
+                // take a few seconds to arrive after the user pays. Poll
+                // every 5 seconds for up to 2 minutes so the PlanStrip
+                // updates without requiring the deep link or a relaunch.
+                startPostCheckoutPolling()
             }
         } catch {
             // Log error silently
+        }
+    }
+
+    // MARK: - Skilly — Post-checkout entitlement polling
+    private var postCheckoutPollingTask: Task<Void, Never>?
+
+    private func startPostCheckoutPolling() {
+        postCheckoutPollingTask?.cancel()
+        postCheckoutPollingTask = Task {
+            for _ in 0..<24 {  // 24 × 5s = 2 minutes
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                await refresh()
+                // Stop polling once we detect an active subscription
+                if case .active = status {
+                    #if DEBUG
+                    print("🎯 Skilly: Post-checkout poll detected active subscription")
+                    #endif
+                    return
+                }
+            }
         }
     }
 

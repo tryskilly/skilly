@@ -111,8 +111,23 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: urlString),
-              url.scheme == "skilly",
-              url.host == "auth",
+              url.scheme == "skilly" else {
+            return
+        }
+
+        // MARK: - Skilly — Handle checkout-success deep link
+        // After paying on Polar, the success page has an "Open Skilly"
+        // button that links to skilly://checkout-success. Refresh the
+        // entitlement so the PlanStrip updates without a relaunch.
+        if url.host == "checkout-success" {
+            #if DEBUG
+            print("🎯 Skilly: Received checkout-success deep link, refreshing entitlement")
+            #endif
+            Task { await EntitlementManager.shared.refresh() }
+            return
+        }
+
+        guard url.host == "auth",
               url.path == "/callback" || url.path == "callback" else {
             return
         }
