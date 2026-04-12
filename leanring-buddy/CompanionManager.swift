@@ -677,12 +677,15 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
-            // MARK: - Skilly — In Live Tutor mode, the PTT shortcut toggles the
-            // mode off and falls back to push-to-talk for this press.
-            if isLiveTutorModeActive {
-                stopLiveTutorMode()
-                AppSettings.shared.voiceInputMode = "pushToTalk"
-                // Fall through to normal PTT behavior below
+            // MARK: - Skilly — In Live Tutor mode, the PTT shortcut
+            // toggles the mode on/off. Does NOT fall through to PTT.
+            if AppSettings.shared.voiceInputMode == "liveTutor" {
+                if isLiveTutorModeActive {
+                    stopLiveTutorMode()
+                } else {
+                    startLiveTutorMode()
+                }
+                return
             }
 
             // Cancel any pending transient hide so the overlay stays visible
@@ -1185,6 +1188,12 @@ final class CompanionManager: ObservableObject {
 
             inputNode.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { [weak self] buffer, _ in
                 guard let self, self.isLiveTutorModeActive else { return }
+                // Mute the mic feed while the model is speaking to prevent
+                // the TTS audio from being picked up by the mic and echoing
+                // back as a false "speech detected" event from the server VAD.
+                // This disables barge-in but avoids the feedback loop that
+                // causes empty transcriptions and cancellation storms.
+                guard self.voiceState != .responding else { return }
                 guard let pcm16Data = self.convertBufferToPCM16(buffer) else { return }
                 self.openAIRealtimeClient.appendAudioChunk(pcm16Data)
             }
@@ -1374,16 +1383,11 @@ final class CompanionManager: ObservableObject {
         case .speechStarted:
             // MARK: - Skilly — Live Tutor: server detected speech
             guard isLiveTutorModeActive else { break }
+            // Ignore speech events while the model is responding — with the
+            // mic muted during TTS playback, any straggling speech_started
+            // events are from buffered audio before the mute kicked in.
+            guard voiceState != .responding else { break }
             resetLiveTutorAutoSleepTimer()
-
-            // If model is currently speaking, cancel (barge-in)
-            if voiceState == .responding {
-                openAIRealtimeClient.cancelResponse()
-                realtimeAudioPlayer?.stop()
-                #if DEBUG
-                print("🎓 Live Tutor: user interrupted model, cancelling response")
-                #endif
-            }
 
             // Reset per-turn state
             realtimeResponseText = ""
