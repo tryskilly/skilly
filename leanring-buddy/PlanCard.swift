@@ -17,8 +17,17 @@ struct PlanCard: View {
 
     // MARK: - Resolved Display State
 
+    /// Returns the effective status — falls back to trial when the Worker
+    /// hasn't returned an entitlement yet (new user, offline, or dev mode).
+    private var effectiveStatus: EntitlementStatus {
+        if case .none = entitlementManager.status {
+            return .trial(remainingSeconds: trialTracker.remainingSeconds)
+        }
+        return entitlementManager.status
+    }
+
     private var statusLabel: String {
-        switch entitlementManager.status {
+        switch effectiveStatus {
         case .trial:
             return trialTracker.isExhausted ? "Trial ended" : "Free trial"
         case .active:
@@ -28,12 +37,12 @@ struct PlanCard: View {
         case .expired:
             return "Expired"
         case .none:
-            return "Unknown"
+            return "Free trial"
         }
     }
 
     private var statusColor: Color {
-        switch entitlementManager.status {
+        switch effectiveStatus {
         case .trial:
             if trialTracker.isExhausted { return DS.Colors.destructiveText }
             return Color(hex: "#60A5FA")  // Blue for trial
@@ -43,15 +52,17 @@ struct PlanCard: View {
             return DS.Colors.success
         case .canceled:
             return DS.Colors.warning
-        case .expired, .none:
+        case .expired:
             return DS.Colors.textTertiary
+        case .none:
+            return Color(hex: "#60A5FA")
         }
     }
 
     /// Returns the time consumed/total as a display string (e.g. "43m of 3h")
     private var timeUsedLabel: String {
-        switch entitlementManager.status {
-        case .trial:
+        switch effectiveStatus {
+        case .trial, .none:
             let used = trialTracker.totalSecondsUsed
             let total = TrialTracker.maxTrialSeconds
             return "\(formatDuration(used)) of \(formatDuration(total))"
@@ -59,18 +70,18 @@ struct PlanCard: View {
             let used = usageTracker.secondsUsed
             let total = UsageTracker.maxSecondsPerPeriod
             return "\(formatDuration(used)) of \(formatDuration(total))"
-        case .expired, .none:
+        case .expired:
             return "—"
         }
     }
 
     private var progress: Double {
-        switch entitlementManager.status {
-        case .trial:
+        switch effectiveStatus {
+        case .trial, .none:
             return trialTracker.usageProgress
         case .active, .canceled:
             return usageTracker.usageProgress
-        case .expired, .none:
+        case .expired:
             return 0
         }
     }
@@ -82,26 +93,26 @@ struct PlanCard: View {
     }
 
     private var timeUsedHeader: String {
-        switch entitlementManager.status {
-        case .trial:
+        switch effectiveStatus {
+        case .trial, .none:
             return "Trial time used"
         case .active, .canceled:
             return "Time this month"
-        case .expired, .none:
+        case .expired:
             return "Time used"
         }
     }
 
     private var resetDateLabel: String? {
-        switch entitlementManager.status {
-        case .trial:
+        switch effectiveStatus {
+        case .trial, .none:
             return nil  // Trial never resets
         case .active, .canceled:
             guard let date = usageTracker.periodEnd else { return nil }
             let formatter = DateFormatter()
             formatter.dateStyle = .long
             return formatter.string(from: date)
-        case .expired, .none:
+        case .expired:
             return nil
         }
     }
@@ -180,7 +191,7 @@ struct PlanCard: View {
 
     @ViewBuilder
     private var manageButton: some View {
-        switch entitlementManager.status {
+        switch effectiveStatus {
         case .active, .canceled:
             Button(action: { openURL("https://tryskilly.app/account") }) {
                 manageButtonContent(

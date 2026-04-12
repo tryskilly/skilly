@@ -333,12 +333,18 @@ final class CompanionManager: ObservableObject {
 
     private func recordSessionSecondsIfNeeded(_ seconds: TimeInterval) {
         guard seconds > 0 else { return }
+        // MARK: - Skilly — Fall back to trial when no entitlement is set
+        // (new user, offline, or Worker hasn't synced). This ensures
+        // usage starts tracking immediately on first use.
         switch EntitlementManager.shared.status {
-        case .trial:
+        case .trial, .none:
+            // Ensure the trial has been started before recording seconds;
+            // otherwise recordSessionSeconds bails out on !hasStarted.
+            TrialTracker.shared.beginTrialIfNeeded()
             TrialTracker.shared.recordSessionSeconds(seconds)
         case .active, .canceled:
             UsageTracker.shared.recordSessionSeconds(seconds)
-        case .none, .expired:
+        case .expired:
             break
         }
     }
@@ -1049,12 +1055,16 @@ final class CompanionManager: ObservableObject {
         case .audioTranscriptDelta(let text):
             // MARK: - Skilly — Stream AI response text to cursor overlay
             realtimeResponseText += text
+            // When the model starts emitting the [POINT:...] control tag,
+            // we flag the turn so subsequent audio deltas are dropped.
+            // We intentionally do NOT call realtimeAudioPlayer.stop() here
+            // because that kills audio already scheduled for playback and
+            // cuts off the spoken response mid-sentence. The audio.delta
+            // handler checks isSuppressingPointTagAudioForCurrentTurn and
+            // drops new chunks without enqueuing them.
             if !isSuppressingPointTagAudioForCurrentTurn,
                realtimeResponseText.range(of: "[point:", options: .caseInsensitive) != nil {
-                // The model has started emitting control metadata. Stop audio playback
-                // so users never hear the raw [POINT:x,y:...] tag spoken aloud.
                 isSuppressingPointTagAudioForCurrentTurn = true
-                realtimeAudioPlayer?.stop()
             }
             updateRealtimeResponseBubble(usingRawModelResponse: realtimeResponseText)
 

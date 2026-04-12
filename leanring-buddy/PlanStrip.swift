@@ -30,9 +30,16 @@ struct PlanStrip: View {
     }
 
     private var state: PlanState {
-        let entitlementStatus = entitlementManager.status
+        // Fall back to trial when no entitlement is set yet (new user,
+        // offline, or Worker hasn't synced). This matches the PlanCard.
+        let effectiveStatus: EntitlementStatus
+        if case .none = entitlementManager.status {
+            effectiveStatus = .trial(remainingSeconds: trialTracker.remainingSeconds)
+        } else {
+            effectiveStatus = entitlementManager.status
+        }
 
-        switch entitlementStatus {
+        switch effectiveStatus {
         case .trial:
             if trialTracker.isExhausted {
                 return .trialEnded
