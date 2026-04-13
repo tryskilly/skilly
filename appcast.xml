@@ -27,6 +27,14 @@
             <enclosure url="https://github.com/julianjear/makesomething-mac-app/releases/download/v1.8/makesomething.dmg" length="11489099" type="application/octet-stream" sparkle:edSignature="K7n75BUbzhzTbrnYDQDcsmMQGb3bEjvl5yxSIdBGtbanNWrEUym2sozah5hGkAQ0sLShrPhx8FDBunmd2T3rAw=="/>
         </item>
         <item>
+            <title>1.2</title>
+            <pubDate>Mon, 13 Apr 2026 02:32:57 +0200</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v1.2/Skilly.dmg" length="11190396" type="application/octet-stream" sparkle:edSignature="tVBhwWVRi8LUhOrg4mQSmkc174y1cjcV5vNfYJC3GY8880+zj8pPNCpHTAtY0Xrsz+AokSLszTyboPCrwLFcBQ=="/>
+        </item>
+        <item>
             <title>1.1</title>
             <pubDate>Mon, 13 Apr 2026 02:07:55 +0200</pubDate>
             <sparkle:version>2</sparkle:version>
