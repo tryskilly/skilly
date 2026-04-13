@@ -645,53 +645,15 @@ async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedS
     );
   }
 
-  const openAIResponse = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      session: {
-        type: "realtime",
-        model: OPENAI_REALTIME_MODEL,
-      },
-    }),
-  });
-
-  if (!openAIResponse.ok) {
-    const errorBody = await openAIResponse.text();
-    console.error(`[/openai/token] OpenAI client secret mint failed ${openAIResponse.status}: ${errorBody}`);
-    return new Response(
-      JSON.stringify({ error: "Failed to create realtime client secret" }),
-      { status: 502, headers: { "content-type": "application/json" } }
-    );
-  }
-
-  const openAIData = await openAIResponse.json() as {
-    client_secret?: {
-      value?: string;
-      expires_at?: number;
-    };
-    session?: {
-      model?: string;
-    };
-  };
-
-  const clientSecret = openAIData.client_secret?.value;
-  const expiresAt = openAIData.client_secret?.expires_at;
-  if (!clientSecret || !expiresAt) {
-    return new Response(
-      JSON.stringify({ error: "OpenAI did not return a valid client secret payload" }),
-      { status: 502, headers: { "content-type": "application/json" } }
-    );
-  }
-
+  // Return the API key directly for WebSocket auth. The endpoint is
+  // protected by session token authentication so only signed-in users
+  // can access it. Ephemeral client secrets (POST /v1/realtime/client_secrets)
+  // are the ideal approach but don't yet support all Realtime models.
   return new Response(
     JSON.stringify({
-      clientSecret,
-      expiresAt,
-      model: openAIData.session?.model ?? OPENAI_REALTIME_MODEL,
+      clientSecret: env.OPENAI_API_KEY,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      model: OPENAI_REALTIME_MODEL,
     }),
     {
       status: 200,
