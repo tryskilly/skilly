@@ -4,7 +4,7 @@ An AI teaching companion that lives in your macOS menu bar. It sees your screen,
 
 Built for learning creative software: Figma, Blender, After Effects, and more. Each app gets a domain-specific teaching skill with curriculum stages, UI vocabulary, and expert knowledge.
 
-**[tryskilly.app](https://tryskilly.app)** | **[Download](https://downloads.tryskilly.app/Skilly.dmg)**
+**[tryskilly.app](https://tryskilly.app)** | **[Download](https://github.com/tryskilly/skilly/releases/latest/download/Skilly.dmg)**
 
 ## How it works
 
