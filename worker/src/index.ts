@@ -359,8 +359,11 @@ function handleAuthCallbackRedirect(url: URL): Response {
     appCallbackURL.searchParams.set("state", state);
   }
   const appURL = appCallbackURL.toString();
-  // HTML-escape the URL to prevent reflected XSS via the code parameter
-  const safeURL = appURL.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // HTML-escape the URL for use in HTML attributes (href) where &amp; is required.
+  // Use the raw URL in JavaScript where &amp; would break the URL.
+  const htmlSafeURL = appURL.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // For JavaScript string context, escape quotes and backslashes only.
+  const jsSafeURL = appURL.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/'/g, "\\'");
 
   const html = `<!DOCTYPE html>
 <html>
@@ -368,11 +371,11 @@ function handleAuthCallbackRedirect(url: URL): Response {
 <body style="font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #1a1a2e; color: #fff;">
   <div style="text-align: center;">
     <h2>Opening Skilly...</h2>
-    <p style="color: #888;">If nothing happens, <a href="${safeURL}" style="color: #6C63FF;">click here to open Skilly</a>.</p>
+    <p style="color: #888;">If nothing happens, <a href="${htmlSafeURL}" style="color: #6C63FF;">click here to open Skilly</a>.</p>
     <p id="status" style="color: #555; font-size: 12px; margin-top: 24px;">Redirecting...</p>
   </div>
   <script>
-    window.location.href = "${safeURL}";
+    window.location.href = "${jsSafeURL}";
     // Try to close the tab after a short delay
     setTimeout(function() {
       document.getElementById("status").textContent = "You can close this tab now.";

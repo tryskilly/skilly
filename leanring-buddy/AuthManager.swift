@@ -126,11 +126,14 @@ final class AuthManager: ObservableObject {
     /// Called when the app receives the skilly://auth/callback?code=XXX&state=YYY deep link.
     /// Exchanges the authorization code for a user profile via the Worker proxy.
     func handleAuthCallback(code: String, state: String?) {
+        #if DEBUG
+        print("🔑 Skilly Auth: callback state=\(state ?? "nil"), pending=\(pendingOAuthState ?? "nil")")
+        #endif
         guard validateOAuthState(state) else {
             isAuthenticating = false
             authError = "Sign in failed: invalid OAuth state"
             #if DEBUG
-            print("⚠️ Skilly Auth: OAuth state mismatch")
+            print("⚠️ Skilly Auth: OAuth state mismatch — callback=\(state ?? "nil") pending=\(pendingOAuthState ?? "nil") age=\(pendingOAuthStateCreatedAt.map { Date().timeIntervalSince($0) } ?? -1)s")
             #endif
             return
         }
