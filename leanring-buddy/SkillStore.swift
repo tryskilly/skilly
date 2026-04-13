@@ -223,7 +223,19 @@ final class SkillStore: Sendable {
         let fileManager = FileManager.default
         let skillsDir = URL(fileURLWithPath: skillsDirectoryPath)
 
-        guard let bundledSkillsURL = Bundle.main.resourceURL?.appendingPathComponent("Skills") else { return }
+        // Try both "Skills" and "skills" — the folder name depends on how
+        // it was added to the Xcode project (folder reference preserves case).
+        let bundledSkillsURL: URL? = {
+            let resource = Bundle.main.resourceURL
+            for name in ["Skills", "skills"] {
+                if let url = resource?.appendingPathComponent(name),
+                   FileManager.default.fileExists(atPath: url.path) {
+                    return url
+                }
+            }
+            return nil
+        }()
+        guard let bundledSkillsURL else { return }
 
         guard let bundledSkillDirs = try? fileManager.contentsOfDirectory(
             at: bundledSkillsURL,
