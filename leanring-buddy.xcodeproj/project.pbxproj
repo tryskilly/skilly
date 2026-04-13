@@ -29,14 +29,31 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		28F22CBF2F56440300A0FC59 /* Clicky.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = Clicky.app; path = Skilly.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		28F22CBF2F56440300A0FC59 /* Skilly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Skilly.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7FB6370C2F8C7F60001201E2 /* Exceptions for "leanring-buddy" folder in "leanring-buddy" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"skills/after-effects-basics/SKILL.md",
+				"skills/blender-fundamentals/SKILL.md",
+				"skills/davinci-resolve-basics/SKILL.md",
+				"skills/figma-basics/SKILL.md",
+				"skills/premiere-pro-basics/SKILL.md",
+			);
+			target = 28F22CBE2F56440300A0FC59 /* leanring-buddy */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		28F22CC12F56440300A0FC59 /* leanring-buddy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7FB6370C2F8C7F60001201E2 /* Exceptions for "leanring-buddy" folder in "leanring-buddy" target */,
+			);
 			path = "leanring-buddy";
 			sourceTree = "<group>";
 		};
@@ -92,7 +109,7 @@
 		28F22CC02F56440300A0FC59 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				28F22CBF2F56440300A0FC59 /* Clicky.app */,
+				28F22CBF2F56440300A0FC59 /* Skilly.app */,
 				28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */,
 				28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */,
 			);
@@ -109,6 +126,7 @@
 				28F22CBB2F56440300A0FC59 /* Sources */,
 				28F22CBC2F56440300A0FC59 /* Frameworks */,
 				28F22CBD2F56440300A0FC59 /* Resources */,
+				7FB6370D2F8C80DE001201E2 /* Run Script */,
 			);
 			buildRules = (
 			);
@@ -123,7 +141,7 @@
 				AA00BB052F6500050039DA55 /* PostHog */,
 			);
 			productName = "leanring-buddy";
-			productReference = 28F22CBF2F56440300A0FC59 /* Clicky.app */;
+			productReference = 28F22CBF2F56440300A0FC59 /* Skilly.app */;
 			productType = "com.apple.product-type.application";
 		};
 		28F22CCB2F56440300A0FC59 /* leanring-buddyTests */ = {
@@ -243,6 +261,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7FB6370D2F8C80DE001201E2 /* Run Script */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Run Script";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "  SKILLS_SRC=\"${SRCROOT}/leanring-buddy/skills\"\n  SKILLS_DST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/skills\"\n\n  if [ -d \"$SKILLS_SRC\" ]; then\n      mkdir -p \"$SKILLS_DST\"\n      for skill_dir in \"$SKILLS_SRC\"/*/; do\n          skill_name=$(basename \"$skill_dir\")\n          mkdir -p \"$SKILLS_DST/$skill_name\"\n          cp \"$skill_dir/SKILL.md\" \"$SKILLS_DST/$skill_name/SKILL.md\" 2>/dev/null\n      done\n  fi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		28F22CBB2F56440300A0FC59 /* Sources */ = {
@@ -416,6 +456,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";
@@ -458,6 +499,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";

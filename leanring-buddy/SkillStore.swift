@@ -215,51 +215,77 @@ final class SkillStore: Sendable {
 
     // MARK: - Skilly — Bundled Skill Seeding
 
-    /// Copies any bundled example skills from the app bundle's "Skills" resource folder
-    /// into ~/.skilly/skills/ if they are not already installed.
-    /// This is called on first launch to provide out-of-the-box skill content.
-    /// Existing skills are never overwritten — this only copies skills that don't exist yet.
+    /// The list of bundled skill directory names. Each must have a
+    /// corresponding SKILL.md in the app bundle at:
+    ///   leanring-buddy/skills/<name>/SKILL.md
+    /// Xcode adds these as flat bundle resources via Copy Bundle Resources.
+    private static let bundledSkillNames = [
+        "blender-fundamentals",
+        "figma-basics",
+        "after-effects-basics",
+        "davinci-resolve-basics",
+        "premiere-pro-basics",
+    ]
+
+    /// Seeds bundled skills into ~/.skilly/skills/ on first launch.
+    /// Each bundled SKILL.md is located by its resource path in the app
+    /// bundle and copied into a new directory under the user's skills folder.
+    /// Existing skills are never overwritten.
     func seedBundledSkills() {
         let fileManager = FileManager.default
         let skillsDir = URL(fileURLWithPath: skillsDirectoryPath)
 
-        // Try both "Skills" and "skills" — the folder name depends on how
-        // it was added to the Xcode project (folder reference preserves case).
-        let bundledSkillsURL: URL? = {
-            let resource = Bundle.main.resourceURL
-            for name in ["Skills", "skills"] {
-                if let url = resource?.appendingPathComponent(name),
-                   FileManager.default.fileExists(atPath: url.path) {
-                    return url
-                }
-            }
-            return nil
-        }()
-        guard let bundledSkillsURL else { return }
+        for skillName in Self.bundledSkillNames {
+            let destinationDir = skillsDir.appendingPathComponent(skillName)
 
-        guard let bundledSkillDirs = try? fileManager.contentsOfDirectory(
-            at: bundledSkillsURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-
-        for bundledSkillDir in bundledSkillDirs {
-            let isDirectory = (try? bundledSkillDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            guard isDirectory else { continue }
-
-            let skillFileURL = bundledSkillDir.appendingPathComponent("SKILL.md")
-            guard fileManager.fileExists(atPath: skillFileURL.path) else { continue }
-
-            let destinationDir = skillsDir.appendingPathComponent(bundledSkillDir.lastPathComponent)
-
+            // Don't overwrite if the user already has this skill installed
             if fileManager.fileExists(atPath: destinationDir.path) { continue }
+
+            // Look for the SKILL.md in the app bundle. Xcode copies resources
+            // from leanring-buddy/skills/<name>/SKILL.md into the bundle.
+            // Try folder-reference path first (skills/<name>/SKILL),
+            // then flat resource path (SKILL in subdirectory).
+            let bundledSkillURL: URL? = {
+                // Path 1: folder reference — skills/<name>/SKILL.md lands at
+                // Bundle/Contents/Resources/skills/<name>/SKILL.md
+                if let folderRefURL = Bundle.main.resourceURL?
+                    .appendingPathComponent("skills")
+                    .appendingPathComponent(skillName)
+                    .appendingPathComponent("SKILL.md"),
+                   fileManager.fileExists(atPath: folderRefURL.path) {
+                    return folderRefURL
+                }
+                // Path 2: flat resource — Xcode flattens subdirectory resources
+                // and we find it via Bundle.main.url(forResource:withExtension:subdirectory:)
+                if let flatURL = Bundle.main.url(
+                    forResource: "SKILL",
+                    withExtension: "md",
+                    subdirectory: "skills/\(skillName)"
+                ) {
+                    return flatURL
+                }
+                // Path 3: Xcode may place it at the bundle root with a
+                // mangled path — last resort, search by iterating resources
+                return nil
+            }()
+
+            guard let bundledSkillURL else {
+                #if DEBUG
+                print("[SkillStore] Bundled skill '\(skillName)' not found in app bundle")
+                #endif
+                continue
+            }
+
             do {
-                // Copy the entire bundled skill directory in one step.
-                // Pre-creating destinationDir makes copyItem fail because the destination must not exist.
-                try fileManager.copyItem(at: bundledSkillDir, to: destinationDir)
+                try fileManager.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+                let destinationFile = destinationDir.appendingPathComponent("SKILL.md")
+                try fileManager.copyItem(at: bundledSkillURL, to: destinationFile)
+                #if DEBUG
+                print("[SkillStore] Seeded bundled skill '\(skillName)'")
+                #endif
             } catch {
                 #if DEBUG
-                print("[SkillStore] Failed to seed bundled skill '\(bundledSkillDir.lastPathComponent)': \(error)")
+                print("[SkillStore] Failed to seed bundled skill '\(skillName)': \(error)")
                 #endif
             }
         }
