@@ -17,6 +17,11 @@ import SwiftUI
 extension Notification.Name {
     static let skillyDismissPanel = Notification.Name("skillyDismissPanel")
     static let skillyTurnBlocked = Notification.Name("skillyTurnBlocked")
+    // MARK: - Skilly — Posted when the Worker rejects /openai/token with 401.
+    // CompanionManager signs the user out and posts this; MenuBarPanelManager
+    // opens the panel so the re-sign-in UI is immediately visible instead of
+    // leaving the user wondering why push-to-talk went silent.
+    static let skillyAuthExpired = Notification.Name("skillyAuthExpired")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -31,6 +36,8 @@ final class MenuBarPanelManager: NSObject {
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
+    // MARK: - Skilly — Observer for auth-expired event (stale Worker session token)
+    private var authExpiredObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
     // MARK: - Skilly
@@ -53,6 +60,20 @@ final class MenuBarPanelManager: NSObject {
         ) { [weak self] _ in
             self?.hidePanel()
         }
+
+        // MARK: - Skilly — Open the panel immediately when the Worker rejects
+        // /openai/token with 401. CompanionManager has already called
+        // AuthManager.signOut() before posting, so the panel renders in its
+        // signed-out state and the user sees a Sign in button right away.
+        authExpiredObserver = NotificationCenter.default.addObserver(
+            forName: .skillyAuthExpired,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.showPanel()
+            }
+        }
     }
 
     deinit {
@@ -60,6 +81,9 @@ final class MenuBarPanelManager: NSObject {
             NSEvent.removeMonitor(monitor)
         }
         if let observer = dismissPanelObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = authExpiredObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }

@@ -130,13 +130,22 @@ final class OpenAIRealtimeClient: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
-            throw OpenAIRealtimeError.connectionFailed("Please sign in before starting a voice session")
+            // No session token in Keychain at all — same recovery path as a 401.
+            throw OpenAIRealtimeError.authExpired
         }
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        // MARK: - Skilly — Detect a stale/invalid Worker session token and surface it
+        // as an auth-failure instead of a generic connection failure. Without this,
+        // every push-to-talk press fails silently with HTTP 401 because the app has
+        // no way to know its Keychain session token has drifted out of sync with
+        // the Worker's SESSION_TOKEN_SECRET.
+        if statusCode == 401 {
+            throw OpenAIRealtimeError.authExpired
+        }
+
+        guard statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "unknown"
             throw OpenAIRealtimeError.connectionFailed("Token relay failed (HTTP \(statusCode)): \(body)")
         }
@@ -676,11 +685,17 @@ final class OpenAIRealtimeClient: ObservableObject {
     enum OpenAIRealtimeError: Error, LocalizedError {
         case connectionFailed(String)
         case encodingFailed
+        /// The Worker rejected `/openai/token` with 401, or no session token was
+        /// available locally. The user's session is no longer valid — CompanionManager
+        /// should respond by signing out and re-opening the panel so the sign-in flow
+        /// is visible instead of failing silently on every hotkey press.
+        case authExpired
 
         var errorDescription: String? {
             switch self {
             case .connectionFailed(let detail): return "OpenAI Realtime connection failed: \(detail)"
             case .encodingFailed: return "Failed to encode event"
+            case .authExpired: return "Your Skilly session has expired. Please sign in again."
             }
         }
     }

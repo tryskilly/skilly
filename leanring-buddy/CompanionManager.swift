@@ -1123,6 +1123,15 @@ final class CompanionManager: ObservableObject {
                 #endif
                 voiceState = .idle
                 clearRealtimeResponseBubble()
+
+                // MARK: - Skilly — Auth recovery: if the Worker rejected
+                // /openai/token because our Keychain session token is stale,
+                // sign the user out and surface the panel so they re-auth
+                // instead of silently failing on every push-to-talk press.
+                if case OpenAIRealtimeClient.OpenAIRealtimeError.authExpired = error {
+                    AuthManager.shared.signOut()
+                    NotificationCenter.default.post(name: .skillyAuthExpired, object: nil)
+                }
             }
         }
     }
