@@ -35,12 +35,17 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `/auth/url` | GET | — | Returns WorkOS AuthKit authorization URL |
 | `/auth/callback` | GET | — | Catches WorkOS redirect, redirects to `skilly://auth/callback` |
 | `/auth/token` | POST | `api.workos.com/user_management/authenticate` | Exchanges auth code for user profile + tokens |
+| `/checkout/create` | POST | `api.polar.sh/v1/checkouts` | Creates a Polar checkout session for subscription upgrade |
+| `/entitlement` | GET | Worker KV | Returns cached entitlement record (status, period end, cap) for the authenticated user |
+| `/portal` | GET | Polar customer portal | Returns customer portal URL for subscription management |
+| `/webhooks/polar` | POST | — | Polar webhook receiver (Standard Webhooks signature), updates KV entitlement on subscription events |
 | `/chat` | POST | `api.anthropic.com/v1/messages` | Claude Messages API (legacy, unused by current pipeline) |
 | `/tts` | POST | `api.elevenlabs.io/v1/text-to-speech/{voiceId}` | ElevenLabs TTS (legacy, unused by current pipeline) |
 | `/transcribe-token` | POST | `streaming.assemblyai.com/v3/token` | AssemblyAI token (legacy, unused by current pipeline) |
 
-Worker secrets: `OPENAI_API_KEY`, `WORKOS_API_KEY`, `SESSION_TOKEN_SECRET`
-Worker vars: `WORKOS_CLIENT_ID`, `WORKOS_REDIRECT_URI`
+Worker secrets: `OPENAI_API_KEY`, `WORKOS_API_KEY`, `SESSION_TOKEN_SECRET`, `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`
+Worker vars: `WORKOS_CLIENT_ID`, `WORKOS_REDIRECT_URI`, `POLAR_PRODUCT_ID`
+Worker KV: entitlement records keyed by WorkOS user ID (production Polar + WorkOS)
 Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`
 
 ### Key Architecture Decisions
@@ -61,64 +66,91 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 **WorkOS Auth Flow**: User clicks "Sign in" → app generates OAuth `state` → browser opens WorkOS AuthKit via Worker `/auth/url?state=...` → WorkOS redirects to Worker `/auth/callback` → Worker serves HTML that redirects to `skilly://auth/callback?code=XXX&state=YYY` → app validates `state` and exchanges code via Worker `/auth/token` → stores access/refresh + Worker session token in Keychain.
 
+**Billing & Entitlements**: Paywall is a three-layer gate. (1) `TrialTracker` — one-shot 15-minute lifetime free trial per WorkOS user, keyed by user ID, never resets once exhausted. (2) `UsageTracker` — 3-hour monthly cap for paid subscribers, period boundaries sourced from `EntitlementManager` (not rolling windows), resets on period change. (3) `EntitlementManager` — syncs entitlement records from Worker KV via `/entitlement`, exposes `EntitlementStatus` (`none`/`trial`/`active`/`canceled`/`expired`) and `BlockReason`, kicks off checkout via `/checkout/create` and portal via `/portal`. The `PlanStrip` (always visible at panel top) and `PlanCard` (Settings → Account) observe all three trackers and render contextually styled states (healthy/low/empty/ended). When blocked, the appropriate modal is shown: `TrialExhaustedModal`, `CapReachedModal`, or `SubscriptionRequiredModal`. Polar webhook events update KV; the app refreshes entitlement after checkout completes. Pricing constants live in `RealtimePricing.swift` for cost accounting; per-turn usage metrics are logged by `RealtimeTelemetry.swift` to `~/Library/Application Support/skilly-telemetry.jsonl`.
+
 ## Key Files
 
 ### Core App (leanring-buddy/)
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `leanring_buddyApp.swift` | ~150 | Menu bar app entry point. `@main` struct with `CompanionAppDelegate`. Creates singletons: `CompanionManager`, `SkillManager`, `AuthManager`. Registers `skilly://` URL scheme handler for auth callbacks. |
-| `CompanionManager.swift` | ~1250 | Central state machine. Owns OpenAI Realtime client, overlay manager, audio player, screen capture, skill manager. Push-to-talk flow: hotkey press → capture screens + start audio tap → send to OpenAI → commit on release → parse `[POINT]` tags → animate cursor. |
-| `MenuBarPanelManager.swift` | ~260 | NSStatusItem + custom `NSPanel` lifecycle. Creates panel, hosts `CompanionPanelView` via `NSHostingView`, handles click-outside dismissal with 0.3s delay for permission dialogs. |
-| `CompanionPanelView.swift` | ~800 | SwiftUI panel content. VStack: header, permissions, model picker, skill section, footer. WorkOS sign-in/sign-out flow, settings gear popover. |
+| `leanring_buddyApp.swift` | ~170 | Menu bar app entry point. `@main` struct with `CompanionAppDelegate`. Creates singletons: `CompanionManager`, `SkillManager`, `AuthManager`, `EntitlementManager`, `TrialTracker`, `UsageTracker`. Registers `skilly://` URL scheme handler for auth callbacks. |
+| `CompanionManager.swift` | ~1640 | Central state machine. Owns OpenAI Realtime client, overlay manager, audio player, screen capture, skill manager, entitlement/usage enforcement. Push-to-talk flow: hotkey press → check entitlement → capture screens + start audio tap → send to OpenAI → commit on release → parse `[POINT]` tags → animate cursor → record usage. |
+| `MenuBarPanelManager.swift` | ~250 | NSStatusItem + custom `NSPanel` lifecycle. Creates panel, hosts `CompanionPanelView` via `NSHostingView`, handles click-outside dismissal with 0.3s delay for permission dialogs. |
+| `CompanionPanelView.swift` | ~1000 | SwiftUI panel shell. Hosts `PlanStrip` (always visible), `PanelBodyView`, header, permissions, model picker, footer. WorkOS sign-in/sign-out flow, settings gear popover routing to `SettingsView`. |
+| `PanelBodyView.swift` | ~550 | Main scrollable panel body with "ACTIVE NOW" and "INSTALLED" skill sections. Per-skill `SkillRowActionMenu` overflow menus (Pause/Resume, Reset, View details, Show in Finder, Remove) reveal on hover or right-click. Remove shows confirmation. |
+| `SettingsView.swift` | ~430 | Popover settings from the gear icon. Three tabs: Account (auth, privacy, `PlanCard`, subscription management), Voice (language/shortcuts/voice config), General (skills auto-load, startup, help). |
 | `OverlayWindow.swift` | ~970 | Full-screen transparent overlay per screen. `BlueCursorView` with cursor states (triangle/waveform/spinner), 60fps mouse tracking, bezier arc flight animation, navigation bubble with character-by-character streaming text. |
-| `CompanionResponseOverlay.swift` | ~220 | Floating response text panel that follows cursor. NSPanel-based, auto-repositions near cursor, clamps to visible screen bounds, auto-hides after 6s. |
+| `CompanionResponseOverlay.swift` | ~230 | Floating response text panel that follows cursor. NSPanel-based, auto-repositions near cursor, clamps to visible screen bounds, auto-hides after 6s. |
 | `CompanionScreenCaptureUtility.swift` | ~130 | Multi-monitor screenshot via ScreenCaptureKit. Filters out own app's windows, sorts displays by cursor position, returns AppKit coordinates. |
-| `OpenAIRealtimeClient.swift` | ~560 | OpenAI Realtime WebSocket client. Connects to `wss://api.openai.com/v1/realtime`. Handles audio in/out, screenshots, session pre-warm. Events published via `PassthroughSubject`. |
+| `OpenAIRealtimeClient.swift` | ~770 | OpenAI Realtime WebSocket client. Connects to `wss://api.openai.com/v1/realtime`. Handles audio in/out, screenshots, session pre-warm, usage reporting via `response.done`. Events published via `PassthroughSubject`. |
 | `RealtimeAudioPlayer.swift` | ~115 | PCM16 24kHz audio playback via `AVAudioEngine` + `AVAudioPlayerNode`. Converts Int16 → Float32 normalized to [-1, 1]. |
-| `GlobalPushToTalkShortcutMonitor.swift` | ~135 | System-wide push-to-talk via listen-only `CGEvent` tap. Publishes `.pressed` / `.released` events. |
+| `RealtimeTelemetry.swift` | ~450 | JSONL telemetry logger for Realtime sessions. Per-turn rows (token counts, timing, speech durations, vision usage) and session summary written to `~/Library/Application Support/skilly-telemetry.jsonl`. Also forwards aggregate metrics to PostHog. |
+| `RealtimePricing.swift` | ~40 | OpenAI Realtime API pricing constants (per-million rates for audio in/out, text in/out, cached input). Used by telemetry for cost accounting. |
+| `GlobalPushToTalkShortcutMonitor.swift` | ~150 | System-wide push-to-talk via listen-only `CGEvent` tap. Publishes `.pressed` / `.released` events. |
 | `DesignSystem.swift` | ~870 | Design tokens. `DS.Colors`, `DS.CornerRadius`, `DS.Spacing`, button styles (primary/secondary/tertiary/text/outlined/destructive/icon), animation durations, pointer cursor system. |
-| `WindowPositionManager.swift` | ~260 | Permission checks (`AXIsProcessTrusted`, `CGPreflightScreenCaptureAccess`). Window shrinking via Accessibility API. Screen recording permission fallback via UserDefaults. |
-| `AppSettings.swift` | ~85 | UserDefaults-backed settings: worker base URL, voice name, transient cursor mode, analytics opt-out. |
+| `WindowPositionManager.swift` | ~270 | Permission checks (`AXIsProcessTrusted`, `CGPreflightScreenCaptureAccess`). Window shrinking via Accessibility API. Screen recording permission fallback via UserDefaults. |
+| `AppSettings.swift` | ~195 | UserDefaults-backed settings: worker base URL, voice name, transient cursor mode, analytics opt-out, push-to-talk config, language, dev mode toggles. |
 | `AppBundleConfiguration.swift` | ~30 | Runtime config reader for Info.plist keys (bundle ID, version, name). |
-| `AppDetectionMonitor.swift` | ~65 | `NSWorkspace` frontmost app bundle ID monitoring for auto-activating skills. |
-| `BuddyPushToTalkShortcut.swift` | ~60 | Thin wrapper wrapping the hotkey monitor, exposing `control + option` as the default shortcut. |
+| `AppDetectionMonitor.swift` | ~50 | `NSWorkspace` frontmost app bundle ID monitoring for auto-activating skills. |
+| `BuddyPushToTalkShortcut.swift` | ~210 | Hotkey shortcut model + customization UI support. Default: `control + option`. Wraps `GlobalPushToTalkShortcutMonitor` and exposes recording/editing state for Settings. |
+| `SkillyNotificationManager.swift` | ~80 | User-facing system notifications (via `UNUserNotificationCenter`) for trial warnings, cap warnings, and subscription state changes. |
 
 ### Auth & Analytics
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `AuthManager.swift` | ~280 | WorkOS AuthKit flow: browser sign-in via `/auth/url`, OAuth `state` generation/validation, deep link callback `skilly://auth/callback`, code exchange via `/auth/token`, Keychain storage with `ThisDeviceOnly` accessibility (access/refresh/session tokens), refresh token support. |
-| `SkillyAnalytics.swift` | ~125 | PostHog analytics. Privacy-first: no transcript/response text captured, only character counts and element labels. Gated by `analyticsEnabled` setting. |
+| `AuthManager.swift` | ~410 | WorkOS AuthKit flow: browser sign-in via `/auth/url`, OAuth `state` generation/validation (persisted to UserDefaults to survive restarts), deep link callback `skilly://auth/callback`, code exchange via `/auth/token`, Keychain storage with `ThisDeviceOnly` accessibility (access/refresh/session tokens), refresh token support, sign-out. |
+| `SkillyAnalytics.swift` | ~225 | PostHog analytics. Privacy-first: no transcript/response text captured, only character counts and element labels. Gated by `analyticsEnabled` setting. Events for push-to-talk, skill activation, curriculum advancement, entitlement state, paywall impressions. |
+
+### Billing & Entitlements
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `EntitlementManager.swift` | ~310 | Central entitlement singleton. Defines `EntitlementStatus` (`none`/`trial`/`active`/`canceled`/`expired`) and `BlockReason`. Syncs records from Worker `/entitlement` KV, starts checkout via `/checkout/create`, opens customer portal via `/portal`. Publishes `status` to SwiftUI observers. |
+| `TrialTracker.swift` | ~195 | One-shot 15-minute lifetime free trial per WorkOS user. Keyed by user ID, UserDefaults-backed. Never resets once exhausted. 80% warning threshold at 12 min. |
+| `UsageTracker.swift` | ~140 | 3-hour monthly cap for paid subscribers. Period boundaries sourced from `EntitlementManager` (not rolling windows). 80% warning threshold at 2h 24m. Keyed by user ID. |
+| `PlanStrip.swift` | ~310 | Compact plan-state strip always visible at panel top. Observes all three trackers. Styled contextually: subtle in healthy states (TRIAL, ACTIVE), visually weighted in alert states (LOW, EMPTY, ENDED). |
+| `PlanCard.swift` | ~250 | Detailed plan card in Settings → Account. Status, time consumed this month, progress bar, reset date, "Manage subscription" button. Falls back to trial display when Worker hasn't synced. |
+| `TrialExhaustedModal.swift` | ~65 | Modal shown when 15-min trial runs out. CTA: "Start Subscription" → `EntitlementManager.startCheckout()`. |
+| `CapReachedModal.swift` | ~65 | Modal shown when paid user hits 3h monthly cap. CTA: "Upgrade Plan". |
+| `SubscriptionRequiredModal.swift` | ~70 | Modal shown when entitlement becomes inactive/expired. |
 
 ### Skill System
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `SkillManager.swift` | ~290 | Central skill coordinator. Loads skills from `~/.skilly/`, manages activation/deactivation/pause, wires `CurriculumEngine` into voice pipeline, exposes `composedSystemPrompt` consumed by `CompanionManager`. |
-| `SkillStore.swift` | ~160 | Disk persistence for `~/.skilly/`. Loads skills from subdirectories, saves/loads progress JSON and config JSON, seeds bundled skills from app bundle. |
-| `SkillDefinition.swift` | ~220 | SKILL.md parser. Line-by-line state machine: YAML frontmatter → `SkillMetadata`, splits markdown body by H2/H3 headings into sections. |
-| `SkillMetadata.swift` | ~315 | YAML frontmatter data model. Parses flat key-value pairs and block sequences, validates skill ID format, resolves `bundleId` from known mappings, defaults `pointing_mode` to `.always`. |
+| `SkillManager.swift` | ~640 | Central skill coordinator. Loads skills from `~/.skilly/`, manages activation/deactivation/pause, wires `CurriculumEngine` into voice pipeline, exposes `composedSystemPrompt` consumed by `CompanionManager`. Handles skill install from Finder drops and overflow menu actions. |
+| `SkillStore.swift` | ~295 | Disk persistence for `~/.skilly/`. Loads skills from subdirectories, saves/loads progress JSON and config JSON, seeds bundled skills from app bundle on first launch. |
+| `SkillDefinition.swift` | ~245 | SKILL.md parser. Line-by-line state machine: YAML frontmatter → `SkillMetadata`, splits markdown body by H2/H3 headings into sections. |
+| `SkillMetadata.swift` | ~405 | YAML frontmatter data model. Parses flat key-value pairs and block sequences, validates skill ID format, resolves `bundleId` from known mappings, defaults `pointing_mode` to `.always`. |
 | `CurriculumStage.swift` | ~245 | Parses H3 stage blocks (`### Stage N: Name`). Extracts description, goals, completion signals, prerequisites, next stage name, generates URL-safe stage ID. |
 | `VocabularyEntry.swift` | ~90 | Parses H3 vocabulary blocks (`### Element Name` + description paragraphs). Joins lines with spaces, paragraphs with `\n\n`. |
-| `SkillValidation.swift` | ~155 | Safety scanner: banned phrase list (prompt injection, data exfiltration), URL detection, homoglyph normalization, size limits (4K teaching tokens, 10K total), min 3-char completion signals. |
-| `SkillProgress.swift` | ~105 | Per-skill progress tracker. `signalBuffer` for curriculum advancement, manual override flag, total interactions, version migration by stage position. |
-| `PromptBudget.swift` | ~85 | 6K token ceiling with progressive vocabulary trimming: all → stage-relevant → top-5 → omit. |
-| `CurriculumEngine.swift` | ~185 | Pure function engine. Detects completion signals (keyword match) in transcript+response, accumulates in `signalBuffer`, auto-advances after 3 signals, supports manual stage set/complete/reset. |
-| `SkillPromptComposer.swift` | ~190 | 5-layer prompt composition with caching by `skillId:stageId`. Layers: base → teaching → curriculum → vocabulary (budget-trimmed) → pointing mode. |
-| `SkillPanelSection.swift` | ~375 | SwiftUI skill controls in panel: active/paused/empty states, progress bar, stage list, activate/pause/reset buttons. |
+| `SkillValidation.swift` | ~295 | Safety scanner: banned phrase list (prompt injection, data exfiltration), URL detection, homoglyph normalization, size limits (4K teaching tokens, 10K total), min 3-char completion signals. |
+| `SkillProgress.swift` | ~95 | Per-skill progress tracker. `signalBuffer` for curriculum advancement, manual override flag, total interactions, version migration by stage position. |
+| `PromptBudget.swift` | ~90 | 6K token ceiling with progressive vocabulary trimming: all → stage-relevant → top-5 → omit. |
+| `CurriculumEngine.swift` | ~180 | Pure function engine. Detects completion signals (keyword match) in transcript+response, accumulates in `signalBuffer`, auto-advances after 3 signals, supports manual stage set/complete/reset. |
+| `SkillPromptComposer.swift` | ~200 | 5-layer prompt composition with caching by `skillId:stageId`. Layers: base → teaching → curriculum → vocabulary (budget-trimmed) → pointing mode. |
+| `SkillPanelSection.swift` | ~645 | SwiftUI skill controls in panel: active/paused/empty states, progress bar, stage list, activate/pause/reset buttons. |
+| `SkillRowActionMenu.swift` | ~105 | Per-skill overflow menu (⋯) in `PanelBodyView` rows. Hover/right-click reveal. Actions: Pause/Resume, Reset progress, View details, Show in Finder, Remove (with confirmation). |
 
 ### Cloudflare Worker
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `worker/src/index.ts` | ~560 | Worker proxy. Routes: `/openai/token` (active, authenticated, ephemeral secret mint), `/auth/url`, `/auth/callback`, `/auth/token` (active), `/checkout/create`, `/entitlement`, `/portal` (authenticated), `/chat`, `/tts`, `/transcribe-token` (legacy, authenticated). All API keys stored as secrets. |
+| `worker/src/index.ts` | ~900 | Worker proxy. Routes: `/openai/token` (active, authenticated, ephemeral secret mint), `/auth/url`, `/auth/callback`, `/auth/token` (active), `/checkout/create`, `/entitlement`, `/portal`, `/webhooks/polar` (Polar billing, Standard Webhooks signatures, KV-backed entitlements), `/chat`, `/tts`, `/transcribe-token` (legacy, authenticated). All API keys stored as secrets. |
 
 ### Skill Files
 
+The repo ships 5 bundled skills under `skills/`, also copied into the app bundle under `Resources/skills/` so new users get them without downloading anything.
+
 | File | Purpose |
 |------|---------|
-| `skills/blender-fundamentals/SKILL.md` | Blender Fundamentals skill — 6 curriculum stages (navigation → first render), 10 UI vocabulary entries, teaching instructions with common beginner mistakes, `pointing_mode: always`. |
+| `skills/blender-fundamentals/SKILL.md` | Blender Fundamentals — 6 curriculum stages (navigation → first render), UI vocabulary, common beginner mistakes. `pointing_mode: always`. Includes `examples/` directory. |
+| `skills/after-effects-basics/SKILL.md` | Adobe After Effects basics — rewritten from official docs. Compositions, layers, keyframes, effects. |
+| `skills/premiere-pro-basics/SKILL.md` | Adobe Premiere Pro basics — rewritten from official docs. Timeline editing, transitions, export. |
+| `skills/davinci-resolve-basics/SKILL.md` | DaVinci Resolve basics — rewritten from official docs. Cut/Edit/Color/Fairlight/Deliver pages. |
+| `skills/figma-basics/SKILL.md` | Figma basics — rewritten from official docs. Frames, components, auto-layout, prototyping. |
 
 ## Build & Run
 
@@ -164,6 +196,8 @@ Worker is deployed at: `https://skilly-proxy.eng-mohamedszaied.workers.dev`
 
 ## Installing a Skill
 
+All 5 skills are bundled with the app and seeded to `~/.skilly/skills/` on first launch by `SkillStore`. To install an additional skill manually:
+
 ```bash
 # Copy skill directory to ~/.skilly/skills/
 mkdir -p ~/.skilly/skills
@@ -172,6 +206,8 @@ cp -r skills/blender-fundamentals ~/.skilly/skills/
 # The app scans ~/.skilly/skills/ on launch
 # Each subdirectory must contain a SKILL.md file
 ```
+
+Users can also drop a skill folder onto the panel via `PanelBodyView` (Finder drag-and-drop), or remove installed skills via the per-row `SkillRowActionMenu`.
 
 ## Code Style & Conventions
 
@@ -232,6 +268,8 @@ git merge upstream/main
 ```
 
 Modified upstream files (4): `leanring_buddyApp.swift`, `CompanionManager.swift`, `MenuBarPanelManager.swift`, `CompanionPanelView.swift`. All changes are additive.
+
+Skilly-only files (not in upstream, safe to ignore during merges): everything in the Auth & Analytics, Billing & Entitlements, and Skill System tables above, plus `RealtimeTelemetry.swift`, `RealtimePricing.swift`, `PanelBodyView.swift`, `SettingsView.swift`, `SkillyNotificationManager.swift`, `AppSettings.swift`, `AppBundleConfiguration.swift`, `AppDetectionMonitor.swift`, `BuddyPushToTalkShortcut.swift`, the `worker/` directory, the `skills/` directory, `docs/`, and `fastlane/`.
 
 ## Self-Update Instructions
 
