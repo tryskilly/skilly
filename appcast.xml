@@ -27,6 +27,14 @@
             <enclosure url="https://github.com/julianjear/makesomething-mac-app/releases/download/v1.8/makesomething.dmg" length="11489099" type="application/octet-stream" sparkle:edSignature="K7n75BUbzhzTbrnYDQDcsmMQGb3bEjvl5yxSIdBGtbanNWrEUym2sozah5hGkAQ0sLShrPhx8FDBunmd2T3rAw=="/>
         </item>
         <item>
+            <title>1.4</title>
+            <pubDate>Tue, 14 Apr 2026 22:48:18 +0200</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v1.4/Skilly.dmg" length="11245400" type="application/octet-stream" sparkle:edSignature="RfrTmnP9Bixap+NfyRE0eKX0iu/sd5am9dMlvJJXkasPyLZgkuIBBHMpu6u0N8v706/IQMJ/dFq3Esx0VnLFDQ=="/>
+        </item>
+        <item>
             <title>1.3</title>
             <pubDate>Mon, 13 Apr 2026 03:50:20 +0200</pubDate>
             <sparkle:version>4</sparkle:version>
@@ -41,14 +49,6 @@
             <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/tryskilly/skilly/releases/download/v1.2/Skilly.dmg" length="11190396" type="application/octet-stream" sparkle:edSignature="tVBhwWVRi8LUhOrg4mQSmkc174y1cjcV5vNfYJC3GY8880+zj8pPNCpHTAtY0Xrsz+AokSLszTyboPCrwLFcBQ=="/>
-        </item>
-        <item>
-            <title>1.1</title>
-            <pubDate>Mon, 13 Apr 2026 02:07:55 +0200</pubDate>
-            <sparkle:version>2</sparkle:version>
-            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v1.1/Skilly.dmg" length="11190431" type="application/octet-stream" sparkle:edSignature="dyl/Mhl3W8wrr9HEntzYJD3dbqj8uWeLYciAlnbrRN2NyRTpQsz4qb1bdIwcVeEXOIHBT1saGg1X5fprRochCw=="/>
         </item>
     </channel>
 </rss>
