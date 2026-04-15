@@ -180,12 +180,15 @@ final class AuthManager: ObservableObject {
                 pendingOAuthState = nil
                 pendingOAuthStateCreatedAt = nil
 
+                // MARK: - Skilly — Identify the user in PostHog exactly once per
+                // authenticated session, right after the token exchange succeeds.
+                // The helper sends id + email + name; the cohort properties below
+                // are preserved from the previous inline call.
                 let user = authResponse.user
                 let signupDate = ISO8601DateFormatter().string(from: Date())
-                PostHogSDK.shared.identify(
-                    user.id,
-                    userProperties: [
-                        "email": user.email,
+                SkillyAnalytics.identify(
+                    user: user,
+                    extraProperties: [
                         "beta_cohort": true,
                         "signup_date": signupDate,
                         "plan_tier": "flat"
@@ -221,6 +224,9 @@ final class AuthManager: ObservableObject {
         isAuthenticated = false
         pendingOAuthState = nil
         pendingOAuthStateCreatedAt = nil
+        // MARK: - Skilly — Clear PostHog identity so the next user who signs in
+        // on this machine doesn't inherit the previous distinct_id.
+        SkillyAnalytics.reset()
         // MARK: - Skilly — Debug logging (stripped in release)
         #if DEBUG
         print("🎯 Skilly Auth: Signed out")
@@ -284,6 +290,22 @@ final class AuthManager: ObservableObject {
         #if DEBUG
         print("🎯 Skilly Auth: Restored session for \(user.email)")
         #endif
+    }
+
+    // MARK: - Skilly — PostHog identity on app launch
+    //
+    // `loadStoredUser()` runs inside `init()`, which happens when the app delegate
+    // first touches `AuthManager.shared`. At that point `SkillyAnalytics.configure()`
+    // has not yet been called, so calling `identify` from inside `loadStoredUser()`
+    // would hit PostHog before it is set up.
+    //
+    // Instead, the app delegate calls this method from `applicationDidFinishLaunching`
+    // right after `SkillyAnalytics.configure()`. If a session was restored, we
+    // identify the user here — this covers the "already authenticated on launch"
+    // case from the PostHog identification task.
+    func identifyCurrentUserIfAuthenticated() {
+        guard let user = currentUser else { return }
+        SkillyAnalytics.identify(user: user)
     }
 
     // MARK: - Worker Auth

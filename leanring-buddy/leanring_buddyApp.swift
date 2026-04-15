@@ -48,6 +48,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         SkillyAnalytics.configure()
         SkillyAnalytics.trackAppOpened()
+        // MARK: - Skilly — If a Keychain session was restored during
+        // AuthManager.init() (loadStoredUser), re-identify the user in PostHog
+        // now that the SDK has been configured. This covers the "already
+        // authenticated on launch" case from the PostHog identification task.
+        authManager.identifyCurrentUserIfAuthenticated()
         SkillyNotificationManager.shared.requestAuthorization()
 
         // Inject skill manager into companion and panel

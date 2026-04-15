@@ -25,6 +25,36 @@ enum SkillyAnalytics {
         PostHogSDK.shared.setup(config)
     }
 
+    // MARK: - User Identity
+
+    // MARK: - Skilly — Called once per authenticated session: after a successful
+    // sign-in, and again on app launch when a stored session is restored. The
+    // distinct_id is the WorkOS user ID, which is the same identifier the backend
+    // and Worker use to key entitlements, so web and app events merge in PostHog.
+    static func identify(user: SkillyUser, extraProperties: [String: Any] = [:]) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var userProperties: [String: Any] = [
+            "email": user.email
+        ]
+        let nameParts = [user.firstName, user.lastName]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        if !nameParts.isEmpty {
+            userProperties["name"] = nameParts.joined(separator: " ")
+        }
+        for (key, value) in extraProperties {
+            userProperties[key] = value
+        }
+        PostHogSDK.shared.identify(user.id, userProperties: userProperties)
+    }
+
+    // MARK: - Skilly — Called on sign-out to clear the locally cached distinct_id
+    // so the next user doesn't inherit the previous identity.
+    static func reset() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.reset()
+    }
+
     // MARK: - App Lifecycle
 
     /// Fired once on every app launch in applicationDidFinishLaunching.
