@@ -54,6 +54,15 @@ final class UsageTracker: ObservableObject {
     }
 
     var isOverCap: Bool {
+        // MARK: - Skilly — Prefer shared Rust policy when available.
+        if let rustUsageIsOverCap = RustPolicyBridge.shared.usageIsOverCap(
+            userID: userId,
+            usageSecondsUsed: secondsUsed,
+            adminWorkOSUserIDs: AdminAllowlist.allConfiguredAdminWorkOSUserIDs
+        ) {
+            return rustUsageIsOverCap
+        }
+
         // MARK: - Skilly — Admin bypass: allowlisted users never hit the monthly cap.
         if AdminAllowlist.isCurrentUserAdmin { return false }
         return secondsUsed >= Self.maxSecondsPerPeriod

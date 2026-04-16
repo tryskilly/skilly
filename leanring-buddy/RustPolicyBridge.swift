@@ -45,8 +45,22 @@ final class RustPolicyBridge {
         UnsafePointer<CChar>?  // admin_workos_user_ids_csv
     ) -> UInt64
 
+    private typealias RustTrialIsExhaustedFunction = @convention(c) (
+        UnsafePointer<CChar>?,  // user_id
+        UInt64,  // trial_seconds_used
+        UnsafePointer<CChar>?  // admin_workos_user_ids_csv
+    ) -> UInt8
+
+    private typealias RustUsageIsOverCapFunction = @convention(c) (
+        UnsafePointer<CChar>?,  // user_id
+        UInt64,  // usage_seconds_used
+        UnsafePointer<CChar>?  // admin_workos_user_ids_csv
+    ) -> UInt8
+
     private var dynamicLibraryHandle: UnsafeMutableRawPointer?
     private var canStartTurnFunction: RustCanStartTurnFunction?
+    private var trialIsExhaustedFunction: RustTrialIsExhaustedFunction?
+    private var usageIsOverCapFunction: RustUsageIsOverCapFunction?
     private var hasAttemptedLibraryLoad = false
 
     private init() {
@@ -93,6 +107,50 @@ final class RustPolicyBridge {
         }
     }
 
+    func trialIsExhausted(
+        userID: String?,
+        trialSecondsUsed: TimeInterval,
+        adminWorkOSUserIDs: Set<String>
+    ) -> Bool? {
+        loadRustPolicyLibraryIfNeeded()
+        guard let trialIsExhaustedFunction else { return nil }
+
+        let trialSecondsUsedInt = UInt64(max(0, trialSecondsUsed.rounded()))
+        let adminUserIDsCSV = adminWorkOSUserIDs.sorted().joined(separator: ",")
+
+        return withOptionalCString(userID) { userIDPointer in
+            if adminUserIDsCSV.isEmpty {
+                return trialIsExhaustedFunction(userIDPointer, trialSecondsUsedInt, nil) != 0
+            } else {
+                return adminUserIDsCSV.withCString { adminUserIDsPointer in
+                    trialIsExhaustedFunction(userIDPointer, trialSecondsUsedInt, adminUserIDsPointer) != 0
+                }
+            }
+        }
+    }
+
+    func usageIsOverCap(
+        userID: String?,
+        usageSecondsUsed: TimeInterval,
+        adminWorkOSUserIDs: Set<String>
+    ) -> Bool? {
+        loadRustPolicyLibraryIfNeeded()
+        guard let usageIsOverCapFunction else { return nil }
+
+        let usageSecondsUsedInt = UInt64(max(0, usageSecondsUsed.rounded()))
+        let adminUserIDsCSV = adminWorkOSUserIDs.sorted().joined(separator: ",")
+
+        return withOptionalCString(userID) { userIDPointer in
+            if adminUserIDsCSV.isEmpty {
+                return usageIsOverCapFunction(userIDPointer, usageSecondsUsedInt, nil) != 0
+            } else {
+                return adminUserIDsCSV.withCString { adminUserIDsPointer in
+                    usageIsOverCapFunction(userIDPointer, usageSecondsUsedInt, adminUserIDsPointer) != 0
+                }
+            }
+        }
+    }
+
     // MARK: - Library Loading
 
     private func loadRustPolicyLibraryIfNeeded() {
@@ -110,6 +168,18 @@ final class RustPolicyBridge {
 
             self.dynamicLibraryHandle = dynamicLibraryHandle
             self.canStartTurnFunction = unsafeBitCast(canStartTurnSymbol, to: RustCanStartTurnFunction.self)
+            if let trialIsExhaustedSymbol = dlsym(dynamicLibraryHandle, "skilly_policy_trial_is_exhausted") {
+                self.trialIsExhaustedFunction = unsafeBitCast(
+                    trialIsExhaustedSymbol,
+                    to: RustTrialIsExhaustedFunction.self
+                )
+            }
+            if let usageIsOverCapSymbol = dlsym(dynamicLibraryHandle, "skilly_policy_usage_is_over_cap") {
+                self.usageIsOverCapFunction = unsafeBitCast(
+                    usageIsOverCapSymbol,
+                    to: RustUsageIsOverCapFunction.self
+                )
+            }
             #if DEBUG
             print("🦀 Skilly: Rust policy bridge loaded from \(dylibPath)")
             #endif
