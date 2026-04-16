@@ -159,6 +159,10 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 |------|-------|---------|
 | `docs/architecture/core-boundaries.md` | ~35 | Migration boundary doc defining what remains native vs what moves into Rust core. |
 | `docs/architecture/capability-matrix.md` | ~30 | Capability matrix for macOS/Windows/Linux parity planning and adapter ownership. |
+| `docs/architecture/rust-core-native-shells-prd.md` | ~80 | Product requirements for the cross-platform migration (goals, constraints, metrics, rollout). |
+| `docs/architecture/rust-core-native-shells-roadmap.md` | ~110 | Phase-by-phase execution roadmap with exit criteria and dependencies. |
+| `docs/architecture/rust-core-native-shells-test-spec.md` | ~100 | Verification strategy and migration release gates across Rust core and platform shells. |
+| `docs/architecture/adr-001-rust-core-native-shells.md` | ~45 | Architecture decision record selecting Rust core + native shell approach. |
 
 ### Skill Files
 
