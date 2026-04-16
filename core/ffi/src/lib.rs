@@ -9,7 +9,7 @@ use std::os::raw::c_char;
 use skilly_core_domain::{
     BlockReason, EntitlementState, PolicyConfig, PolicyDecision, PolicyInput,
 };
-use skilly_core_policy::can_start_turn;
+use skilly_core_policy::{can_start_turn, trial_is_exhausted, usage_is_over_cap};
 
 /// Entitlement state values used by native shells.
 /// Keep these in sync with `RustPolicyEntitlementState` in Swift.
@@ -68,6 +68,28 @@ fn map_entitlement_state(raw_state: u8) -> EntitlementState {
     }
 }
 
+fn build_policy_config(admin_workos_user_ids_csv: *const c_char) -> PolicyConfig {
+    PolicyConfig {
+        admin_workos_user_ids: parse_csv_values(admin_workos_user_ids_csv),
+        trial_max_seconds: 900,
+        usage_max_seconds: 10_800,
+    }
+}
+
+fn build_policy_input(
+    user_id: *const c_char,
+    entitlement_state: EntitlementState,
+    trial_seconds_used: u64,
+    usage_seconds_used: u64,
+) -> PolicyInput {
+    PolicyInput {
+        user_id: parse_optional_string(user_id),
+        entitlement_state,
+        trial_seconds_used,
+        usage_seconds_used,
+    }
+}
+
 fn map_block_reason(block_reason: Option<BlockReason>) -> u8 {
     match block_reason {
         Some(BlockReason::TrialExhausted) => BLOCK_REASON_TRIAL_EXHAUSTED as u8,
@@ -103,18 +125,38 @@ pub extern "C" fn skilly_policy_can_start_turn(
     usage_seconds_used: u64,
     admin_workos_user_ids_csv: *const c_char,
 ) -> u64 {
-    let policy_config = PolicyConfig {
-        admin_workos_user_ids: parse_csv_values(admin_workos_user_ids_csv),
-        trial_max_seconds: 900,
-        usage_max_seconds: 10_800,
-    };
-    let policy_input = PolicyInput {
-        user_id: parse_optional_string(user_id),
-        entitlement_state: map_entitlement_state(entitlement_state),
+    let policy_config = build_policy_config(admin_workos_user_ids_csv);
+    let policy_input = build_policy_input(
+        user_id,
+        map_entitlement_state(entitlement_state),
         trial_seconds_used,
         usage_seconds_used,
-    };
+    );
 
     let policy_decision = can_start_turn(&policy_config, &policy_input);
     encode_policy_decision(policy_decision)
+}
+
+#[no_mangle]
+pub extern "C" fn skilly_policy_trial_is_exhausted(
+    user_id: *const c_char,
+    trial_seconds_used: u64,
+    admin_workos_user_ids_csv: *const c_char,
+) -> u8 {
+    let policy_config = build_policy_config(admin_workos_user_ids_csv);
+    let policy_input = build_policy_input(user_id, EntitlementState::Trial, trial_seconds_used, 0);
+
+    u8::from(trial_is_exhausted(&policy_config, &policy_input))
+}
+
+#[no_mangle]
+pub extern "C" fn skilly_policy_usage_is_over_cap(
+    user_id: *const c_char,
+    usage_seconds_used: u64,
+    admin_workos_user_ids_csv: *const c_char,
+) -> u8 {
+    let policy_config = build_policy_config(admin_workos_user_ids_csv);
+    let policy_input = build_policy_input(user_id, EntitlementState::Active, 0, usage_seconds_used);
+
+    u8::from(usage_is_over_cap(&policy_config, &policy_input))
 }

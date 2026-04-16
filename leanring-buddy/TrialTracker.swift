@@ -38,6 +38,15 @@ final class TrialTracker: ObservableObject {
     }
 
     var isExhausted: Bool {
+        // MARK: - Skilly — Prefer shared Rust policy when available.
+        if let rustTrialIsExhausted = RustPolicyBridge.shared.trialIsExhausted(
+            userID: userId,
+            trialSecondsUsed: totalSecondsUsed,
+            adminWorkOSUserIDs: AdminAllowlist.allConfiguredAdminWorkOSUserIDs
+        ) {
+            return rustTrialIsExhausted
+        }
+
         // MARK: - Skilly — Admin bypass: allowlisted users never run out of trial time.
         if AdminAllowlist.isCurrentUserAdmin { return false }
         return totalSecondsUsed >= Self.maxTrialSeconds
