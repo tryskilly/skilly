@@ -40,7 +40,7 @@ enum AdminAllowlist {
         )
     }
 
-    private static var allAdminWorkOSUserIDs: Set<String> {
+    static var allConfiguredAdminWorkOSUserIDs: Set<String> {
         adminWorkOSUserIDs.union(infoPlistAdminWorkOSUserIDs)
     }
 
@@ -48,6 +48,6 @@ enum AdminAllowlist {
     @MainActor
     static var isCurrentUserAdmin: Bool {
         guard let userID = AuthManager.shared.currentUser?.id else { return false }
-        return allAdminWorkOSUserIDs.contains(userID)
+        return allConfiguredAdminWorkOSUserIDs.contains(userID)
     }
 }

@@ -25,6 +25,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Concurrency**: `@MainActor` isolation, async/await throughout
 - **Analytics**: PostHog via `SkillyAnalytics.swift` (own project, not upstream)
 - **Cross-platform Migration Scaffold**: Rust workspace at `core/` (`domain`, `policy`, `ffi`) to centralize platform-agnostic policy and orchestration logic while keeping native OS shells for UI/capabilities
+- **Policy Bridge**: `RustPolicyBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so entitlement checks can use shared Rust policy with Swift fallback
 
 ### API Proxy (Cloudflare Worker)
 
@@ -96,6 +97,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `AppDetectionMonitor.swift` | ~50 | `NSWorkspace` frontmost app bundle ID monitoring for auto-activating skills. |
 | `BuddyPushToTalkShortcut.swift` | ~210 | Hotkey shortcut model + customization UI support. Default: `control + option`. Wraps `GlobalPushToTalkShortcutMonitor` and exposes recording/editing state for Settings. |
 | `SkillyNotificationManager.swift` | ~80 | User-facing system notifications (via `UNUserNotificationCenter`) for trial warnings, cap warnings, and subscription state changes. |
+| `RustPolicyBridge.swift` | ~200 | Dynamic Rust FFI loader for policy checks. Calls `skilly_policy_can_start_turn` from `libskilly_core_ffi.dylib` when present and falls back to Swift logic when unavailable. |
 
 ### Auth & Analytics
 
@@ -186,6 +188,21 @@ open leanring-buddy.xcodeproj
 **Do NOT run `xcodebuild` from the terminal** — it invalidates TCC (Transparency, Consent, and Control) permissions and the app will need to re-request screen recording, accessibility, etc.
 
 **Important:** This project requires `import Combine` explicitly in any file using `@Published` because `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` enforces strict module imports.
+
+### Rust Core Validation
+
+```bash
+source "$HOME/.cargo/env"
+cargo check
+cargo test
+cargo build -p skilly-core-ffi
+```
+
+Generated bridge library:
+- `target/debug/libskilly_core_ffi.dylib`
+
+Optional Xcode scheme env var to force dylib path:
+- `SKILLY_RUST_POLICY_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
 
 ## Cloudflare Worker
 

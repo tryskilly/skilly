@@ -36,3 +36,6 @@ xcuserdata/
 .omx/
 Thumbs.db
 worker/.wrangler/
+
+# Rust
+target/

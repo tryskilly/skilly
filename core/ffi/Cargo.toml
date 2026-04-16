@@ -7,8 +7,8 @@ license = "MIT"
 [lib]
 name = "skilly_core_ffi"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 skilly-core-domain = { path = "../domain" }
 skilly-core-policy = { path = "../policy" }
-

@@ -167,6 +167,17 @@ final class EntitlementManager: ObservableObject {
 
     /// Returns (allowed, reason). Call before starting any billable turn.
     func canStartTurn() -> (allowed: Bool, reason: BlockReason?) {
+        // MARK: - Skilly — Prefer shared Rust policy when available.
+        if let rustDecision = RustPolicyBridge.shared.canStartTurn(
+            userID: AuthManager.shared.currentUser?.id,
+            entitlementStatus: status,
+            trialSecondsUsed: TrialTracker.shared.totalSecondsUsed,
+            usageSecondsUsed: UsageTracker.shared.secondsUsed,
+            adminWorkOSUserIDs: AdminAllowlist.allConfiguredAdminWorkOSUserIDs
+        ) {
+            return (rustDecision.allowed, rustDecision.reason)
+        }
+
         // MARK: - Skilly — Admin bypass: allowlisted users pass every gate.
         if AdminAllowlist.isCurrentUserAdmin {
             return (true, nil)
