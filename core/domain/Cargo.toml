@@ -1,0 +1,10 @@
+[package]
+name = "skilly-core-domain"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "skilly_core_domain"
+path = "src/lib.rs"
+

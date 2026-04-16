@@ -24,6 +24,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Skill System**: SKILL.md files parsed at runtime, layered into system prompt with curriculum tracking
 - **Concurrency**: `@MainActor` isolation, async/await throughout
 - **Analytics**: PostHog via `SkillyAnalytics.swift` (own project, not upstream)
+- **Cross-platform Migration Scaffold**: Rust workspace at `core/` (`domain`, `policy`, `ffi`) to centralize platform-agnostic policy and orchestration logic while keeping native OS shells for UI/capabilities
 
 ### API Proxy (Cloudflare Worker)
 
@@ -139,6 +140,23 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | File | Lines | Purpose |
 |------|-------|---------|
 | `worker/src/index.ts` | ~900 | Worker proxy. Routes: `/openai/token` (active, authenticated, ephemeral secret mint), `/auth/url`, `/auth/callback`, `/auth/token` (active), `/checkout/create`, `/entitlement`, `/portal`, `/webhooks/polar` (Polar billing, Standard Webhooks signatures, KV-backed entitlements), `/chat`, `/tts`, `/transcribe-token` (legacy, authenticated). All API keys stored as secrets. |
+
+### Rust Core Scaffold (`core/`)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `Cargo.toml` | ~15 | Workspace definition for the cross-platform Rust core crates. |
+| `core/domain/src/lib.rs` | ~60 | Shared data contracts (`EntitlementState`, `PolicyInput`, `PolicyDecision`, `BlockReason`, `PolicyConfig`) used by native shells. |
+| `core/policy/src/lib.rs` | ~180 | Deterministic entitlement/trial/cap/admin decision engine plus baseline policy tests aligned with current Swift behavior. |
+| `core/policy/fixtures/can_start_turn_cases.json` | ~30 | Starter parity fixture cases for policy behavior validation across host platforms. |
+| `core/ffi/src/lib.rs` | ~15 | Initial FFI boundary crate that re-exports domain/policy modules for shell integrations. |
+
+### Architecture Docs
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `docs/architecture/core-boundaries.md` | ~35 | Migration boundary doc defining what remains native vs what moves into Rust core. |
+| `docs/architecture/capability-matrix.md` | ~30 | Capability matrix for macOS/Windows/Linux parity planning and adapter ownership. |
 
 ### Skill Files
 
@@ -269,7 +287,7 @@ git merge upstream/main
 
 Modified upstream files (4): `leanring_buddyApp.swift`, `CompanionManager.swift`, `MenuBarPanelManager.swift`, `CompanionPanelView.swift`. All changes are additive.
 
-Skilly-only files (not in upstream, safe to ignore during merges): everything in the Auth & Analytics, Billing & Entitlements, and Skill System tables above, plus `RealtimeTelemetry.swift`, `RealtimePricing.swift`, `PanelBodyView.swift`, `SettingsView.swift`, `SkillyNotificationManager.swift`, `AppSettings.swift`, `AppBundleConfiguration.swift`, `AppDetectionMonitor.swift`, `BuddyPushToTalkShortcut.swift`, the `worker/` directory, the `skills/` directory, `docs/`, and `fastlane/`.
+Skilly-only files (not in upstream, safe to ignore during merges): everything in the Auth & Analytics, Billing & Entitlements, and Skill System tables above, plus `RealtimeTelemetry.swift`, `RealtimePricing.swift`, `PanelBodyView.swift`, `SettingsView.swift`, `SkillyNotificationManager.swift`, `AppSettings.swift`, `AppBundleConfiguration.swift`, `AppDetectionMonitor.swift`, `BuddyPushToTalkShortcut.swift`, the `worker/` directory, the `skills/` directory, the `core/` Rust workspace, `docs/`, and `fastlane/`.
 
 ## Self-Update Instructions
 

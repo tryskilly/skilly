@@ -1,0 +1,30 @@
+[
+  {
+    "name": "non-admin trial user blocked when exhausted",
+    "user_id": "user_non_admin",
+    "entitlement_state": "trial",
+    "trial_seconds_used": 900,
+    "usage_seconds_used": 0,
+    "expected_allowed": false,
+    "expected_reason": "trial_exhausted"
+  },
+  {
+    "name": "non-admin active user blocked when over cap",
+    "user_id": "user_non_admin",
+    "entitlement_state": "active",
+    "trial_seconds_used": 0,
+    "usage_seconds_used": 10800,
+    "expected_allowed": false,
+    "expected_reason": "cap_reached"
+  },
+  {
+    "name": "admin user always allowed",
+    "user_id": "user_01KP21J3GEVH8AKJ31C59Z1KJQ",
+    "entitlement_state": "expired",
+    "trial_seconds_used": 9999,
+    "usage_seconds_used": 99999,
+    "expected_allowed": true,
+    "expected_reason": null
+  }
+]
+

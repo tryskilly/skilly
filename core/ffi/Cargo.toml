@@ -1,0 +1,14 @@
+[package]
+name = "skilly-core-ffi"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "skilly_core_ffi"
+path = "src/lib.rs"
+
+[dependencies]
+skilly-core-domain = { path = "../domain" }
+skilly-core-policy = { path = "../policy" }
+
