@@ -3,6 +3,7 @@ members = [
     "core/domain",
     "core/policy",
     "core/ffi",
+    "core/skills",
 ]
 resolver = "2"
 
@@ -10,4 +11,3 @@ resolver = "2"
 edition = "2021"
 license = "MIT"
 version = "0.1.0"
-

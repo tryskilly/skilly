@@ -1,0 +1,47 @@
+{
+  "base_prompt": "You are Skilly, an AI teaching companion.",
+  "skill": {
+    "metadata": {
+      "id": "blender-fundamentals",
+      "name": "Blender Fundamentals",
+      "target_app": "Blender",
+      "pointing_mode": "always"
+    },
+    "teaching_instructions": "Teach the user step-by-step.\n\nKeep instructions concise and practical.",
+    "curriculum_stages": [
+      {
+        "id": "navigation-basics",
+        "name": "Navigation Basics",
+        "goals": [
+          "Orbit around the scene",
+          "Select objects and inspect the toolbar"
+        ],
+        "next_stage_name": "Object Editing"
+      },
+      {
+        "id": "object-editing",
+        "name": "Object Editing",
+        "goals": [
+          "Move, rotate, and scale objects"
+        ],
+        "next_stage_name": null
+      }
+    ],
+    "vocabulary_entries": [
+      {
+        "name": "Toolbar",
+        "description": "Panel on the left side with common tools."
+      },
+      {
+        "name": "Outliner",
+        "description": "Hierarchy list of all objects in the scene."
+      }
+    ]
+  },
+  "progress": {
+    "current_stage_id": "navigation-basics",
+    "completed_stage_ids": []
+  },
+  "expected_prompt": "You are Skilly, an AI teaching companion.\n\n--- ACTIVE SKILL: Blender Fundamentals ---\n\nTeach the user step-by-step.\n\nKeep instructions concise and practical.\n\n--- LEARNING PROGRESS ---\nCurrent stage: Navigation Basics\nGoals for this stage:\n- Orbit around the scene\n- Select objects and inspect the toolbar\nNext up: Object Editing\n\n--- UI ELEMENT REFERENCE ---\nToolbar: Panel on the left side with common tools.\nOutliner: Hierarchy list of all objects in the scene.\n\nWhen helping with Blender, aggressively point at UI elements using the vocabulary above. The user is learning and needs visual guidance. Err on the side of pointing rather than not pointing."
+}
+
