@@ -3,13 +3,14 @@
 //! This crate exposes a stable bridge layer for native platform shells
 //! (Swift on macOS, WinUI/.NET on Windows, GTK on Linux).
 
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 use skilly_core_domain::{
     BlockReason, EntitlementState, PolicyConfig, PolicyDecision, PolicyInput,
 };
 use skilly_core_policy::{can_start_turn, trial_is_exhausted, usage_is_over_cap};
+use skilly_core_skills::{compose_prompt, SkillDefinition, SkillProgress};
 
 /// Entitlement state values used by native shells.
 /// Keep these in sync with `RustPolicyEntitlementState` in Swift.
@@ -39,6 +40,15 @@ fn parse_optional_string(raw: *const c_char) -> Option<String> {
     } else {
         Some(parsed_value)
     }
+}
+
+fn parse_required_string(raw: *const c_char) -> Option<String> {
+    if raw.is_null() {
+        return None;
+    }
+
+    let c_string = unsafe { CStr::from_ptr(raw) };
+    Some(c_string.to_string_lossy().to_string())
 }
 
 fn parse_csv_values(raw: *const c_char) -> Vec<String> {
@@ -101,7 +111,11 @@ fn map_block_reason(block_reason: Option<BlockReason>) -> u8 {
 }
 
 fn encode_policy_decision(policy_decision: PolicyDecision) -> u64 {
-    let allowed_bit = if policy_decision.allowed { 1_u64 } else { 0_u64 };
+    let allowed_bit = if policy_decision.allowed {
+        1_u64
+    } else {
+        0_u64
+    };
     let admin_bit = if policy_decision.is_admin_user {
         1_u64 << 1
     } else {
@@ -110,6 +124,21 @@ fn encode_policy_decision(policy_decision: PolicyDecision) -> u64 {
     let reason_bits = (map_block_reason(policy_decision.reason) as u64) << 8;
 
     allowed_bit | admin_bit | reason_bits
+}
+
+fn compose_prompt_from_json(
+    base_prompt: &str,
+    skill_definition_json: &str,
+    skill_progress_json: &str,
+) -> Option<String> {
+    let skill_definition: SkillDefinition = serde_json::from_str(skill_definition_json).ok()?;
+    let skill_progress: SkillProgress = serde_json::from_str(skill_progress_json).ok()?;
+
+    Some(compose_prompt(
+        base_prompt,
+        &skill_definition,
+        &skill_progress,
+    ))
 }
 
 #[no_mangle]
@@ -159,4 +188,83 @@ pub extern "C" fn skilly_policy_usage_is_over_cap(
     let policy_input = build_policy_input(user_id, EntitlementState::Active, 0, usage_seconds_used);
 
     u8::from(usage_is_over_cap(&policy_config, &policy_input))
+}
+
+#[no_mangle]
+pub extern "C" fn skilly_skills_compose_prompt_json(
+    base_prompt: *const c_char,
+    skill_definition_json: *const c_char,
+    skill_progress_json: *const c_char,
+) -> *mut c_char {
+    let Some(base_prompt) = parse_required_string(base_prompt) else {
+        return std::ptr::null_mut();
+    };
+    let Some(skill_definition_json) = parse_required_string(skill_definition_json) else {
+        return std::ptr::null_mut();
+    };
+    let Some(skill_progress_json) = parse_required_string(skill_progress_json) else {
+        return std::ptr::null_mut();
+    };
+
+    let Some(composed_prompt) =
+        compose_prompt_from_json(&base_prompt, &skill_definition_json, &skill_progress_json)
+    else {
+        return std::ptr::null_mut();
+    };
+
+    match CString::new(composed_prompt) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn skilly_string_free(raw_string: *mut c_char) {
+    if raw_string.is_null() {
+        return;
+    }
+
+    unsafe {
+        drop(CString::from_raw(raw_string));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+    use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn compose_prompt_from_json_matches_skills_fixture() {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../skills/fixtures/compose_prompt_fixture.json");
+        let fixture_json = fs::read_to_string(fixture_path).expect("fixture should exist");
+        let fixture_value: Value =
+            serde_json::from_str(&fixture_json).expect("fixture should parse");
+
+        let base_prompt = fixture_value
+            .get("base_prompt")
+            .and_then(Value::as_str)
+            .expect("base_prompt should be present");
+        let skill_definition_json = fixture_value
+            .get("skill")
+            .expect("skill should be present")
+            .to_string();
+        let skill_progress_json = fixture_value
+            .get("progress")
+            .expect("progress should be present")
+            .to_string();
+        let expected_prompt = fixture_value
+            .get("expected_prompt")
+            .and_then(Value::as_str)
+            .expect("expected_prompt should be present");
+
+        let composed_prompt =
+            compose_prompt_from_json(base_prompt, &skill_definition_json, &skill_progress_json)
+                .expect("prompt composition should succeed");
+
+        assert_eq!(composed_prompt, expected_prompt);
+    }
 }

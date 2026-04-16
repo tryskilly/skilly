@@ -1,0 +1,10 @@
+[package]
+name = "skilly-linux-shell"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+skilly-core-domain = { path = "../../core/domain" }
+skilly-core-policy = { path = "../../core/policy" }
+skilly-core-realtime = { path = "../../core/realtime" }

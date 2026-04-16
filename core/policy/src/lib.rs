@@ -76,9 +76,7 @@ pub fn can_start_turn(policy_config: &PolicyConfig, policy_input: &PolicyInput) 
                 }
             }
         }
-        EntitlementState::Canceled {
-            access_still_valid,
-        } => {
+        EntitlementState::Canceled { access_still_valid } => {
             if !access_still_valid {
                 PolicyDecision {
                     allowed: false,
@@ -178,4 +176,3 @@ mod tests {
         assert!(!blocked_decision.allowed);
     }
 }
-

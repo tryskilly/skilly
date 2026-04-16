@@ -12,3 +12,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 skilly-core-domain = { path = "../domain" }
 skilly-core-policy = { path = "../policy" }
+skilly-core-skills = { path = "../skills" }
+serde_json = "1.0"

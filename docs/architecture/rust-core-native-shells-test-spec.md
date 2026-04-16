@@ -62,6 +62,7 @@ Windows/Linux (future phases):
 ### Gate B (Phase 2 complete)
 1. Skill prompt fixture parity passes for selected corpus.
 2. No known regression in skill activation and stage progression behavior.
+3. FFI compose-prompt parity test passes against shared skills fixture.
 
 ### Gate C (Phase 3 complete)
 1. Realtime replay suite passes across representative traces.
@@ -79,11 +80,10 @@ Windows/Linux (future phases):
 1. `rust-core-check`: `cargo check`
 2. `rust-core-test`: `cargo test`
 3. `ffi-smoke`: C ABI smoke test against built dylib
-4. `mac-release-guard`: verify release script preconditions and static checks
-5. Future: windows/linux shell smoke jobs
+4. `shell-smoke`: windows/linux bootstrap smoke flow
+5. `mac-release-guard`: verify release script preconditions and static checks
 
 ## Known Gaps
 1. No terminal `xcodebuild` execution in this repo by policy.
 2. Swift bridge compile/runtime validation must be completed inside Xcode workflow.
-3. End-to-end UI parity checks across Windows/Linux deferred to shell phases.
-
+3. End-to-end UI parity checks across Windows/Linux deferred until native host shells are wired.

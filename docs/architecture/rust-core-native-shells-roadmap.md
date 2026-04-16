@@ -4,11 +4,11 @@
 
 | Phase | Name | Status | Exit Criteria |
 | --- | --- | --- | --- |
-| 0 | Baseline + Safety Rails | In Progress | Boundaries/capability docs + core scaffold + initial fixtures |
-| 1 | Policy Core Extraction | In Progress | Entitlement gate uses Rust bridge with safe fallback |
-| 2 | Skill Prompt Core Extraction | Planned | Skill composition parity fixtures pass on Rust path |
-| 3 | Realtime Orchestration Extraction | Planned | Session lifecycle replay suite passes on Rust path |
-| 4 | Windows/Linux Shell Bootstrap | Planned | Both shells run auth + entitlement + turn-start smoke flow |
+| 0 | Baseline + Safety Rails | Complete | Boundaries/capability docs + core scaffold + initial fixtures |
+| 1 | Policy Core Extraction | Complete | Entitlement gate uses Rust bridge with safe fallback |
+| 2 | Skill Prompt Core Extraction | Complete | Skill composition parity fixtures pass on Rust path |
+| 3 | Realtime Orchestration Extraction | In Progress | Session lifecycle replay suite passes on Rust path |
+| 4 | Windows/Linux Shell Bootstrap | In Progress | Both shells run auth + entitlement + turn-start smoke flow |
 | 5 | Real Platform Adapters | Planned | Capture/hotkey/overlay baseline works per platform scope |
 | 6 | Mobile SDK Surface | Planned | Swift/Kotlin SDK bindings and sample integrations available |
 
@@ -18,34 +18,44 @@
 Completed:
 - core boundaries documented
 - capability matrix documented
-- Rust workspace scaffolded (`core/domain`, `core/policy`, `core/ffi`)
+- adapter contracts documented
+- Rust workspace scaffolded (`core/domain`, `core/policy`, `core/skills`, `core/realtime`, `core/ffi`)
 - policy fixtures and baseline tests added
 
 Remaining:
-- Expand fixture set from current production-like scenarios
-- Add baseline parity harness docs for Swift vs Rust decisions
+- Expand fixture set with additional production-like session traces
+- Add baseline parity harness docs for Swift vs Rust policy fallback behavior
 
 ### Phase 1: Policy Core Extraction
 Completed:
 - Rust policy engine implements can-start-turn decisions
 - C ABI entrypoint exposed from `core/ffi`
 - Swift `EntitlementManager.canStartTurn()` calls Rust first with Swift fallback
+- `TrialTracker` and `UsageTracker` checks route through Rust policy bridge
 
 Remaining:
-- Move `TrialTracker` and `UsageTracker` blocking decisions through shared policy outputs
-- Add integration tests around fallback behavior and bridge availability
+- Add Xcode-run integration tests around fallback behavior and bridge availability
 - Decide long-term dylib packaging strategy for Xcode workflows
 
 ### Phase 2: Skill Prompt Core Extraction
-Tasks:
-1. Mirror current skill metadata and prompt composer contracts in `core/skills`.
-2. Add fixtures from existing skill prompt outputs.
-3. Route Swift `SkillManager` prompt generation through Rust bridge with fallback.
+Completed:
+1. Mirrored skill metadata and prompt composer contracts in `core/skills`.
+2. Added fixture-driven parity tests for prompt composition.
+3. Routed Swift `SkillPromptComposer` generation through Rust bridge with fallback.
+4. Added FFI-level compose prompt parity test in `core/ffi`.
 
 Exit Criteria:
 - Rust prompt outputs match current expected outputs for agreed fixture corpus.
 
 ### Phase 3: Realtime Orchestration Extraction
+Completed:
+1. Added canonical turn/session state machine in `core/realtime`.
+2. Added replay harness with fixture-driven traces.
+
+Remaining:
+1. Move Swift orchestration decisions into Rust-driven transitions.
+2. Add replay traces from production telemetry samples.
+
 Tasks:
 1. Define canonical turn/session state machine in `core/realtime`.
 2. Add replay harness for event sequence validation.
@@ -55,6 +65,15 @@ Exit Criteria:
 - Replay suite passes and no known regression in core turn lifecycle behavior.
 
 ### Phase 4: Windows/Linux Shell Bootstrap
+Completed:
+1. Created shell bootstrap crates (`apps/windows-shell`, `apps/linux-shell`).
+2. Implemented mocked auth + entitlement + turn-start smoke flows using shared core.
+3. Added CI shell smoke runs on Ubuntu and Windows runners.
+
+Remaining:
+1. Wire native host shells to these bootstrap flows.
+2. Replace mocked adapters with platform adapters in Phase 5.
+
 Tasks:
 1. Create shell skeletons and bridge wiring.
 2. Implement auth + entitlement + turn-start baseline.
@@ -94,4 +113,3 @@ Exit Criteria:
 - explicit acceptance criteria check
 - documented risks + mitigation updates
 - release impact assessment for macOS pipeline
-

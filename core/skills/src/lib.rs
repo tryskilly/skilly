@@ -48,7 +48,11 @@ pub struct SkillProgress {
     pub completed_stage_ids: Vec<String>,
 }
 
-pub fn compose_prompt(base_prompt: &str, skill: &SkillDefinition, progress: &SkillProgress) -> String {
+pub fn compose_prompt(
+    base_prompt: &str,
+    skill: &SkillDefinition,
+    progress: &SkillProgress,
+) -> String {
     let mut sections = Vec::new();
     sections.push(base_prompt.to_string());
     sections.push(format!(
@@ -108,7 +112,8 @@ pub fn trim_vocabulary(
         return stage_relevant_entries;
     }
 
-    let top_five_entries: Vec<VocabularyEntry> = stage_relevant_entries.into_iter().take(5).collect();
+    let top_five_entries: Vec<VocabularyEntry> =
+        stage_relevant_entries.into_iter().take(5).collect();
     if estimate_token_count(&format_entries(&top_five_entries)) <= budget_tokens {
         return top_five_entries;
     }
@@ -141,7 +146,8 @@ fn compose_curriculum_context(skill: &SkillDefinition, progress: &SkillProgress)
             .completed_stage_ids
             .iter()
             .filter_map(|completed_stage_id| {
-                skill.curriculum_stages
+                skill
+                    .curriculum_stages
                     .iter()
                     .find(|stage| &stage.id == completed_stage_id)
                     .map(|stage| escape_prompt_delimiters(&stage.name))
@@ -190,7 +196,11 @@ fn compose_vocabulary_context(skill: &SkillDefinition, progress: &SkillProgress)
         return format!("--- UI ELEMENT REFERENCE ---\n{all_entries}");
     };
 
-    let trimmed_entries = trim_vocabulary(&skill.vocabulary_entries, current_stage, VOCABULARY_BUDGET_TOKENS);
+    let trimmed_entries = trim_vocabulary(
+        &skill.vocabulary_entries,
+        current_stage,
+        VOCABULARY_BUDGET_TOKENS,
+    );
     if trimmed_entries.is_empty() {
         return String::new();
     }
@@ -247,9 +257,11 @@ mod tests {
             .join("fixtures")
             .join("compose_prompt_fixture.json");
         let fixture_json = fs::read_to_string(fixture_path).expect("fixture should exist");
-        let fixture: PromptFixture = serde_json::from_str(&fixture_json).expect("fixture json should parse");
+        let fixture: PromptFixture =
+            serde_json::from_str(&fixture_json).expect("fixture json should parse");
 
-        let composed_prompt = compose_prompt(&fixture.base_prompt, &fixture.skill, &fixture.progress);
+        let composed_prompt =
+            compose_prompt(&fixture.base_prompt, &fixture.skill, &fixture.progress);
         assert_eq!(composed_prompt, fixture.expected_prompt);
     }
 }

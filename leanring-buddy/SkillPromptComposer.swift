@@ -68,6 +68,27 @@ enum SkillPromptComposer {
         skill: SkillDefinition,
         progress: SkillProgress
     ) -> String {
+        if let rustComposedPrompt = RustSkillsBridge.shared.composePrompt(
+            basePrompt: basePrompt,
+            skill: skill,
+            progress: progress
+        ) {
+            return rustComposedPrompt
+        }
+
+        return composeWithSwift(
+            basePrompt: basePrompt,
+            skill: skill,
+            progress: progress
+        )
+    }
+
+    /// Swift fallback prompt composer used when the Rust bridge is unavailable.
+    private static func composeWithSwift(
+        basePrompt: String,
+        skill: SkillDefinition,
+        progress: SkillProgress
+    ) -> String {
         var sections: [String] = []
 
         // Layer 1: Base system prompt — always first so it sets the foundational identity.

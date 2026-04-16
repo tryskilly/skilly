@@ -83,8 +83,10 @@ version = "0.1.0"
 name = "skilly-core-ffi"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "skilly-core-domain",
  "skilly-core-policy",
+ "skilly-core-skills",
 ]
 
 [[package]]
@@ -95,11 +97,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "skilly-core-realtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "skilly-core-skills"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "skilly-linux-shell"
+version = "0.1.0"
+dependencies = [
+ "skilly-core-domain",
+ "skilly-core-policy",
+ "skilly-core-realtime",
+]
+
+[[package]]
+name = "skilly-windows-shell"
+version = "0.1.0"
+dependencies = [
+ "skilly-core-domain",
+ "skilly-core-policy",
+ "skilly-core-realtime",
 ]
 
 [[package]]

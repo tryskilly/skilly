@@ -1,0 +1,48 @@
+name: Rust Core And Shells
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust-core-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo check
+        run: cargo check --workspace
+
+  rust-core-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo test
+        run: cargo test --workspace
+
+  ffi-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build FFI dylib
+        run: cargo build -p skilly-core-ffi
+      - name: FFI smoke tests
+        run: cargo test -p skilly-core-ffi
+
+  shell-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            package: skilly-linux-shell
+          - os: windows-latest
+            package: skilly-windows-shell
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run shell smoke flow
+        run: cargo run -p ${{ matrix.package }} -- --smoke

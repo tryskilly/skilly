@@ -4,6 +4,9 @@ members = [
     "core/policy",
     "core/ffi",
     "core/skills",
+    "core/realtime",
+    "apps/windows-shell",
+    "apps/linux-shell",
 ]
 resolver = "2"
 

@@ -24,8 +24,9 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Skill System**: SKILL.md files parsed at runtime, layered into system prompt with curriculum tracking
 - **Concurrency**: `@MainActor` isolation, async/await throughout
 - **Analytics**: PostHog via `SkillyAnalytics.swift` (own project, not upstream)
-- **Cross-platform Migration Scaffold**: Rust workspace at `core/` (`domain`, `policy`, `ffi`) to centralize platform-agnostic policy and orchestration logic while keeping native OS shells for UI/capabilities
+- **Cross-platform Migration Scaffold**: Rust workspace at `core/` (`domain`, `policy`, `skills`, `realtime`, `ffi`) plus shell bootstrap crates under `apps/` to centralize platform-agnostic policy/orchestration logic while keeping native OS shells for UI/capabilities
 - **Policy Bridge**: `RustPolicyBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so entitlement checks can use shared Rust policy with Swift fallback
+- **Skills Bridge**: `RustSkillsBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so skill prompt composition can use shared Rust logic with Swift fallback
 
 ### API Proxy (Cloudflare Worker)
 
@@ -98,6 +99,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `BuddyPushToTalkShortcut.swift` | ~210 | Hotkey shortcut model + customization UI support. Default: `control + option`. Wraps `GlobalPushToTalkShortcutMonitor` and exposes recording/editing state for Settings. |
 | `SkillyNotificationManager.swift` | ~80 | User-facing system notifications (via `UNUserNotificationCenter`) for trial warnings, cap warnings, and subscription state changes. |
 | `RustPolicyBridge.swift` | ~200 | Dynamic Rust FFI loader for policy checks. Calls `skilly_policy_can_start_turn` from `libskilly_core_ffi.dylib` when present and falls back to Swift logic when unavailable. |
+| `RustSkillsBridge.swift` | ~220 | Dynamic Rust FFI loader for skills prompt composition. Calls `skilly_skills_compose_prompt_json` from `libskilly_core_ffi.dylib` when present and falls back to Swift prompt composition when unavailable. |
 
 ### Auth & Analytics
 
@@ -147,13 +149,22 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `Cargo.toml` | ~15 | Workspace definition for the cross-platform Rust core crates. |
+| `Cargo.toml` | ~20 | Workspace definition for cross-platform Rust core crates plus shell bootstrap binaries. |
 | `core/domain/src/lib.rs` | ~60 | Shared data contracts (`EntitlementState`, `PolicyInput`, `PolicyDecision`, `BlockReason`, `PolicyConfig`) used by native shells. |
 | `core/policy/src/lib.rs` | ~180 | Deterministic entitlement/trial/cap/admin decision engine plus baseline policy tests aligned with current Swift behavior. |
 | `core/policy/fixtures/can_start_turn_cases.json` | ~30 | Starter parity fixture cases for policy behavior validation across host platforms. |
 | `core/ffi/src/lib.rs` | ~120 | C ABI boundary for native shells. Exposes policy decision entrypoints (`can_start_turn`, `trial_is_exhausted`, `usage_is_over_cap`). |
 | `core/skills/src/lib.rs` | ~260 | Shared prompt-composition module (curriculum/vocabulary layers, pointing mode instructions, vocabulary trimming) with fixture-driven tests. |
 | `core/skills/fixtures/compose_prompt_fixture.json` | ~40 | Fixture defining expected composed prompt output for Rust skills-core parity checks. |
+| `core/realtime/src/lib.rs` | ~300 | Deterministic realtime turn/session state machine with replay harness and transition validation. |
+| `core/realtime/fixtures/replay_traces.json` | ~45 | Replay-trace fixture corpus for realtime lifecycle validation. |
+
+### Shell Bootstrap (`apps/`)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `apps/windows-shell/src/main.rs` | ~110 | Windows shell bootstrap binary that runs mocked auth + entitlement + turn-start smoke flow through shared Rust core. |
+| `apps/linux-shell/src/main.rs` | ~110 | Linux shell bootstrap binary that runs mocked auth + entitlement + turn-start smoke flow through shared Rust core. |
 
 ### Architecture Docs
 
@@ -165,6 +176,13 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `docs/architecture/rust-core-native-shells-roadmap.md` | ~110 | Phase-by-phase execution roadmap with exit criteria and dependencies. |
 | `docs/architecture/rust-core-native-shells-test-spec.md` | ~100 | Verification strategy and migration release gates across Rust core and platform shells. |
 | `docs/architecture/adr-001-rust-core-native-shells.md` | ~45 | Architecture decision record selecting Rust core + native shell approach. |
+| `docs/architecture/adapter-contracts.md` | ~70 | Native shell adapter interface contracts (auth, entitlement, capture, hotkey, overlay, audio, permissions) for core integration. |
+
+### CI Workflow
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `.github/workflows/rust-core-shells.yml` | ~50 | Workspace Rust checks/tests plus FFI smoke and Windows/Linux shell smoke jobs. |
 
 ### Skill Files
 
@@ -202,6 +220,8 @@ source "$HOME/.cargo/env"
 cargo check
 cargo test
 cargo build -p skilly-core-ffi
+cargo run -p skilly-linux-shell -- --smoke
+cargo run -p skilly-windows-shell -- --smoke
 ```
 
 Generated bridge library:
@@ -209,6 +229,8 @@ Generated bridge library:
 
 Optional Xcode scheme env var to force dylib path:
 - `SKILLY_RUST_POLICY_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
+- `SKILLY_RUST_SKILLS_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
+- `SKILLY_RUST_CORE_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
 
 ## Cloudflare Worker
 

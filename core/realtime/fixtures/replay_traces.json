@@ -1,0 +1,40 @@
+{
+  "traces": [
+    {
+      "name": "single_turn_happy_path",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-1" },
+        { "type": "audio_capture_committed", "turn_id": "turn-1" },
+        { "type": "response_started", "turn_id": "turn-1" },
+        { "type": "response_completed", "turn_id": "turn-1" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "failed_turn_then_recovery_turn",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-1" },
+        { "type": "audio_capture_committed", "turn_id": "turn-1" },
+        { "type": "session_error", "turn_id": "turn-1", "message": "network_timeout" },
+        { "type": "turn_started", "turn_id": "turn-2" },
+        { "type": "audio_capture_committed", "turn_id": "turn-2" },
+        { "type": "audio_playback_started", "turn_id": "turn-2" },
+        { "type": "response_completed", "turn_id": "turn-2" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "complete_then_reset",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-3" },
+        { "type": "audio_capture_committed", "turn_id": "turn-3" },
+        { "type": "response_completed", "turn_id": "turn-3" },
+        { "type": "session_reset" }
+      ],
+      "expected_final_phase": "idle",
+      "expected_turns_completed": 1
+    }
+  ]
+}
