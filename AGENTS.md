@@ -151,7 +151,9 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `core/domain/src/lib.rs` | ~60 | Shared data contracts (`EntitlementState`, `PolicyInput`, `PolicyDecision`, `BlockReason`, `PolicyConfig`) used by native shells. |
 | `core/policy/src/lib.rs` | ~180 | Deterministic entitlement/trial/cap/admin decision engine plus baseline policy tests aligned with current Swift behavior. |
 | `core/policy/fixtures/can_start_turn_cases.json` | ~30 | Starter parity fixture cases for policy behavior validation across host platforms. |
-| `core/ffi/src/lib.rs` | ~15 | Initial FFI boundary crate that re-exports domain/policy modules for shell integrations. |
+| `core/ffi/src/lib.rs` | ~120 | C ABI boundary for native shells. Exposes policy decision entrypoints (`can_start_turn`, `trial_is_exhausted`, `usage_is_over_cap`). |
+| `core/skills/src/lib.rs` | ~260 | Shared prompt-composition module (curriculum/vocabulary layers, pointing mode instructions, vocabulary trimming) with fixture-driven tests. |
+| `core/skills/fixtures/compose_prompt_fixture.json` | ~40 | Fixture defining expected composed prompt output for Rust skills-core parity checks. |
 
 ### Architecture Docs
 
