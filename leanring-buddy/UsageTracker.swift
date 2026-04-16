@@ -54,7 +54,9 @@ final class UsageTracker: ObservableObject {
     }
 
     var isOverCap: Bool {
-        secondsUsed >= Self.maxSecondsPerPeriod
+        // MARK: - Skilly — Admin bypass: allowlisted users never hit the monthly cap.
+        if AdminAllowlist.isCurrentUserAdmin { return false }
+        return secondsUsed >= Self.maxSecondsPerPeriod
     }
 
     /// Whether the 80% warning has already been sent for this period.
@@ -80,6 +82,7 @@ final class UsageTracker: ObservableObject {
 
     /// Call on each session end. Pass session duration in seconds.
     func recordSessionSeconds(_ seconds: TimeInterval) {
+        guard !AdminAllowlist.isCurrentUserAdmin else { return }
         guard !isOverCap, let userId else { return }
         let previousUsed = secondsUsed
         secondsUsed = min(Self.maxSecondsPerPeriod, secondsUsed + seconds)
@@ -101,6 +104,7 @@ final class UsageTracker: ObservableObject {
 
     /// Call each time a turn is blocked due to cap.
     func recordTurnBlocked() {
+        guard !AdminAllowlist.isCurrentUserAdmin else { return }
         guard let userId else { return }
         SkillyAnalytics.trackCappedTurnBlocked(userId: userId)
     }

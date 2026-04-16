@@ -38,7 +38,9 @@ final class TrialTracker: ObservableObject {
     }
 
     var isExhausted: Bool {
-        totalSecondsUsed >= Self.maxTrialSeconds
+        // MARK: - Skilly — Admin bypass: allowlisted users never run out of trial time.
+        if AdminAllowlist.isCurrentUserAdmin { return false }
+        return totalSecondsUsed >= Self.maxTrialSeconds
     }
 
     var hasStarted: Bool {
@@ -86,6 +88,7 @@ final class TrialTracker: ObservableObject {
 
     /// Call at the start of the first session to record trial_started.
     func beginTrialIfNeeded() {
+        guard !AdminAllowlist.isCurrentUserAdmin else { return }
         guard let userId, hasStarted == false else { return }
         userDefaults.set(true, forKey: key("started"))
         hasRecordedTrialStarted = true
@@ -94,6 +97,7 @@ final class TrialTracker: ObservableObject {
 
     /// Call when the first user turn completes within a trial session.
     func recordFirstTurn() {
+        guard !AdminAllowlist.isCurrentUserAdmin else { return }
         guard let userId, hasStarted, hasRecordedFirstTurn == false else { return }
         hasRecordedFirstTurn = true
         SkillyAnalytics.trackTrialFirstTurn(userId: userId)
@@ -101,6 +105,7 @@ final class TrialTracker: ObservableObject {
 
     /// Call on each session end. Pass session duration in seconds.
     func recordSessionSeconds(_ seconds: TimeInterval) {
+        guard !AdminAllowlist.isCurrentUserAdmin else { return }
         guard let userId, hasStarted, !isExhausted else { return }
         let previousUsed = totalSecondsUsed
         totalSecondsUsed = min(Self.maxTrialSeconds, totalSecondsUsed + seconds)

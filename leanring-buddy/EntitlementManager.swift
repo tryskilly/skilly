@@ -167,6 +167,10 @@ final class EntitlementManager: ObservableObject {
 
     /// Returns (allowed, reason). Call before starting any billable turn.
     func canStartTurn() -> (allowed: Bool, reason: BlockReason?) {
+        // MARK: - Skilly — Admin bypass: allowlisted users pass every gate.
+        if AdminAllowlist.isCurrentUserAdmin {
+            return (true, nil)
+        }
         switch status {
         case .none:
             if TrialTracker.shared.isExhausted {

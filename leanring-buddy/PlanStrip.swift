@@ -21,6 +21,7 @@ struct PlanStrip: View {
     // MARK: - State Resolution
 
     enum PlanState {
+        case adminUnlimited
         case trial(remainingSeconds: TimeInterval, progress: Double)
         case active(remainingSeconds: TimeInterval, progress: Double, resetsAt: Date?)
         case low(remainingSeconds: TimeInterval, resetsAt: Date?)
@@ -30,6 +31,10 @@ struct PlanStrip: View {
     }
 
     private var state: PlanState {
+        if AdminAllowlist.isCurrentUserAdmin {
+            return .adminUnlimited
+        }
+
         // Fall back to trial when no entitlement is set yet (new user,
         // offline, or Worker hasn't synced). This matches the PlanCard.
         let effectiveStatus: EntitlementStatus
@@ -77,6 +82,9 @@ struct PlanStrip: View {
         case .none:
             EmptyView()
 
+        case .adminUnlimited:
+            adminUnlimitedStrip
+
         case .trial(let remainingSeconds, let progress):
             trialStrip(remainingSeconds: remainingSeconds, progress: progress)
 
@@ -92,6 +100,31 @@ struct PlanStrip: View {
         case .trialEnded:
             trialEndedStrip
         }
+    }
+
+    private var adminUnlimitedStrip: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ADMIN")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(0.5)
+                    .foregroundColor(DS.Colors.accent)
+                Text("Unlimited access enabled")
+                    .font(.system(size: 10))
+                    .foregroundColor(DS.Colors.textSecondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                .fill(DS.Colors.accent.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                .stroke(DS.Colors.accent.opacity(0.35), lineWidth: 0.5)
+        )
     }
 
     // MARK: - Healthy States (subtle)

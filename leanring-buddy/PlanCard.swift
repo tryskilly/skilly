@@ -17,9 +17,16 @@ struct PlanCard: View {
 
     // MARK: - Resolved Display State
 
+    private var isAdminUser: Bool {
+        AdminAllowlist.isCurrentUserAdmin
+    }
+
     /// Returns the effective status — falls back to trial when the Worker
     /// hasn't returned an entitlement yet (new user, offline, or dev mode).
     private var effectiveStatus: EntitlementStatus {
+        if isAdminUser {
+            return .active(periodEnd: .distantFuture)
+        }
         if case .none = entitlementManager.status {
             return .trial(remainingSeconds: trialTracker.remainingSeconds)
         }
@@ -27,6 +34,9 @@ struct PlanCard: View {
     }
 
     private var statusLabel: String {
+        if isAdminUser {
+            return "Admin unlimited"
+        }
         switch effectiveStatus {
         case .trial:
             return trialTracker.isExhausted ? "Trial ended" : "Free trial"
@@ -42,6 +52,9 @@ struct PlanCard: View {
     }
 
     private var statusColor: Color {
+        if isAdminUser {
+            return DS.Colors.accent
+        }
         switch effectiveStatus {
         case .trial:
             if trialTracker.isExhausted { return DS.Colors.destructiveText }
@@ -61,6 +74,9 @@ struct PlanCard: View {
 
     /// Returns the time consumed/total as a display string (e.g. "43m of 3h")
     private var timeUsedLabel: String {
+        if isAdminUser {
+            return "Unlimited"
+        }
         switch effectiveStatus {
         case .trial, .none:
             let used = trialTracker.totalSecondsUsed
@@ -76,6 +92,9 @@ struct PlanCard: View {
     }
 
     private var progress: Double {
+        if isAdminUser {
+            return 0
+        }
         switch effectiveStatus {
         case .trial, .none:
             return trialTracker.usageProgress
@@ -93,6 +112,9 @@ struct PlanCard: View {
     }
 
     private var timeUsedHeader: String {
+        if isAdminUser {
+            return "Access"
+        }
         switch effectiveStatus {
         case .trial, .none:
             return "Trial time used"
@@ -104,6 +126,9 @@ struct PlanCard: View {
     }
 
     private var resetDateLabel: String? {
+        if isAdminUser {
+            return nil
+        }
         switch effectiveStatus {
         case .trial, .none:
             return nil  // Trial never resets
@@ -191,28 +216,43 @@ struct PlanCard: View {
 
     @ViewBuilder
     private var manageButton: some View {
-        switch effectiveStatus {
-        case .active, .canceled:
-            Button(action: {
-                Task { await EntitlementManager.shared.startCustomerPortal() }
-            }) {
-                manageButtonContent(
-                    label: "Manage subscription",
-                    color: Color(hex: "#60A5FA")
-                )
+        if isAdminUser {
+            HStack {
+                Text("Admin bypass is active")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(DS.Colors.accent)
+                Spacer()
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .fill(DS.Colors.accent.opacity(0.10))
+            )
+        } else {
+            switch effectiveStatus {
+            case .active, .canceled:
+                Button(action: {
+                    Task { await EntitlementManager.shared.startCustomerPortal() }
+                }) {
+                    manageButtonContent(
+                        label: "Manage subscription",
+                        color: Color(hex: "#60A5FA")
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
 
-        case .trial, .expired, .none:
-            Button(action: { Task { await EntitlementManager.shared.startCheckout() } }) {
-                manageButtonContent(
-                    label: trialTracker.isExhausted ? "Subscribe — $19 / month" : "Upgrade",
-                    color: DS.Colors.accent
-                )
+            case .trial, .expired, .none:
+                Button(action: { Task { await EntitlementManager.shared.startCheckout() } }) {
+                    manageButtonContent(
+                        label: trialTracker.isExhausted ? "Subscribe — $19 / month" : "Upgrade",
+                        color: DS.Colors.accent
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
         }
     }
 
