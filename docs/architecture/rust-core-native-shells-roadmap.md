@@ -8,8 +8,8 @@
 | 1 | Policy Core Extraction | Complete | Entitlement gate uses Rust bridge with safe fallback |
 | 2 | Skill Prompt Core Extraction | Complete | Skill composition parity fixtures pass on Rust path |
 | 3 | Realtime Orchestration Extraction | Complete | Session lifecycle replay suite passes on Rust path |
-| 4 | Windows/Linux Shell Bootstrap | In Progress | Both shells run auth + entitlement + turn-start smoke flow |
-| 5 | Real Platform Adapters | Planned | Capture/hotkey/overlay baseline works per platform scope |
+| 4 | Windows/Linux Shell Bootstrap | Complete | Both shells run auth + entitlement + turn-start smoke flow |
+| 5 | Real Platform Adapters | Complete (Dev) | Capture/hotkey/overlay baseline adapter contracts wired with capability-aware gating |
 | 6 | Mobile SDK Surface | Planned | Swift/Kotlin SDK bindings and sample integrations available |
 
 ## Detailed Phases
@@ -69,10 +69,10 @@ Completed:
 1. Created shell bootstrap crates (`apps/windows-shell`, `apps/linux-shell`).
 2. Implemented mocked auth + entitlement + turn-start smoke flows using shared core.
 3. Added CI shell smoke runs on Ubuntu and Windows runners.
+4. Wired shell bootstrap binaries to explicit platform adapter contracts for auth, entitlement, capture, hotkey, overlay, audio, and permissions.
 
 Remaining:
-1. Wire native host shells to these bootstrap flows.
-2. Replace mocked adapters with platform adapters in Phase 5.
+1. Final-phase runtime validation in native host shells.
 
 Tasks:
 1. Create shell skeletons and bridge wiring.
@@ -83,10 +83,14 @@ Exit Criteria:
 - Shell apps can complete baseline flow with shared core logic.
 
 ### Phase 5: Real Platform Adapters
-Tasks:
-1. Windows capture/hotkey/overlay adapters.
-2. Linux capture/hotkey/overlay adapters.
-3. Capability-aware UX handling for partial support.
+Completed:
+1. Added Windows capture/hotkey/overlay/audio/permission adapter modules with capability contract outputs.
+2. Added Linux capture/hotkey/overlay/audio/permission adapter modules with session-aware capability contract outputs.
+3. Added capability-aware turn-start gating with explicit blocker reporting for unavailable critical adapters.
+4. Removed mocked-only shell flow by routing both shells through adapter-backed execution path.
+
+Remaining:
+1. Execute final-phase runtime validation on real platform environments (Windows + Linux compositor/audio variants).
 
 Exit Criteria:
 - Baseline interactive behavior available on supported platform scope.

@@ -69,4 +69,14 @@ to implement its own UI, permissions, and device capabilities.
   - auth session acquisition
   - entitlement-driven turn permission
   - turn-start lifecycle via `core/realtime` replay
-- Real OS adapters are deferred to Phase 5.
+
+## Development Status
+- Windows shell now routes through explicit adapter modules for:
+  - capture
+  - hotkey
+  - overlay
+  - audio input/output
+  - permissions
+- Linux shell now routes through explicit adapter modules for the same surfaces.
+- Capability-aware gating is enforced before turn start; critical adapter blockers abort flow with explicit reasons.
+- Final-phase work focuses on runtime validation on real platform environments.

@@ -165,8 +165,8 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `apps/windows-shell/src/main.rs` | ~110 | Windows shell bootstrap binary that runs mocked auth + entitlement + turn-start smoke flow through shared Rust core. |
-| `apps/linux-shell/src/main.rs` | ~110 | Linux shell bootstrap binary that runs mocked auth + entitlement + turn-start smoke flow through shared Rust core. |
+| `apps/windows-shell/src/main.rs` | ~300 | Windows shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), capability-aware gating, and turn-start flow through shared Rust core. |
+| `apps/linux-shell/src/main.rs` | ~320 | Linux shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), session-aware capability reporting, and turn-start flow through shared Rust core. |
 
 ### Architecture Docs
 
@@ -175,10 +175,10 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `docs/architecture/core-boundaries.md` | ~35 | Migration boundary doc defining what remains native vs what moves into Rust core. |
 | `docs/architecture/capability-matrix.md` | ~30 | Capability matrix for macOS/Windows/Linux parity planning and adapter ownership. |
 | `docs/architecture/rust-core-native-shells-prd.md` | ~80 | Product requirements for the cross-platform migration (goals, constraints, metrics, rollout). |
-| `docs/architecture/rust-core-native-shells-roadmap.md` | ~110 | Phase-by-phase execution roadmap with exit criteria and dependencies. |
-| `docs/architecture/rust-core-native-shells-test-spec.md` | ~100 | Verification strategy and migration release gates across Rust core and platform shells. |
+| `docs/architecture/rust-core-native-shells-roadmap.md` | ~130 | Phase-by-phase execution roadmap with exit criteria, completion status, and remaining execution gates. |
+| `docs/architecture/rust-core-native-shells-test-spec.md` | ~110 | Verification strategy and migration release gates across Rust core and platform shells. |
 | `docs/architecture/adr-001-rust-core-native-shells.md` | ~45 | Architecture decision record selecting Rust core + native shell approach. |
-| `docs/architecture/adapter-contracts.md` | ~70 | Native shell adapter interface contracts (auth, entitlement, capture, hotkey, overlay, audio, permissions) for core integration. |
+| `docs/architecture/adapter-contracts.md` | ~85 | Native shell adapter interface contracts (auth, entitlement, capture, hotkey, overlay, audio, permissions) and development-status guidance for core integration. |
 | `docs/architecture/swift-rust-fallback-parity-harness.md` | ~85 | Parity harness procedure for validating Rust bridge behavior against Swift fallback across policy, skills, and realtime flows. |
 | `docs/architecture/rust-dylib-packaging-strategy.md` | ~80 | Deterministic development/release strategy for building, locating, and eventually packaging `libskilly_core_ffi.dylib`. |
 

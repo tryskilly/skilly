@@ -93,4 +93,4 @@ Windows/Linux (future phases):
 ## Known Gaps
 1. No terminal `xcodebuild` execution in this repo by policy.
 2. Swift bridge compile/runtime validation must be completed inside Xcode workflow.
-3. End-to-end UI parity checks across Windows/Linux deferred until native host shells are wired.
+3. End-to-end Windows/Linux runtime adapter validation across compositor/audio environments is deferred to final-phase execution.
