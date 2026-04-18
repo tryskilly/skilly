@@ -179,6 +179,8 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `docs/architecture/rust-core-native-shells-test-spec.md` | ~100 | Verification strategy and migration release gates across Rust core and platform shells. |
 | `docs/architecture/adr-001-rust-core-native-shells.md` | ~45 | Architecture decision record selecting Rust core + native shell approach. |
 | `docs/architecture/adapter-contracts.md` | ~70 | Native shell adapter interface contracts (auth, entitlement, capture, hotkey, overlay, audio, permissions) for core integration. |
+| `docs/architecture/swift-rust-fallback-parity-harness.md` | ~85 | Parity harness procedure for validating Rust bridge behavior against Swift fallback across policy, skills, and realtime flows. |
+| `docs/architecture/rust-dylib-packaging-strategy.md` | ~80 | Deterministic development/release strategy for building, locating, and eventually packaging `libskilly_core_ffi.dylib`. |
 
 ### CI Workflow
 

@@ -24,7 +24,7 @@ Completed:
 
 Remaining:
 - Expand fixture set with additional production-like session traces
-- Add baseline parity harness docs for Swift vs Rust policy fallback behavior
+- Execute parity harness runs in Xcode and publish evidence snapshots
 
 ### Phase 1: Policy Core Extraction
 Completed:
@@ -35,7 +35,7 @@ Completed:
 
 Remaining:
 - Add Xcode-run integration tests around fallback behavior and bridge availability
-- Decide long-term dylib packaging strategy for Xcode workflows
+- Implement packaged dylib distribution path after runtime parity is proven
 
 ### Phase 2: Skill Prompt Core Extraction
 Completed:

@@ -3,6 +3,10 @@
 ## Purpose
 Define verification coverage and release gates for migration phases so behavior remains stable while logic moves from Swift-only implementation to shared Rust core modules.
 
+Related references:
+- `docs/architecture/swift-rust-fallback-parity-harness.md`
+- `docs/architecture/rust-dylib-packaging-strategy.md`
+
 ## Scope
 1. Rust core unit and contract tests.
 2. Swift bridge integration behavior (Rust-available and fallback modes).
