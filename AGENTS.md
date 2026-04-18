@@ -27,6 +27,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Cross-platform Migration Scaffold**: Rust workspace at `core/` (`domain`, `policy`, `skills`, `realtime`, `ffi`) plus shell bootstrap crates under `apps/` to centralize platform-agnostic policy/orchestration logic while keeping native OS shells for UI/capabilities
 - **Policy Bridge**: `RustPolicyBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so entitlement checks can use shared Rust policy with Swift fallback
 - **Skills Bridge**: `RustSkillsBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so skill prompt composition can use shared Rust logic with Swift fallback
+- **Realtime Bridge**: `RustRealtimeBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so turn/session transitions can use shared Rust realtime state-machine logic with Swift fallback
 
 ### API Proxy (Cloudflare Worker)
 
@@ -78,7 +79,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | File | Lines | Purpose |
 |------|-------|---------|
 | `leanring_buddyApp.swift` | ~170 | Menu bar app entry point. `@main` struct with `CompanionAppDelegate`. Creates singletons: `CompanionManager`, `SkillManager`, `AuthManager`, `EntitlementManager`, `TrialTracker`, `UsageTracker`. Registers `skilly://` URL scheme handler for auth callbacks. |
-| `CompanionManager.swift` | ~1640 | Central state machine. Owns OpenAI Realtime client, overlay manager, audio player, screen capture, skill manager, entitlement/usage enforcement. Push-to-talk flow: hotkey press → check entitlement → capture screens + start audio tap → send to OpenAI → commit on release → parse `[POINT]` tags → animate cursor → record usage. |
+| `CompanionManager.swift` | ~1730 | Central state machine. Owns OpenAI Realtime client, overlay manager, audio player, screen capture, skill manager, entitlement/usage enforcement. Push-to-talk flow: hotkey press → check entitlement → capture screens + start audio tap → send to OpenAI → commit on release → parse `[POINT]` tags → animate cursor → record usage. |
 | `MenuBarPanelManager.swift` | ~250 | NSStatusItem + custom `NSPanel` lifecycle. Creates panel, hosts `CompanionPanelView` via `NSHostingView`, handles click-outside dismissal with 0.3s delay for permission dialogs. |
 | `CompanionPanelView.swift` | ~1000 | SwiftUI panel shell. Hosts `PlanStrip` (always visible), `PanelBodyView`, header, permissions, model picker, footer. WorkOS sign-in/sign-out flow, settings gear popover routing to `SettingsView`. |
 | `PanelBodyView.swift` | ~550 | Main scrollable panel body with "ACTIVE NOW" and "INSTALLED" skill sections. Per-skill `SkillRowActionMenu` overflow menus (Pause/Resume, Reset, View details, Show in Finder, Remove) reveal on hover or right-click. Remove shows confirmation. |
@@ -100,6 +101,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `SkillyNotificationManager.swift` | ~80 | User-facing system notifications (via `UNUserNotificationCenter`) for trial warnings, cap warnings, and subscription state changes. |
 | `RustPolicyBridge.swift` | ~200 | Dynamic Rust FFI loader for policy checks. Calls `skilly_policy_can_start_turn` from `libskilly_core_ffi.dylib` when present and falls back to Swift logic when unavailable. |
 | `RustSkillsBridge.swift` | ~220 | Dynamic Rust FFI loader for skills prompt composition. Calls `skilly_skills_compose_prompt_json` from `libskilly_core_ffi.dylib` when present and falls back to Swift prompt composition when unavailable. |
+| `RustRealtimeBridge.swift` | ~180 | Dynamic Rust FFI loader for realtime replay summaries. Calls `skilly_realtime_replay_events_json` from `libskilly_core_ffi.dylib` when present and falls back to Swift lifecycle behavior when unavailable. |
 
 ### Auth & Analytics
 
@@ -153,7 +155,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `core/domain/src/lib.rs` | ~60 | Shared data contracts (`EntitlementState`, `PolicyInput`, `PolicyDecision`, `BlockReason`, `PolicyConfig`) used by native shells. |
 | `core/policy/src/lib.rs` | ~180 | Deterministic entitlement/trial/cap/admin decision engine plus baseline policy tests aligned with current Swift behavior. |
 | `core/policy/fixtures/can_start_turn_cases.json` | ~30 | Starter parity fixture cases for policy behavior validation across host platforms. |
-| `core/ffi/src/lib.rs` | ~120 | C ABI boundary for native shells. Exposes policy decision entrypoints (`can_start_turn`, `trial_is_exhausted`, `usage_is_over_cap`). |
+| `core/ffi/src/lib.rs` | ~320 | C ABI boundary for native shells. Exposes policy decision entrypoints, skill prompt composition entrypoint, and realtime replay-summary entrypoint (`can_start_turn`, `trial_is_exhausted`, `usage_is_over_cap`, `skills_compose_prompt_json`, `realtime_replay_events_json`). |
 | `core/skills/src/lib.rs` | ~260 | Shared prompt-composition module (curriculum/vocabulary layers, pointing mode instructions, vocabulary trimming) with fixture-driven tests. |
 | `core/skills/fixtures/compose_prompt_fixture.json` | ~40 | Fixture defining expected composed prompt output for Rust skills-core parity checks. |
 | `core/realtime/src/lib.rs` | ~300 | Deterministic realtime turn/session state machine with replay harness and transition validation. |
@@ -231,6 +233,7 @@ Optional Xcode scheme env var to force dylib path:
 - `SKILLY_RUST_POLICY_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
 - `SKILLY_RUST_SKILLS_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
 - `SKILLY_RUST_CORE_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
+- `SKILLY_RUST_REALTIME_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
 
 ## Cloudflare Worker
 

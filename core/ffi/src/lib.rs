@@ -10,6 +10,7 @@ use skilly_core_domain::{
     BlockReason, EntitlementState, PolicyConfig, PolicyDecision, PolicyInput,
 };
 use skilly_core_policy::{can_start_turn, trial_is_exhausted, usage_is_over_cap};
+use skilly_core_realtime::{replay_events, RealtimeEvent};
 use skilly_core_skills::{compose_prompt, SkillDefinition, SkillProgress};
 
 /// Entitlement state values used by native shells.
@@ -141,6 +142,19 @@ fn compose_prompt_from_json(
     ))
 }
 
+fn replay_realtime_events_summary_json(events_json: &str) -> Option<String> {
+    let realtime_events: Vec<RealtimeEvent> = serde_json::from_str(events_json).ok()?;
+    let final_state = replay_events(&realtime_events).ok()?;
+
+    Some(
+        serde_json::json!({
+            "phase_name": final_state.phase_name(),
+            "turns_completed": final_state.turns_completed,
+        })
+        .to_string(),
+    )
+}
+
 #[no_mangle]
 pub extern "C" fn skilly_policy_ffi_version() -> u32 {
     1
@@ -219,6 +233,22 @@ pub extern "C" fn skilly_skills_compose_prompt_json(
 }
 
 #[no_mangle]
+pub extern "C" fn skilly_realtime_replay_events_json(events_json: *const c_char) -> *mut c_char {
+    let Some(events_json) = parse_required_string(events_json) else {
+        return std::ptr::null_mut();
+    };
+
+    let Some(summary_json) = replay_realtime_events_summary_json(&events_json) else {
+        return std::ptr::null_mut();
+    };
+
+    match CString::new(summary_json) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn skilly_string_free(raw_string: *mut c_char) {
     if raw_string.is_null() {
         return;
@@ -266,5 +296,36 @@ mod tests {
                 .expect("prompt composition should succeed");
 
         assert_eq!(composed_prompt, expected_prompt);
+    }
+
+    #[test]
+    fn replay_realtime_events_summary_matches_fixture_trace() {
+        let fixture_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../realtime/fixtures/replay_traces.json");
+        let fixture_json = fs::read_to_string(fixture_path).expect("fixture should exist");
+        let fixture_value: Value =
+            serde_json::from_str(&fixture_json).expect("fixture should parse");
+
+        let first_trace_events_json = fixture_value
+            .get("traces")
+            .and_then(Value::as_array)
+            .and_then(|traces| traces.first())
+            .and_then(|trace| trace.get("events"))
+            .map(Value::to_string)
+            .expect("trace events should be present");
+
+        let summary_json = replay_realtime_events_summary_json(&first_trace_events_json)
+            .expect("replay summary should succeed");
+        let summary_value: Value =
+            serde_json::from_str(&summary_json).expect("summary should parse");
+
+        assert_eq!(
+            summary_value.get("phase_name").and_then(Value::as_str),
+            Some("completed")
+        );
+        assert_eq!(
+            summary_value.get("turns_completed").and_then(Value::as_u64),
+            Some(1)
+        );
     }
 }

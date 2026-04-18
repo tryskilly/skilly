@@ -15,8 +15,8 @@ Define verification coverage and release gates for migration phases so behavior 
 Applies to:
 - `core/domain`
 - `core/policy`
-- `core/skills` (future)
-- `core/realtime` (future)
+- `core/skills`
+- `core/realtime`
 
 Coverage:
 1. Policy decisions across entitlement states and caps.
@@ -34,7 +34,10 @@ Coverage:
 ### Layer 3: Swift Bridge Integration
 Targets:
 - `RustPolicyBridge`
+- `RustSkillsBridge`
+- `RustRealtimeBridge`
 - `EntitlementManager.canStartTurn()`
+- `CompanionManager` turn lifecycle event tracking
 
 Scenarios:
 1. Rust dylib available -> Rust result used.

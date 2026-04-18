@@ -7,7 +7,7 @@
 | 0 | Baseline + Safety Rails | Complete | Boundaries/capability docs + core scaffold + initial fixtures |
 | 1 | Policy Core Extraction | Complete | Entitlement gate uses Rust bridge with safe fallback |
 | 2 | Skill Prompt Core Extraction | Complete | Skill composition parity fixtures pass on Rust path |
-| 3 | Realtime Orchestration Extraction | In Progress | Session lifecycle replay suite passes on Rust path |
+| 3 | Realtime Orchestration Extraction | Complete | Session lifecycle replay suite passes on Rust path |
 | 4 | Windows/Linux Shell Bootstrap | In Progress | Both shells run auth + entitlement + turn-start smoke flow |
 | 5 | Real Platform Adapters | Planned | Capture/hotkey/overlay baseline works per platform scope |
 | 6 | Mobile SDK Surface | Planned | Swift/Kotlin SDK bindings and sample integrations available |
@@ -51,10 +51,10 @@ Exit Criteria:
 Completed:
 1. Added canonical turn/session state machine in `core/realtime`.
 2. Added replay harness with fixture-driven traces.
+3. Added `RustRealtimeBridge` and routed Swift `CompanionManager` turn lifecycle events through Rust replay transitions.
 
 Remaining:
-1. Move Swift orchestration decisions into Rust-driven transitions.
-2. Add replay traces from production telemetry samples.
+1. Add replay traces from production telemetry samples.
 
 Tasks:
 1. Define canonical turn/session state machine in `core/realtime`.

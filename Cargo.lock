@@ -86,6 +86,7 @@ dependencies = [
  "serde_json",
  "skilly-core-domain",
  "skilly-core-policy",
+ "skilly-core-realtime",
  "skilly-core-skills",
 ]
 

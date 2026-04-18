@@ -33,3 +33,4 @@ set one of these environment variables in your Xcode scheme:
 - `SKILLY_RUST_POLICY_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
 - `SKILLY_RUST_SKILLS_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
 - `SKILLY_RUST_CORE_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`
+- `SKILLY_RUST_REALTIME_DYLIB_PATH=/absolute/path/to/libskilly_core_ffi.dylib`

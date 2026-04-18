@@ -133,6 +133,9 @@ final class CompanionManager: ObservableObject {
     private var didReceiveAnyAudioChunkForCurrentTurn = false
     private var pendingToolCallIdForCurrentTurn: String?
     private var isAwaitingForcedSpokenFollowUp = false
+    private var rustRealtimeEventLog: [RustRealtimeBridge.RealtimeEventPayload] = []
+    private var currentRustRealtimeTurnID: String?
+    private var latestRustRealtimePhaseName: String = "idle"
 
     // MARK: - Skilly — Live Tutor mode state
     private var isLiveTutorModeActive = false
@@ -626,6 +629,7 @@ final class CompanionManager: ObservableObject {
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
             clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
             return
         }
 
@@ -644,6 +648,7 @@ final class CompanionManager: ObservableObject {
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
             clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
 
         case .processing:
             // MARK: - Skilly — Debug logging (stripped in release)
@@ -654,6 +659,7 @@ final class CompanionManager: ObservableObject {
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
             clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
 
         case .responding:
             // MARK: - Skilly — Debug logging (stripped in release)
@@ -665,6 +671,7 @@ final class CompanionManager: ObservableObject {
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
             clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
 
         case .idle:
             break
@@ -1036,6 +1043,70 @@ final class CompanionManager: ObservableObject {
         return CGPoint(x: globalX, y: globalY)
     }
 
+    // MARK: - Skilly — Rust realtime transition tracking
+
+    private func beginRustRealtimeTurnTracking(turnPrefix: String) {
+        rustRealtimeEventLog = []
+        let newTurnID = "\(turnPrefix)-\(UUID().uuidString)"
+        currentRustRealtimeTurnID = newTurnID
+        appendRustRealtimeEvent(
+            type: .turnStarted,
+            turnID: newTurnID
+        )
+    }
+
+    private func resetRustRealtimeTracking() {
+        if !rustRealtimeEventLog.isEmpty {
+            appendRustRealtimeEvent(type: .sessionReset, turnID: nil, message: nil)
+        }
+        rustRealtimeEventLog = []
+        currentRustRealtimeTurnID = nil
+        latestRustRealtimePhaseName = "idle"
+    }
+
+    private func appendRustRealtimeEvent(
+        type: RustRealtimeBridge.RealtimeEventType,
+        turnID: String? = nil,
+        message: String? = nil
+    ) {
+        let resolvedTurnID = turnID ?? currentRustRealtimeTurnID
+        if type != .sessionReset && resolvedTurnID == nil {
+            return
+        }
+
+        let realtimeEventPayload = RustRealtimeBridge.shared.makeEvent(
+            type: type,
+            turnID: resolvedTurnID,
+            message: message
+        )
+        rustRealtimeEventLog.append(realtimeEventPayload)
+
+        guard let replaySummary = RustRealtimeBridge.shared.replaySummary(events: rustRealtimeEventLog) else {
+            return
+        }
+        latestRustRealtimePhaseName = replaySummary.phaseName
+        applyVoiceStateFromRustPhaseNameIfNeeded(replaySummary.phaseName)
+    }
+
+    private func applyVoiceStateFromRustPhaseNameIfNeeded(_ phaseName: String) {
+        switch phaseName {
+        case "capturing":
+            if voiceState != .listening {
+                voiceState = .listening
+            }
+        case "awaiting_response":
+            if voiceState != .processing {
+                voiceState = .processing
+            }
+        case "speaking":
+            if voiceState != .responding {
+                voiceState = .responding
+            }
+        default:
+            break
+        }
+    }
+
     // MARK: - Skilly — OpenAI Realtime Push-to-Talk Pipeline
 
     private func startOpenAIRealtimePushToTalk() {
@@ -1052,6 +1123,7 @@ final class CompanionManager: ObservableObject {
         isWaitingForRealtimeAudioQueueDrain = false
         // MARK: - Skilly — Record turn start for usage tracking (key press → response.done)
         currentTurnStartTime = Date()
+        beginRustRealtimeTurnTracking(turnPrefix: "ptt")
         clearRealtimeResponseBubble()
 
         realtimePushToTalkTask = Task {
@@ -1121,8 +1193,13 @@ final class CompanionManager: ObservableObject {
                 #if DEBUG
                 print("⚠️ OpenAI Realtime: failed to start: \(error)")
                 #endif
+                appendRustRealtimeEvent(
+                    type: .sessionError,
+                    message: error.localizedDescription
+                )
                 voiceState = .idle
                 clearRealtimeResponseBubble()
+                resetRustRealtimeTracking()
 
                 // MARK: - Skilly — Auth recovery: if the Worker rejected
                 // /openai/token because our Keychain session token is stale,
@@ -1149,6 +1226,7 @@ final class CompanionManager: ObservableObject {
         // Only commit if we've actually sent audio
         if realtimeAudioChunksSent >= minimumAudioChunksRequiredToCommit {
             RealtimeTelemetry.shared.endUserSpeech()
+            appendRustRealtimeEvent(type: .audioCaptureCommitted)
             openAIRealtimeClient.commitAudioAndRespond()
             voiceState = .processing
             // MARK: - Skilly — Debug logging (stripped in release)
@@ -1163,6 +1241,7 @@ final class CompanionManager: ObservableObject {
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
             clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
         }
         realtimeAudioChunksSent = 0
     }
@@ -1239,6 +1318,7 @@ final class CompanionManager: ObservableObject {
 
         voiceState = .idle
         clearRealtimeResponseBubble()
+        resetRustRealtimeTracking()
     }
 
     private func resetLiveTutorAutoSleepTimer() {
@@ -1264,6 +1344,7 @@ final class CompanionManager: ObservableObject {
 
         case .audioChunk(let pcm16Data):
             if voiceState != .responding {
+                appendRustRealtimeEvent(type: .audioPlaybackStarted)
                 voiceState = .responding
                 isWaitingForRealtimeAudioQueueDrain = false
                 showRealtimeResponseBubble()
@@ -1333,6 +1414,7 @@ final class CompanionManager: ObservableObject {
                 return
             }
 
+            appendRustRealtimeEvent(type: .responseCompleted)
             RealtimeTelemetry.shared.endTurn(usage: usage)
             if !hasEndedAssistantSpeechForCurrentTurn {
                 RealtimeTelemetry.shared.endAssistantSpeech()
@@ -1408,6 +1490,7 @@ final class CompanionManager: ObservableObject {
             pendingToolCallIdForCurrentTurn = nil
             isAwaitingForcedSpokenFollowUp = false
             currentTurnStartTime = Date()
+            beginRustRealtimeTurnTracking(turnPrefix: "vad")
             clearDetectedElementLocation()
             clearRealtimeResponseBubble()
 
@@ -1447,12 +1530,14 @@ final class CompanionManager: ObservableObject {
         case .speechStopped:
             // MARK: - Skilly — Live Tutor: server detected end of speech
             guard isLiveTutorModeActive else { break }
+            appendRustRealtimeEvent(type: .audioCaptureCommitted)
             voiceState = .processing
             #if DEBUG
             print("🎓 Live Tutor: speech ended, server auto-committed")
             #endif
 
         case .error(let message):
+            appendRustRealtimeEvent(type: .sessionError, message: message)
             // MARK: - Skilly — Debug logging (stripped in release)
             #if DEBUG
             print("⚠️ OpenAI Realtime error: \(message)")
@@ -1466,6 +1551,7 @@ final class CompanionManager: ObservableObject {
             isWaitingForRealtimeAudioQueueDrain = false
             voiceState = .idle
             clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
         }
     }
 
@@ -1475,6 +1561,7 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         clearRealtimeResponseBubble()
         scheduleTransientHideIfNeeded()
+        resetRustRealtimeTracking()
         if !hasEndedAssistantSpeechForCurrentTurn {
             RealtimeTelemetry.shared.endAssistantSpeech()
             hasEndedAssistantSpeechForCurrentTurn = true
