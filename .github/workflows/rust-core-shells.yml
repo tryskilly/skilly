@@ -46,3 +46,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run shell smoke flow
         run: cargo run -p ${{ matrix.package }} -- --smoke
+
+  mac-release-guard:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release assets and script syntax
+        run: |
+          test -f appcast.xml
+          test -f scripts/release.sh
+          bash -n scripts/release.sh

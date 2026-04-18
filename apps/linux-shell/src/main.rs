@@ -63,81 +63,170 @@ struct LinuxAudioAdapter;
 #[derive(Debug)]
 struct LinuxPermissionAdapter;
 
+fn map_linux_capture_mode(capture_mode: &str, session_type: &str) -> AdapterCapabilityStatus {
+    if capture_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_LINUX_CAPTURE_MODE=disabled".to_string(),
+        };
+    }
+
+    match session_type {
+        "x11" => AdapterCapabilityStatus::Available,
+        "wayland" => AdapterCapabilityStatus::Degraded {
+            reason: "Wayland capture depends on portal availability".to_string(),
+        },
+        _ => AdapterCapabilityStatus::Degraded {
+            reason: "capture session type unknown; runtime probing required".to_string(),
+        },
+    }
+}
+
+fn map_linux_hotkey_mode(
+    hotkey_mode: &str,
+    has_wayland_display: bool,
+    has_x11_display: bool,
+) -> AdapterCapabilityStatus {
+    if hotkey_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_LINUX_HOTKEY_MODE=disabled".to_string(),
+        };
+    }
+
+    if has_x11_display {
+        return AdapterCapabilityStatus::Available;
+    }
+    if has_wayland_display {
+        return AdapterCapabilityStatus::Degraded {
+            reason: "Wayland global hotkeys depend on compositor support".to_string(),
+        };
+    }
+
+    AdapterCapabilityStatus::Degraded {
+        reason: "hotkey display context missing; runtime probing required".to_string(),
+    }
+}
+
+fn map_linux_overlay_mode(
+    overlay_mode: &str,
+    has_wayland_display: bool,
+    has_x11_display: bool,
+) -> AdapterCapabilityStatus {
+    if overlay_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_LINUX_OVERLAY_MODE=disabled".to_string(),
+        };
+    }
+
+    if has_x11_display {
+        return AdapterCapabilityStatus::Available;
+    }
+    if has_wayland_display {
+        return AdapterCapabilityStatus::Degraded {
+            reason: "Wayland overlays depend on compositor protocol support".to_string(),
+        };
+    }
+
+    AdapterCapabilityStatus::Degraded {
+        reason: "overlay display context missing; runtime probing required".to_string(),
+    }
+}
+
+fn map_linux_audio_input(
+    has_pulse_server: bool,
+    has_pipewire_runtime_directory: bool,
+) -> AdapterCapabilityStatus {
+    if has_pulse_server || has_pipewire_runtime_directory {
+        return AdapterCapabilityStatus::Available;
+    }
+    AdapterCapabilityStatus::Degraded {
+        reason: "audio server variables not detected; runtime probing required".to_string(),
+    }
+}
+
+fn map_linux_audio_output(
+    has_pulse_server: bool,
+    has_pipewire_runtime_directory: bool,
+) -> AdapterCapabilityStatus {
+    if has_pulse_server || has_pipewire_runtime_directory {
+        return AdapterCapabilityStatus::Available;
+    }
+    AdapterCapabilityStatus::Degraded {
+        reason: "audio server variables not detected; runtime probing required".to_string(),
+    }
+}
+
+fn map_linux_permission_state(permission_state: &str) -> AdapterCapabilityStatus {
+    if permission_state == "blocked" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_LINUX_PERMISSION_STATE=blocked".to_string(),
+        };
+    }
+    AdapterCapabilityStatus::Available
+}
+
+fn entitlement_state_from_raw(entitlement_state_raw: &str) -> EntitlementState {
+    match entitlement_state_raw {
+        "none" => EntitlementState::None,
+        "trial" => EntitlementState::Trial,
+        "active" => EntitlementState::Active,
+        "canceled-valid" => EntitlementState::Canceled {
+            access_still_valid: true,
+        },
+        "canceled-expired" => EntitlementState::Canceled {
+            access_still_valid: false,
+        },
+        "expired" => EntitlementState::Expired,
+        _ => EntitlementState::Active,
+    }
+}
+
 impl LinuxCaptureAdapter {
     fn capability(&self) -> AdapterCapabilityStatus {
+        let capture_mode = std::env::var("SKILLY_LINUX_CAPTURE_MODE")
+            .unwrap_or_else(|_| "auto".to_string())
+            .to_lowercase();
         let session_type = std::env::var("XDG_SESSION_TYPE")
             .unwrap_or_else(|_| "unknown".to_string())
             .to_lowercase();
-
-        match session_type.as_str() {
-            "x11" => AdapterCapabilityStatus::Available,
-            "wayland" => AdapterCapabilityStatus::Degraded {
-                reason: "Wayland capture depends on portal availability".to_string(),
-            },
-            _ => AdapterCapabilityStatus::Unavailable {
-                reason: "XDG_SESSION_TYPE missing (expected x11 or wayland)".to_string(),
-            },
-        }
+        map_linux_capture_mode(&capture_mode, &session_type)
     }
 }
 
 impl LinuxHotkeyAdapter {
     fn capability(&self) -> AdapterCapabilityStatus {
+        let hotkey_mode = std::env::var("SKILLY_LINUX_HOTKEY_MODE")
+            .unwrap_or_else(|_| "auto".to_string())
+            .to_lowercase();
         let has_wayland_display = std::env::var("WAYLAND_DISPLAY").is_ok();
         let has_x11_display = std::env::var("DISPLAY").is_ok();
-
-        if has_x11_display {
-            return AdapterCapabilityStatus::Available;
-        }
-        if has_wayland_display {
-            return AdapterCapabilityStatus::Degraded {
-                reason: "Wayland global hotkeys depend on compositor support".to_string(),
-            };
-        }
-
-        AdapterCapabilityStatus::Unavailable {
-            reason: "no DISPLAY or WAYLAND_DISPLAY detected".to_string(),
-        }
+        map_linux_hotkey_mode(&hotkey_mode, has_wayland_display, has_x11_display)
     }
 }
 
 impl LinuxOverlayAdapter {
     fn capability(&self) -> AdapterCapabilityStatus {
+        let overlay_mode = std::env::var("SKILLY_LINUX_OVERLAY_MODE")
+            .unwrap_or_else(|_| "auto".to_string())
+            .to_lowercase();
         let has_wayland_display = std::env::var("WAYLAND_DISPLAY").is_ok();
         let has_x11_display = std::env::var("DISPLAY").is_ok();
-
-        if has_x11_display {
-            return AdapterCapabilityStatus::Available;
-        }
-        if has_wayland_display {
-            return AdapterCapabilityStatus::Degraded {
-                reason: "Wayland overlays depend on compositor protocol support".to_string(),
-            };
-        }
-
-        AdapterCapabilityStatus::Unavailable {
-            reason: "no graphical display session detected".to_string(),
-        }
+        map_linux_overlay_mode(&overlay_mode, has_wayland_display, has_x11_display)
     }
 }
 
 impl LinuxAudioAdapter {
     fn input_capability(&self) -> AdapterCapabilityStatus {
-        if std::env::var("PULSE_SERVER").is_ok() || std::env::var("PIPEWIRE_RUNTIME_DIR").is_ok() {
-            return AdapterCapabilityStatus::Available;
-        }
-        AdapterCapabilityStatus::Degraded {
-            reason: "audio server variables not detected; runtime probing required".to_string(),
-        }
+        map_linux_audio_input(
+            std::env::var("PULSE_SERVER").is_ok(),
+            std::env::var("PIPEWIRE_RUNTIME_DIR").is_ok(),
+        )
     }
 
     fn output_capability(&self) -> AdapterCapabilityStatus {
-        if std::env::var("PULSE_SERVER").is_ok() || std::env::var("PIPEWIRE_RUNTIME_DIR").is_ok() {
-            return AdapterCapabilityStatus::Available;
-        }
-        AdapterCapabilityStatus::Degraded {
-            reason: "audio server variables not detected; runtime probing required".to_string(),
-        }
+        map_linux_audio_output(
+            std::env::var("PULSE_SERVER").is_ok(),
+            std::env::var("PIPEWIRE_RUNTIME_DIR").is_ok(),
+        )
     }
 }
 
@@ -146,12 +235,7 @@ impl LinuxPermissionAdapter {
         let permission_state = std::env::var("SKILLY_LINUX_PERMISSION_STATE")
             .unwrap_or_else(|_| "granted".to_string())
             .to_lowercase();
-        if permission_state == "blocked" {
-            return AdapterCapabilityStatus::Unavailable {
-                reason: "SKILLY_LINUX_PERMISSION_STATE=blocked".to_string(),
-            };
-        }
-        AdapterCapabilityStatus::Available
+        map_linux_permission_state(&permission_state)
     }
 }
 
@@ -217,20 +301,7 @@ fn resolve_entitlement_state() -> EntitlementState {
     let entitlement_state_raw = std::env::var("SKILLY_LINUX_ENTITLEMENT_STATUS")
         .unwrap_or_else(|_| "active".to_string())
         .to_lowercase();
-
-    match entitlement_state_raw.as_str() {
-        "none" => EntitlementState::None,
-        "trial" => EntitlementState::Trial,
-        "active" => EntitlementState::Active,
-        "canceled-valid" => EntitlementState::Canceled {
-            access_still_valid: true,
-        },
-        "canceled-expired" => EntitlementState::Canceled {
-            access_still_valid: false,
-        },
-        "expired" => EntitlementState::Expired,
-        _ => EntitlementState::Active,
-    }
+    entitlement_state_from_raw(&entitlement_state_raw)
 }
 
 fn run_turn_flow() -> Result<ShellTurnFlowResult, String> {
@@ -322,5 +393,79 @@ fn main() {
             eprintln!("linux shell flow failed: {error_message}");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_capture_mode_uses_degraded_for_unknown_session() {
+        assert!(matches!(
+            map_linux_capture_mode("auto", "unknown"),
+            AdapterCapabilityStatus::Degraded { .. }
+        ));
+        assert!(matches!(
+            map_linux_capture_mode("disabled", "x11"),
+            AdapterCapabilityStatus::Unavailable { .. }
+        ));
+    }
+
+    #[test]
+    fn linux_overlay_mode_respects_disable_override() {
+        assert!(matches!(
+            map_linux_overlay_mode("disabled", false, true),
+            AdapterCapabilityStatus::Unavailable { .. }
+        ));
+        assert!(matches!(
+            map_linux_overlay_mode("auto", true, false),
+            AdapterCapabilityStatus::Degraded { .. }
+        ));
+    }
+
+    #[test]
+    fn linux_entitlement_parser_handles_known_values() {
+        assert!(matches!(
+            entitlement_state_from_raw("trial"),
+            EntitlementState::Trial
+        ));
+        assert!(matches!(
+            entitlement_state_from_raw("canceled-expired"),
+            EntitlementState::Canceled {
+                access_still_valid: false
+            }
+        ));
+        assert!(matches!(
+            entitlement_state_from_raw("unknown"),
+            EntitlementState::Active
+        ));
+    }
+
+    #[test]
+    fn critical_blockers_only_include_unavailable_capabilities() {
+        let snapshot = PlatformCapabilitySnapshot {
+            capture: AdapterCapabilityStatus::Degraded {
+                reason: "fallback".to_string(),
+            },
+            hotkey: AdapterCapabilityStatus::Unavailable {
+                reason: "blocked".to_string(),
+            },
+            overlay: AdapterCapabilityStatus::Available,
+            audio_input: AdapterCapabilityStatus::Available,
+            audio_output: AdapterCapabilityStatus::Available,
+            permissions: AdapterCapabilityStatus::Unavailable {
+                reason: "policy".to_string(),
+            },
+        };
+
+        let blockers = snapshot.critical_blockers();
+        assert_eq!(blockers.len(), 2);
+        assert!(blockers
+            .iter()
+            .any(|entry| entry.contains("hotkey unavailable")));
+        assert!(blockers
+            .iter()
+            .any(|entry| entry.contains("permissions unavailable")));
     }
 }

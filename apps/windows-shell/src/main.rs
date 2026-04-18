@@ -63,22 +63,97 @@ struct WindowsAudioAdapter;
 #[derive(Debug)]
 struct WindowsPermissionAdapter;
 
+fn map_windows_capture_mode(capture_mode: &str) -> AdapterCapabilityStatus {
+    if capture_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_WINDOWS_CAPTURE_MODE=disabled".to_string(),
+        };
+    }
+    if capture_mode == "dxgi-fallback" {
+        return AdapterCapabilityStatus::Degraded {
+            reason: "capture running with fallback mode".to_string(),
+        };
+    }
+    AdapterCapabilityStatus::Available
+}
+
+fn map_windows_hotkey_mode(hotkey_mode: &str) -> AdapterCapabilityStatus {
+    if hotkey_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_WINDOWS_HOTKEY_MODE=disabled".to_string(),
+        };
+    }
+    if hotkey_mode == "app-only" {
+        return AdapterCapabilityStatus::Degraded {
+            reason: "hotkey works only while shell window is focused".to_string(),
+        };
+    }
+    AdapterCapabilityStatus::Available
+}
+
+fn map_windows_overlay_mode(overlay_mode: &str) -> AdapterCapabilityStatus {
+    if overlay_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_WINDOWS_OVERLAY_MODE=disabled".to_string(),
+        };
+    }
+    if overlay_mode == "limited" {
+        return AdapterCapabilityStatus::Degraded {
+            reason: "overlay cannot draw across multiple monitors".to_string(),
+        };
+    }
+    AdapterCapabilityStatus::Available
+}
+
+fn map_windows_audio_input_mode(audio_input_mode: &str) -> AdapterCapabilityStatus {
+    if audio_input_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_WINDOWS_AUDIO_INPUT=disabled".to_string(),
+        };
+    }
+    AdapterCapabilityStatus::Available
+}
+
+fn map_windows_audio_output_mode(audio_output_mode: &str) -> AdapterCapabilityStatus {
+    if audio_output_mode == "disabled" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_WINDOWS_AUDIO_OUTPUT=disabled".to_string(),
+        };
+    }
+    AdapterCapabilityStatus::Available
+}
+
+fn map_windows_permission_state(permission_state: &str) -> AdapterCapabilityStatus {
+    if permission_state == "blocked" {
+        return AdapterCapabilityStatus::Unavailable {
+            reason: "SKILLY_WINDOWS_PERMISSION_STATE=blocked".to_string(),
+        };
+    }
+    AdapterCapabilityStatus::Available
+}
+
+fn entitlement_state_from_raw(entitlement_state_raw: &str) -> EntitlementState {
+    match entitlement_state_raw {
+        "none" => EntitlementState::None,
+        "trial" => EntitlementState::Trial,
+        "active" => EntitlementState::Active,
+        "canceled-valid" => EntitlementState::Canceled {
+            access_still_valid: true,
+        },
+        "canceled-expired" => EntitlementState::Canceled {
+            access_still_valid: false,
+        },
+        "expired" => EntitlementState::Expired,
+        _ => EntitlementState::Active,
+    }
+}
+
 impl WindowsCaptureAdapter {
     fn capability(&self) -> AdapterCapabilityStatus {
         let capture_mode = std::env::var("SKILLY_WINDOWS_CAPTURE_MODE")
             .unwrap_or_else(|_| "graphics-capture".to_string())
             .to_lowercase();
-        if capture_mode == "disabled" {
-            return AdapterCapabilityStatus::Unavailable {
-                reason: "SKILLY_WINDOWS_CAPTURE_MODE=disabled".to_string(),
-            };
-        }
-        if capture_mode == "dxgi-fallback" {
-            return AdapterCapabilityStatus::Degraded {
-                reason: "capture running with fallback mode".to_string(),
-            };
-        }
-        AdapterCapabilityStatus::Available
+        map_windows_capture_mode(&capture_mode)
     }
 }
 
@@ -87,17 +162,7 @@ impl WindowsHotkeyAdapter {
         let hotkey_mode = std::env::var("SKILLY_WINDOWS_HOTKEY_MODE")
             .unwrap_or_else(|_| "global-hook".to_string())
             .to_lowercase();
-        if hotkey_mode == "disabled" {
-            return AdapterCapabilityStatus::Unavailable {
-                reason: "SKILLY_WINDOWS_HOTKEY_MODE=disabled".to_string(),
-            };
-        }
-        if hotkey_mode == "app-only" {
-            return AdapterCapabilityStatus::Degraded {
-                reason: "hotkey works only while shell window is focused".to_string(),
-            };
-        }
-        AdapterCapabilityStatus::Available
+        map_windows_hotkey_mode(&hotkey_mode)
     }
 }
 
@@ -106,17 +171,7 @@ impl WindowsOverlayAdapter {
         let overlay_mode = std::env::var("SKILLY_WINDOWS_OVERLAY_MODE")
             .unwrap_or_else(|_| "layered-window".to_string())
             .to_lowercase();
-        if overlay_mode == "disabled" {
-            return AdapterCapabilityStatus::Unavailable {
-                reason: "SKILLY_WINDOWS_OVERLAY_MODE=disabled".to_string(),
-            };
-        }
-        if overlay_mode == "limited" {
-            return AdapterCapabilityStatus::Degraded {
-                reason: "overlay cannot draw across multiple monitors".to_string(),
-            };
-        }
-        AdapterCapabilityStatus::Available
+        map_windows_overlay_mode(&overlay_mode)
     }
 }
 
@@ -125,24 +180,14 @@ impl WindowsAudioAdapter {
         let audio_input_mode = std::env::var("SKILLY_WINDOWS_AUDIO_INPUT")
             .unwrap_or_else(|_| "wasapi".to_string())
             .to_lowercase();
-        if audio_input_mode == "disabled" {
-            return AdapterCapabilityStatus::Unavailable {
-                reason: "SKILLY_WINDOWS_AUDIO_INPUT=disabled".to_string(),
-            };
-        }
-        AdapterCapabilityStatus::Available
+        map_windows_audio_input_mode(&audio_input_mode)
     }
 
     fn output_capability(&self) -> AdapterCapabilityStatus {
         let audio_output_mode = std::env::var("SKILLY_WINDOWS_AUDIO_OUTPUT")
             .unwrap_or_else(|_| "wasapi".to_string())
             .to_lowercase();
-        if audio_output_mode == "disabled" {
-            return AdapterCapabilityStatus::Unavailable {
-                reason: "SKILLY_WINDOWS_AUDIO_OUTPUT=disabled".to_string(),
-            };
-        }
-        AdapterCapabilityStatus::Available
+        map_windows_audio_output_mode(&audio_output_mode)
     }
 }
 
@@ -151,12 +196,7 @@ impl WindowsPermissionAdapter {
         let permission_state = std::env::var("SKILLY_WINDOWS_PERMISSION_STATE")
             .unwrap_or_else(|_| "granted".to_string())
             .to_lowercase();
-        if permission_state == "blocked" {
-            return AdapterCapabilityStatus::Unavailable {
-                reason: "SKILLY_WINDOWS_PERMISSION_STATE=blocked".to_string(),
-            };
-        }
-        AdapterCapabilityStatus::Available
+        map_windows_permission_state(&permission_state)
     }
 }
 
@@ -222,20 +262,7 @@ fn resolve_entitlement_state() -> EntitlementState {
     let entitlement_state_raw = std::env::var("SKILLY_WINDOWS_ENTITLEMENT_STATUS")
         .unwrap_or_else(|_| "active".to_string())
         .to_lowercase();
-
-    match entitlement_state_raw.as_str() {
-        "none" => EntitlementState::None,
-        "trial" => EntitlementState::Trial,
-        "active" => EntitlementState::Active,
-        "canceled-valid" => EntitlementState::Canceled {
-            access_still_valid: true,
-        },
-        "canceled-expired" => EntitlementState::Canceled {
-            access_still_valid: false,
-        },
-        "expired" => EntitlementState::Expired,
-        _ => EntitlementState::Active,
-    }
+    entitlement_state_from_raw(&entitlement_state_raw)
 }
 
 fn run_turn_flow() -> Result<ShellTurnFlowResult, String> {
@@ -327,5 +354,71 @@ fn main() {
             eprintln!("windows shell flow failed: {error_message}");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_capture_mode_maps_degraded_and_unavailable() {
+        assert!(matches!(
+            map_windows_capture_mode("dxgi-fallback"),
+            AdapterCapabilityStatus::Degraded { .. }
+        ));
+        assert!(matches!(
+            map_windows_capture_mode("disabled"),
+            AdapterCapabilityStatus::Unavailable { .. }
+        ));
+        assert!(matches!(
+            map_windows_capture_mode("graphics-capture"),
+            AdapterCapabilityStatus::Available
+        ));
+    }
+
+    #[test]
+    fn windows_entitlement_parser_handles_known_values() {
+        assert!(matches!(
+            entitlement_state_from_raw("trial"),
+            EntitlementState::Trial
+        ));
+        assert!(matches!(
+            entitlement_state_from_raw("canceled-valid"),
+            EntitlementState::Canceled {
+                access_still_valid: true
+            }
+        ));
+        assert!(matches!(
+            entitlement_state_from_raw("unknown"),
+            EntitlementState::Active
+        ));
+    }
+
+    #[test]
+    fn critical_blockers_only_include_unavailable_capabilities() {
+        let snapshot = PlatformCapabilitySnapshot {
+            capture: AdapterCapabilityStatus::Degraded {
+                reason: "fallback".to_string(),
+            },
+            hotkey: AdapterCapabilityStatus::Unavailable {
+                reason: "blocked".to_string(),
+            },
+            overlay: AdapterCapabilityStatus::Available,
+            audio_input: AdapterCapabilityStatus::Available,
+            audio_output: AdapterCapabilityStatus::Available,
+            permissions: AdapterCapabilityStatus::Unavailable {
+                reason: "policy".to_string(),
+            },
+        };
+
+        let blockers = snapshot.critical_blockers();
+        assert_eq!(blockers.len(), 2);
+        assert!(blockers
+            .iter()
+            .any(|entry| entry.contains("hotkey unavailable")));
+        assert!(blockers
+            .iter()
+            .any(|entry| entry.contains("permissions unavailable")));
     }
 }

@@ -58,6 +58,11 @@ Windows/Linux (future phases):
 2. Entitlement fetched.
 3. Turn-start baseline path executes.
 
+Windows/Linux (current shell binaries):
+1. Capability-aware adapter gating executes before turn start.
+2. Turn lifecycle replay reaches completed phase for baseline flow.
+3. Explicit blocker reasons are emitted for unavailable critical adapters.
+
 ## Acceptance Gates by Phase
 
 ### Gate A (Phase 1 complete)
@@ -93,4 +98,4 @@ Windows/Linux (future phases):
 ## Known Gaps
 1. No terminal `xcodebuild` execution in this repo by policy.
 2. Swift bridge compile/runtime validation must be completed inside Xcode workflow.
-3. End-to-end Windows/Linux runtime adapter validation across compositor/audio environments is deferred to final-phase execution.
+3. End-to-end native host-app runtime validation across Windows/Linux compositor/audio environments remains pending beyond CLI shell binaries.

@@ -9,7 +9,7 @@
 | 2 | Skill Prompt Core Extraction | Complete | Skill composition parity fixtures pass on Rust path |
 | 3 | Realtime Orchestration Extraction | Complete | Session lifecycle replay suite passes on Rust path |
 | 4 | Windows/Linux Shell Bootstrap | Complete | Both shells run auth + entitlement + turn-start smoke flow |
-| 5 | Real Platform Adapters | Complete (Dev) | Capture/hotkey/overlay baseline adapter contracts wired with capability-aware gating |
+| 5 | Real Platform Adapters | Complete | Capture/hotkey/overlay baseline adapter contracts wired with capability-aware gating and validated by automated checks |
 | 6 | Mobile SDK Surface | Planned | Swift/Kotlin SDK bindings and sample integrations available |
 
 ## Detailed Phases
@@ -72,7 +72,7 @@ Completed:
 4. Wired shell bootstrap binaries to explicit platform adapter contracts for auth, entitlement, capture, hotkey, overlay, audio, and permissions.
 
 Remaining:
-1. Final-phase runtime validation in native host shells.
+1. Native UI-level runtime verification in full platform host apps (outside Rust shell binaries).
 
 Tasks:
 1. Create shell skeletons and bridge wiring.
@@ -90,7 +90,7 @@ Completed:
 4. Removed mocked-only shell flow by routing both shells through adapter-backed execution path.
 
 Remaining:
-1. Execute final-phase runtime validation on real platform environments (Windows + Linux compositor/audio variants).
+1. Native host-app runtime verification on real Windows/Linux desktop environments (beyond CLI shell binaries).
 
 Exit Criteria:
 - Baseline interactive behavior available on supported platform scope.

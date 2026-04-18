@@ -165,8 +165,8 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `apps/windows-shell/src/main.rs` | ~300 | Windows shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), capability-aware gating, and turn-start flow through shared Rust core. |
-| `apps/linux-shell/src/main.rs` | ~320 | Linux shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), session-aware capability reporting, and turn-start flow through shared Rust core. |
+| `apps/windows-shell/src/main.rs` | ~425 | Windows shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), capability-aware gating, and turn-start flow through shared Rust core. |
+| `apps/linux-shell/src/main.rs` | ~470 | Linux shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), session-aware capability reporting, and turn-start flow through shared Rust core. |
 
 ### Architecture Docs
 
@@ -181,6 +181,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `docs/architecture/adapter-contracts.md` | ~85 | Native shell adapter interface contracts (auth, entitlement, capture, hotkey, overlay, audio, permissions) and development-status guidance for core integration. |
 | `docs/architecture/swift-rust-fallback-parity-harness.md` | ~85 | Parity harness procedure for validating Rust bridge behavior against Swift fallback across policy, skills, and realtime flows. |
 | `docs/architecture/rust-dylib-packaging-strategy.md` | ~80 | Deterministic development/release strategy for building, locating, and eventually packaging `libskilly_core_ffi.dylib`. |
+| `docs/architecture/final-phase-validation-report.md` | ~55 | Evidence log for final-phase migration validation commands, outcomes, and remaining native host-app verification work. |
 
 ### CI Workflow
 
