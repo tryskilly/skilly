@@ -6,6 +6,19 @@ Built for learning creative software: Figma, Blender, After Effects, and more. E
 
 **[tryskilly.app](https://tryskilly.app)** | **[Download](https://github.com/tryskilly/skilly/releases/latest/download/Skilly.dmg)**
 
+## Acknowledgments
+
+Skilly is a fork of [farzaa/clicky](https://github.com/farzaa/clicky) — Farza's open-source AI cursor-buddy that blew up on X. The macOS foundation (ScreenCaptureKit integration, app focus tracking, accessibility hooks) is built on his work.
+
+What Skilly adds on top:
+- **Live Tutor mode** — continuous voice-gated conversation, not just push-to-talk
+- **Single-call OpenAI Realtime API pipeline** — replaces clicky's separate TTS + STT + LLM stack with one WebSocket. Much lower latency.
+- **Pluggable Skills layer** — `SKILL.md` files with curriculum stages, completion signals, and UI vocabulary so app-specific knowledge stays current
+- **Course-style progress tracking** — structured lesson paths with state, not just one-shot answers
+- **Multi-language support** — 20+ languages auto-detected via the underlying Realtime model
+
+Thanks Farza for shipping it open-source.
+
 ## How it works
 
 1. **Push to talk** (ctrl + option) or enable **Live Tutor** for always-on listening
@@ -29,7 +42,7 @@ The entire voice pipeline runs through a single OpenAI Realtime WebSocket — au
 ```
 Hi Claude.
 
-Clone https://github.com/engmsaleh/clicky.git into my current directory.
+Clone https://github.com/tryskilly/skilly.git into my current directory.
 
 Then read the CLAUDE.md. I want to get Skilly running locally on my Mac.
 
