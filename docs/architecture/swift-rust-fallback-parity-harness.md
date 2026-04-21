@@ -76,8 +76,9 @@ For each scenario, record:
 - notes
 
 Store evidence in:
-- `docs/superpowers/plans/` (if task-specific)
-- or PR body under "Parity Evidence".
+- `docs/architecture/runtime-validation-report-YYYY-MM-DD.md` generated via:
+  - `./scripts/create-runtime-validation-report.sh`
+- or PR body under "Parity Evidence" when a dedicated report is not required.
 
 ## Failure Policy
 If a mismatch is found:

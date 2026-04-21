@@ -47,6 +47,10 @@ This guarantees ABI surfaces compile while keeping macOS GUI runtime tests outsi
 For release builds, keep Swift fallback as hard safety net.
 Do not block app release solely on Rust dylib packaging until runtime parity is fully proven.
 
+Implemented packaging automation:
+1. `scripts/package-rust-ffi-dylib.sh` builds `skilly-core-ffi --release` and publishes host-specific tarballs in `dist/rust-ffi/`.
+2. `.github/workflows/mobile-sdk-artifacts.yml` builds and uploads Rust FFI artifacts for macOS and Linux and attaches them to GitHub release assets.
+
 ## Release Strategy (Target)
 After parity is proven:
 1. Add pre-release check that builds `skilly-core-ffi`.
@@ -68,4 +72,5 @@ This is not mandatory yet; current env-var path approach is adequate during migr
 3. Version ABI via `skilly_policy_ffi_version()` and add equivalent version entrypoints for new surfaces as needed.
 
 ## Decision
-Adopt env-var-first deterministic loading now, and defer packaged dylib distribution until post-parity release hardening.
+Adopt env-var-first deterministic loading for development and maintain Swift fallback.
+Use packaged Rust FFI artifacts as release sidecars while host-app runtime parity validation continues.

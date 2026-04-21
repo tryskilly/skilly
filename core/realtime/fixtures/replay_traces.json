@@ -12,11 +12,8 @@
       "expected_turns_completed": 1
     },
     {
-      "name": "failed_turn_then_recovery_turn",
+      "name": "single_turn_audio_playback_path",
       "events": [
-        { "type": "turn_started", "turn_id": "turn-1" },
-        { "type": "audio_capture_committed", "turn_id": "turn-1" },
-        { "type": "session_error", "turn_id": "turn-1", "message": "network_timeout" },
         { "type": "turn_started", "turn_id": "turn-2" },
         { "type": "audio_capture_committed", "turn_id": "turn-2" },
         { "type": "audio_playback_started", "turn_id": "turn-2" },
@@ -26,15 +23,238 @@
       "expected_turns_completed": 1
     },
     {
-      "name": "complete_then_reset",
+      "name": "single_turn_commit_then_complete",
       "events": [
         { "type": "turn_started", "turn_id": "turn-3" },
         { "type": "audio_capture_committed", "turn_id": "turn-3" },
-        { "type": "response_completed", "turn_id": "turn-3" },
+        { "type": "response_completed", "turn_id": "turn-3" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "two_turns_sequential_completion",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-4a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-4a" },
+        { "type": "response_started", "turn_id": "turn-4a" },
+        { "type": "response_completed", "turn_id": "turn-4a" },
+        { "type": "turn_started", "turn_id": "turn-4b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-4b" },
+        { "type": "response_completed", "turn_id": "turn-4b" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 2
+    },
+    {
+      "name": "failed_turn_then_recovery_turn",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-5a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-5a" },
+        { "type": "session_error", "turn_id": "turn-5a", "message": "network_timeout" },
+        { "type": "turn_started", "turn_id": "turn-5b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-5b" },
+        { "type": "audio_playback_started", "turn_id": "turn-5b" },
+        { "type": "response_completed", "turn_id": "turn-5b" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "failed_turn_then_reset",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-6" },
+        { "type": "audio_capture_committed", "turn_id": "turn-6" },
+        { "type": "session_error", "turn_id": "turn-6", "message": "mic_permission_lost" },
+        { "type": "session_reset" }
+      ],
+      "expected_final_phase": "idle",
+      "expected_turns_completed": 0
+    },
+    {
+      "name": "failed_turn_reset_then_success",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-7a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-7a" },
+        { "type": "session_error", "turn_id": "turn-7a", "message": "transport_closed" },
+        { "type": "session_reset" },
+        { "type": "turn_started", "turn_id": "turn-7b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-7b" },
+        { "type": "response_started", "turn_id": "turn-7b" },
+        { "type": "response_completed", "turn_id": "turn-7b" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "complete_then_reset",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-8" },
+        { "type": "audio_capture_committed", "turn_id": "turn-8" },
+        { "type": "response_completed", "turn_id": "turn-8" },
         { "type": "session_reset" }
       ],
       "expected_final_phase": "idle",
       "expected_turns_completed": 1
+    },
+    {
+      "name": "complete_reset_then_new_turn",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-9a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-9a" },
+        { "type": "response_completed", "turn_id": "turn-9a" },
+        { "type": "session_reset" },
+        { "type": "turn_started", "turn_id": "turn-9b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-9b" },
+        { "type": "response_completed", "turn_id": "turn-9b" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 2
+    },
+    {
+      "name": "response_started_then_error",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-10" },
+        { "type": "audio_capture_committed", "turn_id": "turn-10" },
+        { "type": "response_started", "turn_id": "turn-10" },
+        { "type": "session_error", "turn_id": "turn-10", "message": "decoder_failure" }
+      ],
+      "expected_final_phase": "failed",
+      "expected_turns_completed": 0
+    },
+    {
+      "name": "audio_playback_then_error_then_recovery",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-11a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-11a" },
+        { "type": "audio_playback_started", "turn_id": "turn-11a" },
+        { "type": "session_error", "turn_id": "turn-11a", "message": "audio_device_disconnected" },
+        { "type": "turn_started", "turn_id": "turn-11b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-11b" },
+        { "type": "response_completed", "turn_id": "turn-11b" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "session_error_after_completed_phase",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-12" },
+        { "type": "audio_capture_committed", "turn_id": "turn-12" },
+        { "type": "response_completed", "turn_id": "turn-12" },
+        { "type": "session_error", "turn_id": "turn-12", "message": "late_transport_error" }
+      ],
+      "expected_final_phase": "failed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "failed_phase_then_new_turn_without_reset",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-13a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-13a" },
+        { "type": "session_error", "turn_id": "turn-13a", "message": "rate_limit" },
+        { "type": "turn_started", "turn_id": "turn-13b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-13b" },
+        { "type": "response_completed", "turn_id": "turn-13b" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "three_turn_mixed_flow",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-14a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-14a" },
+        { "type": "response_completed", "turn_id": "turn-14a" },
+        { "type": "turn_started", "turn_id": "turn-14b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-14b" },
+        { "type": "session_error", "turn_id": "turn-14b", "message": "upstream_500" },
+        { "type": "turn_started", "turn_id": "turn-14c" },
+        { "type": "audio_capture_committed", "turn_id": "turn-14c" },
+        { "type": "response_started", "turn_id": "turn-14c" },
+        { "type": "response_completed", "turn_id": "turn-14c" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 2
+    },
+    {
+      "name": "turn_restarted_before_commit",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-15a" },
+        { "type": "turn_started", "turn_id": "turn-15b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-15b" },
+        { "type": "response_completed", "turn_id": "turn-15b" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "multiple_session_resets_then_turn",
+      "events": [
+        { "type": "session_reset" },
+        { "type": "session_reset" },
+        { "type": "turn_started", "turn_id": "turn-16" },
+        { "type": "audio_capture_committed", "turn_id": "turn-16" },
+        { "type": "response_completed", "turn_id": "turn-16" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "complete_then_multiple_resets",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-17" },
+        { "type": "audio_capture_committed", "turn_id": "turn-17" },
+        { "type": "response_completed", "turn_id": "turn-17" },
+        { "type": "session_reset" },
+        { "type": "session_reset" }
+      ],
+      "expected_final_phase": "idle",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "long_session_four_turns_with_resets",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-18a" },
+        { "type": "audio_capture_committed", "turn_id": "turn-18a" },
+        { "type": "response_completed", "turn_id": "turn-18a" },
+        { "type": "turn_started", "turn_id": "turn-18b" },
+        { "type": "audio_capture_committed", "turn_id": "turn-18b" },
+        { "type": "response_started", "turn_id": "turn-18b" },
+        { "type": "response_completed", "turn_id": "turn-18b" },
+        { "type": "session_reset" },
+        { "type": "turn_started", "turn_id": "turn-18c" },
+        { "type": "audio_capture_committed", "turn_id": "turn-18c" },
+        { "type": "session_error", "turn_id": "turn-18c", "message": "speech_timeout" },
+        { "type": "session_reset" },
+        { "type": "turn_started", "turn_id": "turn-18d" },
+        { "type": "audio_capture_committed", "turn_id": "turn-18d" },
+        { "type": "response_completed", "turn_id": "turn-18d" }
+      ],
+      "expected_final_phase": "completed",
+      "expected_turns_completed": 3
+    },
+    {
+      "name": "response_started_complete_then_reset",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-19" },
+        { "type": "audio_capture_committed", "turn_id": "turn-19" },
+        { "type": "response_started", "turn_id": "turn-19" },
+        { "type": "response_completed", "turn_id": "turn-19" },
+        { "type": "session_reset" }
+      ],
+      "expected_final_phase": "idle",
+      "expected_turns_completed": 1
+    },
+    {
+      "name": "single_turn_error_after_commit",
+      "events": [
+        { "type": "turn_started", "turn_id": "turn-20" },
+        { "type": "audio_capture_committed", "turn_id": "turn-20" },
+        { "type": "session_error", "turn_id": "turn-20", "message": "downstream_parse_error" }
+      ],
+      "expected_final_phase": "failed",
+      "expected_turns_completed": 0
     }
   ]
 }

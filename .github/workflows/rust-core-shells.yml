@@ -47,6 +47,24 @@ jobs:
       - name: Run shell smoke flow
         run: cargo run -p ${{ matrix.package }} -- --smoke
 
+  mobile-sdk-bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Generate mobile SDK bindings
+        run: ./scripts/generate-mobile-sdk-bindings.sh
+      - name: Verify generated bindings are up to date
+        run: git diff --exit-code -- sdk/ios/generated sdk/android/generated
+
+  mobile-sdk-consumer-validation:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate mobile SDK consumer runtime samples
+        run: ./scripts/validate-mobile-sdk-consumers.sh
+
   mac-release-guard:
     runs-on: macos-latest
     steps:

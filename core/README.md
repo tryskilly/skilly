@@ -8,6 +8,7 @@ Crates:
 - `skills`: Shared prompt composition logic and vocabulary trimming.
 - `realtime`: Shared deterministic realtime turn/session state machine and replay harness.
 - `ffi`: Stable bridge surface intended for native platform shells.
+- `mobile-sdk`: UniFFI-exported mobile-facing SDK surface for policy and realtime replay APIs.
 
 This scaffold is intentionally minimal and designed for iterative adoption from the current macOS Swift host.
 
@@ -19,6 +20,7 @@ source "$HOME/.cargo/env"
 cargo check
 cargo test
 cargo build -p skilly-core-ffi
+cargo build -p skilly-core-mobile-sdk
 ```
 
 The bridge dylib is generated at:
@@ -27,6 +29,25 @@ The bridge dylib is generated at:
 Bootstrap shell binaries live under:
 - `apps/windows-shell`
 - `apps/linux-shell`
+
+Mobile SDK bindings can be generated with:
+
+```bash
+./scripts/generate-mobile-sdk-bindings.sh
+```
+
+Mobile SDK consumers can be validated with:
+
+```bash
+./scripts/validate-mobile-sdk-consumers.sh
+```
+
+Distributable SDK artifacts can be produced with:
+
+```bash
+./scripts/package-mobile-sdk.sh
+./scripts/package-rust-ffi-dylib.sh
+```
 
 To force the macOS app to load a specific Rust dylib during development,
 set one of these environment variables in your Xcode scheme:

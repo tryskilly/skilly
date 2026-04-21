@@ -1,0 +1,21 @@
+[package]
+name = "skilly-core-mobile-sdk"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "skilly_core_mobile_sdk"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+skilly-core-domain = { path = "../domain" }
+skilly-core-policy = { path = "../policy" }
+skilly-core-realtime = { path = "../realtime" }
+serde_json = "1"
+uniffi = { version = "0.28", features = ["cli"] }

@@ -24,7 +24,8 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Skill System**: SKILL.md files parsed at runtime, layered into system prompt with curriculum tracking
 - **Concurrency**: `@MainActor` isolation, async/await throughout
 - **Analytics**: PostHog via `SkillyAnalytics.swift` (own project, not upstream)
-- **Cross-platform Migration Scaffold**: Rust workspace at `core/` (`domain`, `policy`, `skills`, `realtime`, `ffi`) plus shell bootstrap crates under `apps/` to centralize platform-agnostic policy/orchestration logic while keeping native OS shells for UI/capabilities
+- **Cross-platform Migration Scaffold**: Rust workspace at `core/` (`domain`, `policy`, `skills`, `realtime`, `ffi`, `mobile-sdk`) plus shell bootstrap crates under `apps/` to centralize platform-agnostic policy/orchestration logic while keeping native OS shells for UI/capabilities
+- **Mobile SDK Surface**: `core/mobile-sdk` exports selected policy + realtime APIs via UniFFI, with generated Swift/Kotlin bindings under `sdk/` for iOS/Android consumers
 - **Policy Bridge**: `RustPolicyBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so entitlement checks can use shared Rust policy with Swift fallback
 - **Skills Bridge**: `RustSkillsBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so skill prompt composition can use shared Rust logic with Swift fallback
 - **Realtime Bridge**: `RustRealtimeBridge.swift` dynamically loads `libskilly_core_ffi.dylib` (when available) so turn/session transitions can use shared Rust realtime state-machine logic with Swift fallback
@@ -159,7 +160,10 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `core/skills/src/lib.rs` | ~260 | Shared prompt-composition module (curriculum/vocabulary layers, pointing mode instructions, vocabulary trimming) with fixture-driven tests. |
 | `core/skills/fixtures/compose_prompt_fixture.json` | ~40 | Fixture defining expected composed prompt output for Rust skills-core parity checks. |
 | `core/realtime/src/lib.rs` | ~300 | Deterministic realtime turn/session state machine with replay harness and transition validation. |
-| `core/realtime/fixtures/replay_traces.json` | ~45 | Replay-trace fixture corpus for realtime lifecycle validation. |
+| `core/realtime/fixtures/replay_traces.json` | ~260 | Replay-trace fixture corpus for realtime lifecycle validation, expanded with production-like lifecycle scenarios. |
+| `core/mobile-sdk/Cargo.toml` | ~20 | Mobile SDK crate manifest exposing UniFFI bindings and a `uniffi-bindgen` helper binary for generated client packages. |
+| `core/mobile-sdk/src/lib.rs` | ~260 | UniFFI-exported policy/realtime API surface (`can_start_turn`, cap checks, realtime replay summaries) plus parity-focused unit tests. |
+| `core/mobile-sdk/src/bin/uniffi-bindgen.rs` | ~3 | Entry point that runs UniFFI bindgen CLI through the crate for reproducible Swift/Kotlin generation. |
 
 ### Shell Bootstrap (`apps/`)
 
@@ -167,6 +171,19 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 |------|-------|---------|
 | `apps/windows-shell/src/main.rs` | ~425 | Windows shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), capability-aware gating, and turn-start flow through shared Rust core. |
 | `apps/linux-shell/src/main.rs` | ~470 | Linux shell bootstrap binary with explicit platform adapters (capture/hotkey/overlay/audio/permissions), session-aware capability reporting, and turn-start flow through shared Rust core. |
+
+### Mobile SDK Artifacts (`sdk/`)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `scripts/generate-mobile-sdk-bindings.sh` | ~50 | Builds `skilly-core-mobile-sdk` and generates Swift/Kotlin UniFFI bindings into `sdk/ios/generated` and `sdk/android/generated`. |
+| `scripts/validate-mobile-sdk-consumers.sh` | ~90 | End-to-end runtime validation for generated mobile SDK consumers (Kotlin/JVM and Swift on macOS). |
+| `scripts/package-mobile-sdk.sh` | ~80 | Packages generated mobile SDK bindings/samples plus release library into distributable tarballs under `dist/mobile-sdk/`. |
+| `scripts/package-rust-ffi-dylib.sh` | ~65 | Packages release `skilly-core-ffi` dynamic library into distributable tarballs under `dist/rust-ffi/`. |
+| `scripts/create-runtime-validation-report.sh` | ~40 | Generates dated runtime-validation signoff report scaffolds from the strict architecture template. |
+| `sdk/README.md` | ~35 | Entrypoint docs for binding generation, consumer validation, and SDK packaging. |
+| `sdk/ios/sample/PolicyAndRealtimeExample.swift` | ~30 | iOS usage sample showing policy gating and realtime replay against generated Swift bindings. |
+| `sdk/android/sample/src/main/kotlin/app/tryskilly/sdk/PolicyAndRealtimeExample.kt` | ~35 | Android usage sample showing policy gating and realtime replay against generated Kotlin bindings. |
 
 ### Architecture Docs
 
@@ -182,12 +199,17 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `docs/architecture/swift-rust-fallback-parity-harness.md` | ~85 | Parity harness procedure for validating Rust bridge behavior against Swift fallback across policy, skills, and realtime flows. |
 | `docs/architecture/rust-dylib-packaging-strategy.md` | ~80 | Deterministic development/release strategy for building, locating, and eventually packaging `libskilly_core_ffi.dylib`. |
 | `docs/architecture/final-phase-validation-report.md` | ~55 | Evidence log for final-phase migration validation commands, outcomes, and remaining native host-app verification work. |
+| `docs/architecture/mobile-sdk-phase-validation-report.md` | ~45 | Evidence log for Phase 6 mobile SDK validation (workspace tests, runtime consumer validation, and packaging). |
+| `docs/architecture/realtime-production-like-traces-report.md` | ~30 | Evidence log for expanded production-like replay trace coverage in `core/realtime` fixtures. |
+| `docs/architecture/runtime-validation-signoff-template.md` | ~90 | Strict checklist template for manual host-app runtime parity/signoff across macOS, Windows, Linux, iOS, and Android lanes. |
+| `docs/architecture/runtime-validation-report-2026-04-18.md` | ~95 | Generated runtime-validation report scaffold populated with branch/commit metadata for signoff tracking. |
 
 ### CI Workflow
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `.github/workflows/rust-core-shells.yml` | ~50 | Workspace Rust checks/tests plus FFI smoke and Windows/Linux shell smoke jobs. |
+| `.github/workflows/rust-core-shells.yml` | ~75 | Workspace Rust checks/tests plus FFI smoke, Windows/Linux shell smoke, mobile SDK binding generation, mobile SDK consumer validation, and mac release guard jobs. |
+| `.github/workflows/mobile-sdk-artifacts.yml` | ~75 | Manual/release-triggered workflow that packages and publishes mobile SDK + Rust FFI tarball artifacts for macOS and Linux. |
 
 ### Skill Files
 
@@ -225,8 +247,14 @@ source "$HOME/.cargo/env"
 cargo check
 cargo test
 cargo build -p skilly-core-ffi
+cargo build -p skilly-core-mobile-sdk
 cargo run -p skilly-linux-shell -- --smoke
 cargo run -p skilly-windows-shell -- --smoke
+./scripts/generate-mobile-sdk-bindings.sh
+./scripts/validate-mobile-sdk-consumers.sh
+./scripts/package-mobile-sdk.sh
+./scripts/package-rust-ffi-dylib.sh
+./scripts/create-runtime-validation-report.sh
 ```
 
 Generated bridge library:

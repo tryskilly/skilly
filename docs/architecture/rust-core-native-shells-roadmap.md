@@ -10,7 +10,7 @@
 | 3 | Realtime Orchestration Extraction | Complete | Session lifecycle replay suite passes on Rust path |
 | 4 | Windows/Linux Shell Bootstrap | Complete | Both shells run auth + entitlement + turn-start smoke flow |
 | 5 | Real Platform Adapters | Complete | Capture/hotkey/overlay baseline adapter contracts wired with capability-aware gating and validated by automated checks |
-| 6 | Mobile SDK Surface | Planned | Swift/Kotlin SDK bindings and sample integrations available |
+| 6 | Mobile SDK Surface | Complete | Swift/Kotlin SDK bindings and sample integrations available |
 
 ## Detailed Phases
 
@@ -23,7 +23,6 @@ Completed:
 - policy fixtures and baseline tests added
 
 Remaining:
-- Expand fixture set with additional production-like session traces
 - Execute parity harness runs in Xcode and publish evidence snapshots
 
 ### Phase 1: Policy Core Extraction
@@ -35,7 +34,7 @@ Completed:
 
 Remaining:
 - Add Xcode-run integration tests around fallback behavior and bridge availability
-- Implement packaged dylib distribution path after runtime parity is proven
+- Validate packaged dylib artifact consumption in a full Xcode host-app lane
 
 ### Phase 2: Skill Prompt Core Extraction
 Completed:
@@ -54,7 +53,7 @@ Completed:
 3. Added `RustRealtimeBridge` and routed Swift `CompanionManager` turn lifecycle events through Rust replay transitions.
 
 Remaining:
-1. Add replay traces from production telemetry samples.
+1. Continue appending replay traces from ongoing production telemetry samples.
 
 Tasks:
 1. Define canonical turn/session state machine in `core/realtime`.
@@ -96,10 +95,16 @@ Exit Criteria:
 - Baseline interactive behavior available on supported platform scope.
 
 ### Phase 6: Mobile SDK Surface
-Tasks:
-1. Expose selected core APIs via UniFFI.
-2. Generate Swift/Kotlin SDK packages.
-3. Add sample integration apps.
+Completed:
+1. Added `core/mobile-sdk` UniFFI-exported crate for selected policy + realtime replay APIs.
+2. Added reproducible binding generation script: `scripts/generate-mobile-sdk-bindings.sh`.
+3. Generated Swift bindings in `sdk/ios/generated` and Kotlin bindings in `sdk/android/generated`.
+4. Added integration samples:
+   - `sdk/ios/sample/PolicyAndRealtimeExample.swift`
+   - `sdk/android/sample/src/main/kotlin/app/tryskilly/sdk/PolicyAndRealtimeExample.kt`
+
+Remaining:
+1. Wire generated SDK artifacts into full iOS/Android host apps with simulator/device runtime validation.
 
 Exit Criteria:
 - SDK consumers can run policy + selected orchestration flows using shared core.

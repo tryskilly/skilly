@@ -5,6 +5,7 @@ members = [
     "core/ffi",
     "core/skills",
     "core/realtime",
+    "core/mobile-sdk",
     "apps/windows-shell",
     "apps/linux-shell",
 ]

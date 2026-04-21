@@ -12,6 +12,7 @@ Related references:
 2. Swift bridge integration behavior (Rust-available and fallback modes).
 3. Cross-platform shell smoke tests for baseline workflows.
 4. Release pipeline safeguards for macOS continuity.
+5. Mobile SDK binding generation and sample-usage coverage.
 
 ## Test Layers
 
@@ -63,6 +64,18 @@ Windows/Linux (current shell binaries):
 2. Turn lifecycle replay reaches completed phase for baseline flow.
 3. Explicit blocker reasons are emitted for unavailable critical adapters.
 
+### Layer 5: Mobile SDK Surface
+Targets:
+- `core/mobile-sdk`
+- `scripts/generate-mobile-sdk-bindings.sh`
+- `sdk/ios/generated`
+- `sdk/android/generated`
+
+Coverage:
+1. UniFFI-exported policy + realtime replay APIs compile and pass crate tests.
+2. Swift and Kotlin bindings generate from a built mobile-sdk library.
+3. Sample integration code remains aligned with generated API names and passes runtime consumer validation.
+
 ## Acceptance Gates by Phase
 
 ### Gate A (Phase 1 complete)
@@ -88,14 +101,23 @@ Windows/Linux (current shell binaries):
 1. Platform adapter capabilities function in defined support matrix.
 2. Capability fallback behavior is explicit and user-safe.
 
+### Gate F (Phase 6 complete)
+1. `cargo test -p skilly-core-mobile-sdk` passes.
+2. `./scripts/generate-mobile-sdk-bindings.sh` generates Swift + Kotlin bindings without errors.
+3. `./scripts/validate-mobile-sdk-consumers.sh` passes (Kotlin/JVM runtime + macOS Swift runtime lanes).
+
 ## Required CI Jobs
 1. `rust-core-check`: `cargo check`
 2. `rust-core-test`: `cargo test`
 3. `ffi-smoke`: C ABI smoke test against built dylib
 4. `shell-smoke`: windows/linux bootstrap smoke flow
 5. `mac-release-guard`: verify release script preconditions and static checks
+6. `mobile-sdk-bindings`: verify UniFFI binding generation command and artifacts
+7. `mobile-sdk-consumer-validation`: run generated binding runtime validation against sample consumers
+8. `mobile-sdk-artifacts`: build/package/publish mobile SDK + Rust FFI release artifacts
 
 ## Known Gaps
 1. No terminal `xcodebuild` execution in this repo by policy.
 2. Swift bridge compile/runtime validation must be completed inside Xcode workflow.
 3. End-to-end native host-app runtime validation across Windows/Linux compositor/audio environments remains pending beyond CLI shell binaries.
+4. iOS/Android full simulator/device host-app runtime validation remains required beyond CLI/JVM sample lanes.
