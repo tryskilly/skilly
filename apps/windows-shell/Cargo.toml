@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 
+[lib]
+name = "skilly_windows_shell"
+path = "src/lib.rs"
+
+[[bin]]
+name = "skilly-windows-shell"
+path = "src/main.rs"
+
 [dependencies]
 skilly-core-domain = { path = "../../core/domain" }
 skilly-core-policy = { path = "../../core/policy" }

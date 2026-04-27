@@ -14,3 +14,4 @@ skilly-core-domain = { path = "../../core/domain" }
 skilly-core-policy = { path = "../../core/policy" }
 skilly-core-realtime = { path = "../../core/realtime" }
 skilly-core-skills = { path = "../../core/skills" }
+skilly-windows-shell = { path = "../windows-shell" }

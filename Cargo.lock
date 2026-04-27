@@ -491,6 +491,7 @@ dependencies = [
  "skilly-core-policy",
  "skilly-core-realtime",
  "skilly-core-skills",
+ "skilly-windows-shell",
 ]
 
 [[package]]
