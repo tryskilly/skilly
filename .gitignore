@@ -39,3 +39,6 @@ worker/.wrangler/
 
 # Rust
 target/
+
+# Tauri build-time generated permission/ACL schemas (per-platform, regenerated each build)
+apps/windows-shell-gui/gen/

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Skilly</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0d0d10;
+        color: #f1f1f4;
+      }
+      main {
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        height: 100%;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 0;
+        color: #8a8a92;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 0;
+      }
+      pre {
+        background: #18181d;
+        border: 1px solid #26262d;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 12px;
+        line-height: 1.5;
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        flex: 1;
+        overflow: auto;
+      }
+      button {
+        appearance: none;
+        background: #2a64ff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #3b73ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Skilly Windows host</h1>
+      <h2>Phase 7 placeholder</h2>
+      <button id="snapshotButton" type="button">
+        Read capability snapshot
+      </button>
+      <pre id="snapshotOutput">click the button to invoke the Rust adapter snapshot</pre>
+    </main>
+    <script type="module">
+      const { invoke } = window.__TAURI__.core;
+      const snapshotButton = document.getElementById("snapshotButton");
+      const snapshotOutput = document.getElementById("snapshotOutput");
+      snapshotButton.addEventListener("click", async () => {
+        try {
+          const snapshot = await invoke("capability_snapshot");
+          snapshotOutput.textContent = JSON.stringify(snapshot, null, 2);
+        } catch (snapshotError) {
+          snapshotOutput.textContent = `error: ${snapshotError}`;
+        }
+      });
+    </script>
+  </body>
+</html>
