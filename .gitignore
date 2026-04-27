@@ -36,3 +36,7 @@ xcuserdata/
 .omx/
 Thumbs.db
 worker/.wrangler/
+
+# Rust build artifacts (e.g. browser-harness daemon run from this dir)
+target/
+**/target/
