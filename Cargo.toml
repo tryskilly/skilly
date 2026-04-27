@@ -7,6 +7,7 @@ members = [
     "core/realtime",
     "core/mobile-sdk",
     "apps/windows-shell",
+    "apps/windows-shell-gui",
     "apps/linux-shell",
 ]
 resolver = "2"
