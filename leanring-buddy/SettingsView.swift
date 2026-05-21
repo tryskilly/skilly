@@ -111,6 +111,11 @@ struct SettingsView: View {
 
         divider
 
+        sectionHeader("API KEY")
+        BYOKSection(settings: settings)
+
+        divider
+
         sectionHeader("DATA & PRIVACY")
         toggleRow(
             title: "Share anonymous analytics",

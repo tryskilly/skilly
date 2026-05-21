@@ -40,6 +40,9 @@ final class TrialTracker: ObservableObject {
     var isExhausted: Bool {
         // MARK: - Skilly — Admin bypass: allowlisted users never run out of trial time.
         if AdminAllowlist.isCurrentUserAdmin { return false }
+        // MARK: - Skilly — BYOK bypass: when the user pays OpenAI directly with
+        // their own API key, Skilly's 15-minute shared-key trial does not apply.
+        if AppSettings.shared.hasOwnAPIKey { return false }
         return totalSecondsUsed >= Self.maxTrialSeconds
     }
 

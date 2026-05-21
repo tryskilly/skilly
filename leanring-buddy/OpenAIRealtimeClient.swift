@@ -126,6 +126,17 @@ final class OpenAIRealtimeClient: ObservableObject {
             }
         }
 
+        // MARK: - Skilly — BYOK branch
+        // When the user has supplied their own OpenAI API key in Settings,
+        // bypass the Worker relay entirely and mint an ephemeral Realtime
+        // session directly against api.openai.com. The user is billed by
+        // OpenAI for the session; no Skilly server involvement.
+        if AppSettings.shared.hasOwnAPIKey {
+            let tokenResponse = try await fetchTokenBYOK(apiKey: AppSettings.shared.openAIAPIKey)
+            cachedToken = tokenResponse
+            return tokenResponse
+        }
+
         let url = URL(string: "\(AppSettings.shared.workerBaseURL)/openai/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -153,6 +164,58 @@ final class OpenAIRealtimeClient: ObservableObject {
         let tokenResponse = try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
         cachedToken = tokenResponse
         return tokenResponse
+    }
+
+    // MARK: - Skilly — BYOK direct session mint
+    //
+    // OpenAI's Realtime sessions endpoint returns a nested
+    // `client_secret: { value, expires_at }` shape. We map it onto the
+    // flat OpenAITokenResponse the rest of the client expects (which is
+    // the shape the Worker has been returning).
+    private struct OpenAIBYOKSessionResponse: Decodable {
+        struct ClientSecret: Decodable {
+            let value: String
+            let expires_at: Int
+        }
+        let client_secret: ClientSecret
+        let model: String
+    }
+
+    private func fetchTokenBYOK(apiKey: String) async throws -> OpenAITokenResponse {
+        let model = "gpt-4o-realtime-preview"
+        let url = URL(string: "https://api.openai.com/v1/realtime/sessions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("realtime=v1", forHTTPHeaderField: "OpenAI-Beta")
+        let body: [String: Any] = [
+            "model": model,
+            "voice": AppSettings.shared.voiceName,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+
+        if statusCode == 401 {
+            // The user's key was rejected by OpenAI — surface a distinct error so
+            // the UI can tell them to re-paste a valid key instead of generic
+            // "auth expired" (which routes to the Skilly sign-in flow).
+            throw OpenAIRealtimeError.connectionFailed("OpenAI rejected your API key (HTTP 401). Open Settings → API Key and paste a valid key from platform.openai.com/api-keys.")
+        }
+
+        guard statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? "unknown"
+            throw OpenAIRealtimeError.connectionFailed("OpenAI session mint failed (HTTP \(statusCode)): \(body)")
+        }
+
+        let decoded = try JSONDecoder().decode(OpenAIBYOKSessionResponse.self, from: data)
+        return OpenAITokenResponse(
+            clientSecret: decoded.client_secret.value,
+            expiresAt: decoded.client_secret.expires_at,
+            model: decoded.model
+        )
     }
 
     // MARK: - Connection

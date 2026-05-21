@@ -29,6 +29,23 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(postHogAPIKey, forKey: "postHogAPIKey") }
     }
 
+    // MARK: - Skilly — Bring Your Own Key (BYOK)
+
+    /// User-supplied OpenAI API key. When non-empty, the app bypasses the
+    /// Skilly worker relay and mints ephemeral Realtime sessions directly
+    /// against api.openai.com using this key. Stored in UserDefaults
+    /// (plaintext on disk). The user is billed by OpenAI for usage.
+    @Published var openAIAPIKey: String {
+        didSet { UserDefaults.standard.set(openAIAPIKey, forKey: "openAIAPIKey") }
+    }
+
+    /// True when the user has provided their own OpenAI key.
+    /// Drives BYOK code paths: bypassing the relay, skipping trial gating,
+    /// and surfacing a "BYOK active" indicator in the UI.
+    var hasOwnAPIKey: Bool {
+        !openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Whether analytics tracking is enabled. When false, no events are sent to PostHog.
     @Published var analyticsEnabled: Bool {
         didSet { UserDefaults.standard.set(analyticsEnabled, forKey: "analyticsEnabled") }
@@ -142,6 +159,9 @@ final class AppSettings: ObservableObject {
         // Skilly — Configurable endpoints
         self.workerBaseURL = UserDefaults.standard.string(forKey: "workerBaseURL")
             ?? "https://skilly-proxy.eng-mohamedszaied.workers.dev"
+
+        // BYOK — load user-supplied OpenAI key if previously saved.
+        self.openAIAPIKey = UserDefaults.standard.string(forKey: "openAIAPIKey") ?? ""
 
         // PostHog key — migrate any stale cached keys to the current default.
         let currentPostHogKey = "phc_D46KQXyPXhmRabFDiL3KUZTWJcmjyqhpGJfpH7H48Sso"
