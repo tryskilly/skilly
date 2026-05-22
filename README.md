@@ -6,6 +6,12 @@ Built for learning creative software: Figma, Blender, After Effects, and more. E
 
 **[tryskilly.app](https://tryskilly.app)** | **[Download](https://github.com/tryskilly/skilly/releases/latest/download/Skilly.dmg)**
 
+## What's new in v1.6 (2026-05-21)
+
+**Bring your own OpenAI API key.** Paste your `sk-proj-...` key in Settings → Account → API Key, hit "Verify & save," and the 15-minute trial gating disappears. You're billed by OpenAI directly (~$0.06–0.10 per minute of voice). No card on file with us, no subscription required.
+
+If you'd rather skip key management, the hosted $19/month tier still exists. Both paths use the same app.
+
 ## Acknowledgments
 
 Skilly is a fork of [farzaa/clicky](https://github.com/farzaa/clicky) — Farza's open-source AI cursor-buddy that blew up on X. The macOS foundation (ScreenCaptureKit integration, app focus tracking, accessibility hooks) is built on his work.
