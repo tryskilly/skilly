@@ -2,7 +2,7 @@
 
 Open-source curricula for learning macOS apps. Each skill is a single Markdown file (`SKILL.md`) that contains everything an AI tutor — or a human reader — needs to teach an app from scratch: pre-requisites, mental models, step-by-step lessons, common mistakes, and pointers into the official documentation.
 
-**33 hours of curriculum. Apache-2.0 / MIT.** Read them on GitHub or use them with the Skilly companion app for live voice + screen tutoring.
+**45 hours of curriculum. Apache-2.0 / MIT.** Read them on GitHub or use them with the Skilly companion app for live voice + screen tutoring.
 
 | Skill | Hours | Difficulty | Source | License |
 |-------|-------|------------|--------|---------|
@@ -11,6 +11,7 @@ Open-source curricula for learning macOS apps. Each skill is a single Markdown f
 | [DaVinci Resolve Basics](./davinci-resolve-basics/SKILL.md) | 7 | Beginner | Blackmagic Design docs (v19–20) | Apache-2.0 |
 | [Figma Basics](./figma-basics/SKILL.md) | 6 | Beginner | Figma Help Center (UI3) | MIT |
 | [Premiere Pro Basics](./premiere-pro-basics/SKILL.md) | 6 | Beginner | Adobe Help Center | Apache-2.0 |
+| [Houdini Essentials](./houdini-essentials/SKILL.md) | 12 | Intermediate | SideFX Houdini 21 docs | Apache-2.0 |
 
 ## How to use these skills
 
@@ -28,7 +29,7 @@ The format is documented in [SPEC.md](./SPEC.md). Add a new folder under `skills
 
 ## Writing a new skill
 
-1. Pick an app that doesn't yet have a skill. Good candidates: Logic Pro, Final Cut Pro, Sketch, Notion, Excel, Pages, Xcode, Cinema 4D, Houdini, Figma FigJam, Adobe Illustrator, Photoshop, Lightroom.
+1. Pick an app that doesn't yet have a skill. Good candidates: Logic Pro, Final Cut Pro, Sketch, Notion, Excel, Pages, Xcode, Cinema 4D, Figma FigJam, Adobe Illustrator, Photoshop, Lightroom.
 2. Read the [SPEC.md](./SPEC.md) for the format requirements.
 3. Source content from the **official documentation** for that app — it's the only way to keep the curriculum accurate as the app updates. Cite the source in your skill's intro paragraph.
 4. Test it: install Skilly and load your skill. The tutor should be able to answer questions about the app accurately. If it improvises, your `Teaching Instructions` section is too vague.
@@ -47,6 +48,6 @@ Each skill carries its own license header (most are Apache-2.0; Figma is MIT). T
 - [ ] Excel
 - [ ] Sketch
 - [ ] Cinema 4D
-- [ ] Houdini
+- [x] ~~Houdini~~ — shipped 2026-05-16 ([Houdini Essentials](./houdini-essentials/SKILL.md))
 
 Want one of these? [Open an issue](https://github.com/tryskilly/skilly/issues) and tell us which app + what you'd want it to teach. PRs welcome.
