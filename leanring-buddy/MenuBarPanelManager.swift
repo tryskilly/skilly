@@ -99,6 +99,16 @@ final class MenuBarPanelManager: NSObject {
         button.image?.isTemplate = true
         button.action = #selector(statusItemClicked)
         button.target = self
+
+        // MARK: - Skilly — Version tooltip
+        // Hovering the menu bar icon now shows "Skilly v1.x (build N)".
+        // Added 2026-05-30 after a real diagnostic session where it took
+        // 10 minutes to confirm which Skilly version was actually running
+        // — the lack of visible version was the bottleneck. With this,
+        // anyone with the app installed can answer "what version?" in 1s.
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        button.toolTip = "Skilly v\(version) (build \(build))"
     }
 
     /// Draws the Skilly cursor arrow as a menu bar icon.

@@ -196,6 +196,17 @@ struct CompanionPanelView: View {
                 Text("Skilly")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
+
+                // MARK: - Skilly — Version label
+                // Tiny version tag next to the title so users (and us
+                // during diagnostic sessions) can confirm at-a-glance
+                // which build is running without opening Settings. Added
+                // 2026-05-30 after a session where this was the bottleneck
+                // for diagnosing a release-only regression.
+                Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .padding(.leading, 2)
             }
 
             Spacer()

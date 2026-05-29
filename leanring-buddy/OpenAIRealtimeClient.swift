@@ -168,30 +168,45 @@ final class OpenAIRealtimeClient: ObservableObject {
 
     // MARK: - Skilly — BYOK direct session mint
     //
-    // OpenAI's Realtime sessions endpoint returns a nested
-    // `client_secret: { value, expires_at }` shape. We map it onto the
-    // flat OpenAITokenResponse the rest of the client expects (which is
-    // the shape the Worker has been returning).
+    // The legacy `POST /v1/realtime/sessions` endpoint with the
+    // `gpt-4o-realtime-preview` model was sunset by OpenAI in May 2026 with
+    // the GA Realtime release. The current ephemeral-session API is
+    // `POST /v1/realtime/client_secrets`, and the model id is the
+    // GA `gpt-realtime` (or `gpt-realtime-mini` for a cheaper variant).
+    //
+    // Old shape:
+    //   POST /v1/realtime/sessions   body {model, voice}
+    //   response: { client_secret: { value, expires_at }, model }
+    //
+    // New shape (what we use now):
+    //   POST /v1/realtime/client_secrets   body {session: {type:"realtime", model}}
+    //   response: { value, expires_at, session: { type, object, id, model, ... } }
+    //
+    // The previous body included `voice`, which the new endpoint rejects with
+    // `Unknown parameter: 'session.voice'`. Voice selection now belongs in the
+    // session.update event sent over the WebSocket after handshake — handled
+    // elsewhere in this client via AppSettings.shared.voiceName.
     private struct OpenAIBYOKSessionResponse: Decodable {
-        struct ClientSecret: Decodable {
-            let value: String
-            let expires_at: Int
+        struct SessionMeta: Decodable {
+            let model: String
         }
-        let client_secret: ClientSecret
-        let model: String
+        let value: String
+        let expires_at: Int
+        let session: SessionMeta
     }
 
     private func fetchTokenBYOK(apiKey: String) async throws -> OpenAITokenResponse {
-        let model = "gpt-4o-realtime-preview"
-        let url = URL(string: "https://api.openai.com/v1/realtime/sessions")!
+        let model = "gpt-realtime"
+        let url = URL(string: "https://api.openai.com/v1/realtime/client_secrets")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("realtime=v1", forHTTPHeaderField: "OpenAI-Beta")
         let body: [String: Any] = [
-            "model": model,
-            "voice": AppSettings.shared.voiceName,
+            "session": [
+                "type": "realtime",
+                "model": model,
+            ],
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -212,9 +227,9 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         let decoded = try JSONDecoder().decode(OpenAIBYOKSessionResponse.self, from: data)
         return OpenAITokenResponse(
-            clientSecret: decoded.client_secret.value,
-            expiresAt: decoded.client_secret.expires_at,
-            model: decoded.model
+            clientSecret: decoded.value,
+            expiresAt: decoded.expires_at,
+            model: decoded.session.model
         )
     }
 
