@@ -27,6 +27,14 @@
             <enclosure url="https://github.com/julianjear/makesomething-mac-app/releases/download/v1.8/makesomething.dmg" length="11489099" type="application/octet-stream" sparkle:edSignature="K7n75BUbzhzTbrnYDQDcsmMQGb3bEjvl5yxSIdBGtbanNWrEUym2sozah5hGkAQ0sLShrPhx8FDBunmd2T3rAw=="/>
         </item>
         <item>
+            <title>1.7</title>
+            <pubDate>Sat, 30 May 2026 01:22:52 +0300</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>1.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v1.7/Skilly.dmg" length="11293572" type="application/octet-stream" sparkle:edSignature="yQ9eH7ZyAmaz5L4F8Ka1uBdgGZmpOjwYEduqvV9/cElMZhiVb32WwC0dtEur1M25eNwUNlFzdqcPgq0yCKxcAQ=="/>
+        </item>
+        <item>
             <title>1.6</title>
             <pubDate>Thu, 21 May 2026 21:41:26 +0300</pubDate>
             <sparkle:version>7</sparkle:version>
@@ -41,14 +49,6 @@
             <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/tryskilly/skilly/releases/download/v1.5/Skilly.dmg" length="11267792" type="application/octet-stream" sparkle:edSignature="RFhNAs151b88GX7RVUtfERA7O1xPWf9aBbhKKhV2YD9lMPkUkQkpWLjtEvme+rEnrrtdgget6MXA6Hsf8tGlBQ=="/>
-        </item>
-        <item>
-            <title>1.4</title>
-            <pubDate>Tue, 14 Apr 2026 22:48:18 +0200</pubDate>
-            <sparkle:version>5</sparkle:version>
-            <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v1.4/Skilly.dmg" length="11245400" type="application/octet-stream" sparkle:edSignature="RfrTmnP9Bixap+NfyRE0eKX0iu/sd5am9dMlvJJXkasPyLZgkuIBBHMpu6u0N8v706/IQMJ/dFq3Esx0VnLFDQ=="/>
         </item>
     </channel>
 </rss>
