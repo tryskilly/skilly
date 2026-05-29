@@ -255,10 +255,18 @@ final class OpenAIRealtimeClient: ObservableObject {
         print("🔌 OpenAI Realtime: connecting to WebSocket...")
         #endif
 
-        // OpenAI uses Authorization header, not query parameter
+        // OpenAI uses Authorization header, not query parameter.
+        // MARK: - Skilly — REMOVED OpenAI-Beta header (2026-05-30)
+        // Sending `OpenAI-Beta: realtime=v1` against the GA endpoint causes
+        // the WebSocket to be rejected immediately with error code
+        // `beta_api_shape_disabled`: "The Realtime Beta API is no longer
+        // supported. Please use /v1/realtime for the GA API." The handshake
+        // completes (no HTTP error) but the first event is the rejection
+        // and the socket closes — which is exactly the symptom that left
+        // 17 users with 0 user_message_sent for 14 days. Removing the
+        // header is required for GA Realtime API compatibility.
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token.clientSecret)", forHTTPHeaderField: "Authorization")
-        request.setValue("realtime=v1", forHTTPHeaderField: "OpenAI-Beta")
         request.timeoutInterval = 30
 
         let delegate = RealtimeWebSocketDelegate()
@@ -358,22 +366,52 @@ final class OpenAIRealtimeClient: ObservableObject {
             ]
         ]
 
-        var sessionObject: [String: Any] = [
-            "modalities": ["text", "audio"],
-            "input_audio_format": "pcm16",
-            "output_audio_format": "pcm16",
-            "input_audio_transcription": transcriptionConfig,
+        // MARK: - Skilly — GA Realtime session.update shape (2026-05-30)
+        // The Realtime Beta API used flat fields (modalities, input_audio_format,
+        // input_audio_transcription, turn_detection, voice) plus an implicit
+        // session.type. The GA API requires:
+        //   - session.type: "realtime" (NEW — explicitly required)
+        //   - session.model: <model id> (NEW — explicitly required)
+        //   - session.output_modalities: ["audio"]  (was: modalities)
+        //   - session.audio.input.format: object (was: input_audio_format string)
+        //   - session.audio.input.transcription (was: input_audio_transcription)
+        //   - session.audio.input.turn_detection (was: turn_detection)
+        //   - session.audio.output.format: object (was: output_audio_format string)
+        //   - session.audio.output.voice (was: voice)
+        //   - session.tools / tool_choice / instructions unchanged
+        // Verified live against api.openai.com on 2026-05-30 with a real key.
+        let audioInputFormat: [String: Any] = ["type": "audio/pcm", "rate": 24000]
+        let audioOutputFormat: [String: Any] = ["type": "audio/pcm", "rate": 24000]
+
+        var audioInput: [String: Any] = [
+            "format": audioInputFormat,
+            "transcription": transcriptionConfig,
             "turn_detection": NSNull(),
+        ]
+        // Note: VAD config goes here when enabled — see updateTurnDetection().
+        _ = audioInput // suppress unused-variable warning if compiler nags
+
+        var audioOutput: [String: Any] = [
+            "format": audioOutputFormat,
+        ]
+        if let voiceName {
+            audioOutput["voice"] = voiceName
+        }
+
+        var sessionObject: [String: Any] = [
+            "type": "realtime",
+            "model": currentModel,
+            "output_modalities": ["audio"],
+            "audio": [
+                "input": audioInput,
+                "output": audioOutput,
+            ],
             "tools": [pointAtElementTool],
-            "tool_choice": "auto"
+            "tool_choice": "auto",
         ]
 
         if let systemPrompt {
             sessionObject["instructions"] = systemPrompt + languageInstruction
-        }
-
-        if let voiceName {
-            sessionObject["voice"] = voiceName
         }
 
         let sessionUpdate: [String: Any] = [
@@ -413,11 +451,18 @@ final class OpenAIRealtimeClient: ObservableObject {
             turnDetection = NSNull()
         }
 
+        // MARK: - Skilly — GA Realtime: turn_detection nests under audio.input
         let sessionUpdate: [String: Any] = [
             "type": "session.update",
             "session": [
-                "turn_detection": turnDetection
-            ]
+                "type": "realtime",
+                "model": currentModel,
+                "audio": [
+                    "input": [
+                        "turn_detection": turnDetection,
+                    ],
+                ],
+            ],
         ]
 
         try await sendEvent(sessionUpdate)
@@ -462,11 +507,14 @@ final class OpenAIRealtimeClient: ObservableObject {
         // Commit the audio buffer
         let commitEvent: [String: Any] = ["type": "input_audio_buffer.commit"]
 
-        // Request a response with audio output
+        // Request a response with audio output.
+        // MARK: - Skilly — GA Realtime: response.modalities is rejected with
+        // "Unknown parameter: 'response.modalities'". The GA shape uses
+        // `output_modalities` and audio is the default — we just request audio.
         let responseEvent: [String: Any] = [
             "type": "response.create",
             "response": [
-                "modalities": ["text", "audio"]
+                "output_modalities": ["audio"]
             ]
         ]
 
