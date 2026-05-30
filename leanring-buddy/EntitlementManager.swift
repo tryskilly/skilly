@@ -212,35 +212,76 @@ final class EntitlementManager: ObservableObject {
     func startCheckout() async {
         guard AuthManager.shared.isAuthenticated,
               let userId = AuthManager.shared.currentUser?.id,
-              let email = AuthManager.shared.currentUser?.email else { return }
+              let email = AuthManager.shared.currentUser?.email else {
+            // MARK: - Skilly — v1.10 silent-failure instrumentation
+            // This guard used to silently no-op. Joseph Gibbs (first post-fix
+            // new user, 2026-05-30) hit checkout 2× in 4 sec and we had no
+            // telemetry on why. Every silent bail now fires skilly_silent_failure.
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "checkout_start",
+                errorCode: "missing_auth_state",
+                errorMessage: "isAuthenticated=\(AuthManager.shared.isAuthenticated) hasUserId=\(AuthManager.shared.currentUser?.id != nil) hasEmail=\(AuthManager.shared.currentUser?.email != nil)",
+                surface: "user_checkout_click"
+            )
+            return
+        }
 
         SkillyAnalytics.trackCheckoutStarted(userId: userId)
 
         do {
-            guard let url = URL(string: "\(workerBaseURL)/checkout/create") else { return }
+            guard let url = URL(string: "\(workerBaseURL)/checkout/create") else {
+                SkillyAnalytics.trackSilentFailure(subsystem: "checkout_start", errorCode: "invalid_worker_url", errorMessage: workerBaseURL, surface: "user_checkout_click")
+                return
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+                SkillyAnalytics.trackSilentFailure(subsystem: "checkout_start", errorCode: "no_session_token", errorMessage: "applyWorkerSessionAuthorization returned false — Keychain session token missing", surface: "user_checkout_click")
                 return
             }
             struct CheckoutPayload: Codable { let user_id: String; let email: String }
             request.httpBody = try JSONEncoder().encode(CheckoutPayload(user_id: userId, email: email))
 
-            let (data, _) = try await URLSession.shared.data(for: request)
-            struct CheckoutResponse: Codable { let checkout_url: String }
-            let response = try JSONDecoder().decode(CheckoutResponse.self, from: data)
+            let (data, urlResponse) = try await URLSession.shared.data(for: request)
+            let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? -1
 
-            if let checkoutURL = URL(string: response.checkout_url) {
+            // MARK: - Skilly — v1.10: detect non-200 from Worker before trying to decode
+            if statusCode != 200 {
+                let body = String(data: data, encoding: .utf8) ?? "unknown"
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "polar_checkout",
+                    httpStatus: statusCode,
+                    errorCode: statusCode == 401 ? "worker_session_stale" : "non_200_from_worker",
+                    errorMessage: body,
+                    surface: "user_checkout_click"
+                )
+                return
+            }
+
+            struct CheckoutResponse: Codable { let checkout_url: String }
+            let decoded = try JSONDecoder().decode(CheckoutResponse.self, from: data)
+
+            if let checkoutURL = URL(string: decoded.checkout_url) {
                 NSWorkspace.shared.open(checkoutURL)
                 // Start polling for entitlement changes. The webhook may
                 // take a few seconds to arrive after the user pays. Poll
                 // every 5 seconds for up to 2 minutes so the PlanStrip
                 // updates without requiring the deep link or a relaunch.
                 startPostCheckoutPolling()
+            } else {
+                SkillyAnalytics.trackSilentFailure(subsystem: "polar_checkout", errorCode: "malformed_checkout_url", errorMessage: decoded.checkout_url, surface: "user_checkout_click")
             }
         } catch {
-            // Log error silently
+            // MARK: - Skilly — v1.10: previously "Log error silently".
+            // Now surfaces every catch path to PostHog so the next API
+            // drift is caught in minutes instead of weeks.
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "polar_checkout",
+                errorCode: "exception",
+                errorMessage: String(describing: error),
+                surface: "user_checkout_click"
+            )
         }
     }
 

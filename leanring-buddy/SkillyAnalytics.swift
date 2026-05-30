@@ -252,4 +252,45 @@ enum SkillyAnalytics {
             "reason": reason
         ])
     }
+
+    // MARK: - Skilly — Silent-failure instrumentation (v1.10, 2026-05-30)
+    //
+    // Every upstream/auth/network failure we silently swallow MUST fire this
+    // event. The pattern: 4 separate silent-failure bugs (OpenAI Realtime
+    // endpoint sunset, OpenAI Beta header rejection, OpenAI session.update
+    // schema migration, Polar product_price_id → products[]) each took weeks
+    // of zero-traffic-data before we noticed. Each one was preceded by a
+    // try/catch swallowing the error to print() or doing nothing at all.
+    //
+    // With this event firing from every silent catch, a PostHog dashboard
+    // alert catches the next API drift within minutes instead of weeks.
+    //
+    // - subsystem: where in our code the failure lives, e.g.
+    //   "openai_token_fetch", "openai_token_byok", "openai_websocket",
+    //   "polar_checkout", "worker_session_auth".
+    // - surface: what the user was doing when it triggered, e.g.
+    //   "user_ptt", "user_checkout_click", "background_token_refresh".
+    static func trackSilentFailure(
+        subsystem: String,
+        httpStatus: Int = 0,
+        errorCode: String = "",
+        errorMessage: String = "",
+        surface: String,
+        retryCount: Int = 0
+    ) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        PostHogSDK.shared.capture("skilly_silent_failure", properties: [
+            "subsystem": subsystem,
+            "http_status": httpStatus,
+            "error_code": errorCode,
+            "error_message": String(errorMessage.prefix(200)),
+            "surface": surface,
+            "retry_count": retryCount,
+            "app_version": version,
+            "app_build": build,
+            "source": "app",
+        ])
+    }
 }
