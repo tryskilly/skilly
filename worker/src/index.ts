@@ -721,7 +721,15 @@ async function handleCheckoutCreate(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        product_price_id: env.POLAR_BETA_PRICE_ID,
+        // MARK: - Skilly — Polar API migration (2026-05-30)
+        // Polar deprecated `product_price_id` (single-price string) in favor
+        // of `products` (array of product ids). The old field is silently
+        // ignored, returning a 422 error like "products: Field required" —
+        // which the Worker swallowed as a 502 to the client. Joseph Gibbs
+        // (first post-fix new user, 17:55 UTC) clicked checkout twice and
+        // got nothing back because of this. Same shape of silent upstream
+        // API drift that hit OpenAI Realtime in v1.8.
+        products: [env.POLAR_BETA_PRODUCT_ID],
         customer_email: authenticatedSession.email,
         metadata: { user_id: authenticatedSession.userId },
         // MARK: - Skilly — Pass the WorkOS user ID to the marketing site so
