@@ -125,6 +125,65 @@ struct SettingsView: View {
                 set: { settings.analyticsEnabled = $0 }
             )
         )
+
+        // MARK: - Skilly — Admin-only diagnostics
+        //
+        // Skilly admins (per AdminAllowlist) bypass the trial + paywall
+        // flows, which means we never SEE the upgrade UI from our own
+        // accounts. This makes verifying checkout regressions impossible
+        // without spinning up a non-admin test account.
+        //
+        // Added 2026-05-30 after a Polar API field-rename (product_price_id
+        // → products[]) silently broke checkout for all users. We caught
+        // it from PostHog (Joseph Gibbs, first post-fix conversion, hit
+        // skilly_checkout_started twice with no checkout_completed) but
+        // couldn't repro on our own admin accounts.
+        //
+        // Visible ONLY when AdminAllowlist.isCurrentUserAdmin is true.
+        // Triggers the same EntitlementManager.startCheckout() that the
+        // real upgrade UI uses, so this exercises the full Worker → Polar
+        // → browser-open chain.
+        if AdminAllowlist.isCurrentUserAdmin {
+            divider
+
+            sectionHeader("ADMIN DIAGNOSTICS")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Visible only to admins (per AdminAllowlist).")
+                    .font(.system(size: 10))
+                    .foregroundColor(DS.Colors.textTertiary)
+
+                Button(action: {
+                    Task { await EntitlementManager.shared.startCheckout() }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "creditcard.fill")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Test checkout flow")
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                            .stroke(DS.Colors.accent.opacity(0.4), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+
+                Text("Bypasses admin allowlist + paywall gating. Opens Polar checkout in browser. Use to repro reported checkout bugs.")
+                    .font(.system(size: 10))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func userCard(user: SkillyUser) -> some View {
