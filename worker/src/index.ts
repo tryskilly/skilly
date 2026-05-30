@@ -742,14 +742,45 @@ async function handleCheckoutCreate(
 
     if (!polarResponse.ok) {
       const errorText = await polarResponse.text();
-      console.error("[/checkout/create] Polar API error:", errorText);
-      return new Response(JSON.stringify({ error: "Failed to create checkout" }), {
+      console.error("[/checkout/create] Polar API error status=" + polarResponse.status + " body=" + errorText);
+      // MARK: - Skilly — v1.10 silent-failure instrumentation
+      // Fire PostHog event server-side so the next Polar API drift surfaces
+      // in PostHog within minutes instead of weeks. Worker-source events are
+      // tagged source="worker" to distinguish from app-source failures.
+      await trackSilentFailureFromWorker(env, {
+        subsystem: "polar_checkout",
+        httpStatus: polarResponse.status,
+        errorCode: polarResponse.status === 401 ? "polar_token_expired" : "polar_non_2xx",
+        errorMessage: errorText,
+        surface: "worker_checkout_create",
+        userId: authenticatedSession.userId,
+      });
+      return new Response(JSON.stringify({ error: "Failed to create checkout", polar_status: polarResponse.status, polar_body: errorText.slice(0, 500) }), {
         status: 502,
         headers: { "content-type": "application/json" },
       });
     }
 
-    const polarData = await polarResponse.json() as { url?: string };
+    // MARK: - Skilly — Log full Polar response (2026-05-30 diagnostic)
+    // Polar returns 200 OK but Swift app fails silently — need to see
+    // exactly what fields the response contains. Keep this until we
+    // confirm checkout works end-to-end, then trim.
+    const polarText = await polarResponse.text();
+    console.log("[/checkout/create] Polar 200 body=" + polarText.slice(0, 800));
+
+    let polarData: { url?: string; id?: string };
+    try {
+      polarData = JSON.parse(polarText);
+    } catch {
+      console.error("[/checkout/create] Could not JSON.parse Polar response");
+      return new Response(JSON.stringify({ error: "Invalid Polar response" }), { status: 502, headers: { "content-type": "application/json" } });
+    }
+
+    if (!polarData.url) {
+      console.error("[/checkout/create] Polar 200 but no .url in response. Keys: " + Object.keys(polarData).join(","));
+      return new Response(JSON.stringify({ error: "Polar response missing url", polar_keys: Object.keys(polarData) }), { status: 502, headers: { "content-type": "application/json" } });
+    }
+
     return new Response(JSON.stringify({ checkout_url: polarData.url }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -1025,5 +1056,51 @@ async function verifyStandardWebhookSignature(
     return false;
   } catch {
     return false;
+  }
+}
+
+// MARK: - Skilly — v1.10 silent-failure instrumentation (server-side)
+//
+// Every catch path / non-2xx upstream response in the Worker that's swallowed
+// to a generic 5xx for the client MUST call this so the next API drift surfaces
+// in PostHog within minutes instead of weeks. The PostHog project key is the
+// public client-ingest key (phc_...), safe to hardcode in client/edge code.
+//
+// Counterpart to SkillyAnalytics.trackSilentFailure() in the Swift app. Events
+// from this function are tagged source="worker" so dashboard filters can
+// separate worker-source failures from app-source ones.
+const SKILLY_POSTHOG_INGEST_KEY = "phc_D46KQXyPXhmRabFDiL3KUZTWJcmjyqhpGJfpH7H48Sso";
+
+interface SilentFailurePayload {
+  subsystem: string;
+  httpStatus?: number;
+  errorCode?: string;
+  errorMessage: string;
+  surface: string;
+  userId?: string;
+}
+
+async function trackSilentFailureFromWorker(_env: Env, payload: SilentFailurePayload): Promise<void> {
+  try {
+    await fetch("https://us.i.posthog.com/capture/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: SKILLY_POSTHOG_INGEST_KEY,
+        event: "skilly_silent_failure",
+        distinct_id: payload.userId || "worker_skilly-proxy",
+        properties: {
+          subsystem: payload.subsystem,
+          http_status: payload.httpStatus ?? 0,
+          error_code: payload.errorCode ?? "",
+          error_message: payload.errorMessage.slice(0, 200),
+          surface: payload.surface,
+          source: "worker",
+        },
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  } catch {
+    // Don't let analytics failures cascade into the user-facing flow
   }
 }

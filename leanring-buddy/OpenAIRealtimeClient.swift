@@ -153,11 +153,25 @@ final class OpenAIRealtimeClient: ObservableObject {
         // no way to know its Keychain session token has drifted out of sync with
         // the Worker's SESSION_TOKEN_SECRET.
         if statusCode == 401 {
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "openai_token_fetch",
+                httpStatus: 401,
+                errorCode: "auth_expired",
+                errorMessage: "Worker returned 401 — Keychain session token likely stale",
+                surface: "user_ptt"
+            )
             throw OpenAIRealtimeError.authExpired
         }
 
         guard statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "unknown"
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "openai_token_fetch",
+                httpStatus: statusCode,
+                errorCode: "non_200_from_worker",
+                errorMessage: body,
+                surface: "user_ptt"
+            )
             throw OpenAIRealtimeError.connectionFailed("Token relay failed (HTTP \(statusCode)): \(body)")
         }
 
@@ -217,11 +231,25 @@ final class OpenAIRealtimeClient: ObservableObject {
             // The user's key was rejected by OpenAI — surface a distinct error so
             // the UI can tell them to re-paste a valid key instead of generic
             // "auth expired" (which routes to the Skilly sign-in flow).
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "openai_token_byok",
+                httpStatus: 401,
+                errorCode: "byok_key_rejected",
+                errorMessage: "OpenAI rejected user-supplied BYOK key",
+                surface: "user_ptt"
+            )
             throw OpenAIRealtimeError.connectionFailed("OpenAI rejected your API key (HTTP 401). Open Settings → API Key and paste a valid key from platform.openai.com/api-keys.")
         }
 
         guard statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "unknown"
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "openai_token_byok",
+                httpStatus: statusCode,
+                errorCode: "non_200_from_openai",
+                errorMessage: body,
+                surface: "user_ptt"
+            )
             throw OpenAIRealtimeError.connectionFailed("OpenAI session mint failed (HTTP \(statusCode)): \(body)")
         }
 
