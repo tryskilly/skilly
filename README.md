@@ -6,7 +6,11 @@ Built for learning creative software: Figma, Blender, After Effects, and more. E
 
 **[tryskilly.app](https://tryskilly.app)** | **[Download](https://github.com/tryskilly/skilly/releases/latest/download/Skilly.dmg)**
 
-## What's new in v1.6 (2026-05-21)
+![Skilly — a voice-first AI tutor that watches your macOS screen and points at UI elements](skilly-demo.gif)
+
+## What's new in v2.0 (2026-05-30)
+
+**Now running on OpenAI's GA Realtime API (`gpt-realtime`).** The entire voice pipeline moved off the old beta endpoint onto OpenAI's generally-available Realtime stack — lower latency and a noticeably more natural voice.
 
 **Bring your own OpenAI API key.** Paste your `sk-proj-...` key in Settings → Account → API Key, hit "Verify & save," and the 15-minute trial gating disappears. You're billed by OpenAI directly (~$0.06–0.10 per minute of voice). No card on file with us, no subscription required.
 
