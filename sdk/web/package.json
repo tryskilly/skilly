@@ -17,10 +17,12 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "demo": "tsup && node -e \"require('http').createServer((q,s)=>{const f=require('path').join(process.cwd(),q.url==='/'?'demo/index.html':q.url);require('fs').readFile(f,(e,d)=>{if(e){s.statusCode=404;return s.end()}s.setHeader('content-type',f.endsWith('.js')?'text/javascript':'text/html');s.end(d)})}).listen(4321,()=>console.log('demo on http://localhost:4321'))\""
   },
   "devDependencies": {
+    "bun-types": "^1.2.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0"
   }

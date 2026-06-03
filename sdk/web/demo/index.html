@@ -41,10 +41,23 @@
     <script>
       // Programmatic API usage (the IIFE exposes window.Skilly).
       window.addEventListener("DOMContentLoaded", () => {
+        // Live mode: ?backend=http://localhost:4310 re-inits with a token source
+        // (Phase 8.3). Without it, the widget stays in simulated mode.
+        const backendUrl = new URLSearchParams(location.search).get("backend");
+        if (backendUrl) {
+          window.Skilly.destroy();
+          window.Skilly.init({
+            key: "pk_test_demolocaldemolocaldemolocal01", // backend's seeded demo tenant
+            skill: "acme-onboarding",
+            backendUrl,
+          });
+        }
+
         document.getElementById("start-onboarding").addEventListener("click", () => {
           window.Skilly.start("set up your first project");
         });
         window.Skilly.on("complete", () => console.log("[demo] turn complete"));
+        window.Skilly.on("error", (e) => console.log("[demo] error:", e.message));
       });
     </script>
   </body>

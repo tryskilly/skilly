@@ -17,6 +17,9 @@ import { loadCore } from "./core.js";
 import { SkillyWidget } from "./widget.js";
 import { buildDomDigest, type DomDigest, type ElementRegistry } from "./digest.js";
 import { parsePointTags, PointingEngine } from "./pointing.js";
+import { fetchSessionToken, fetchTenantSkill } from "./token.js";
+import { buildCompanionInstructions } from "./prompt.js";
+import { RealtimeSession, type RealtimeState } from "./realtime.js";
 import type {
   SkillyConfig,
   SkillyEventHandler,
@@ -27,12 +30,19 @@ import type {
 const DEFAULT_ACCENT = "#2F6BFF";
 
 class SkillyController {
+  private config: SkillyConfig | null = null;
   private widget: SkillyWidget | null = null;
   private pointing: PointingEngine | null = null;
   private currentRegistry: ElementRegistry | null = null;
   // Storage is type-erased; the public on()/emit() signatures keep callers type-safe.
   private handlers = new Map<SkillyEventName, Set<(payload: never) => void>>();
   private turnInProgress = false;
+
+  // Live (8.3) vs. simulated (no backend) mode.
+  private liveMode = false;
+  private realtimeSession: RealtimeSession | null = null;
+  private liveActive = false;
+  private lastPointedTarget: string | null = null;
 
   init(config: SkillyConfig): void {
     if (this.widget) {
@@ -43,13 +53,16 @@ class SkillyController {
       console.error("[skilly] init() requires a publishable `key`.");
       return;
     }
+    this.config = config;
+    // Voice pipeline is enabled when a backend (token source) is configured.
+    this.liveMode = Boolean(config.backendUrl);
 
     this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT);
     this.widget.onLauncherActivated = () => this.start();
     this.widget.mount();
     this.pointing = new PointingEngine(this.widget);
 
-    // Begin loading the shared WASM core in the background (optional in 8.1).
+    // Begin loading the shared WASM core in the background (optional).
     void loadCore(config.coreUrl);
   }
 
@@ -70,13 +83,22 @@ class SkillyController {
    * demonstrable; 8.3 replaces this with the OpenAI Realtime voice pipeline.
    */
   start(goal?: string): void {
-    if (!this.widget || !this.pointing || this.turnInProgress) {
+    if (!this.widget || !this.pointing) {
+      return;
+    }
+    // Live mode: the launcher toggles a continuous Realtime voice session.
+    if (this.liveMode) {
+      void this.toggleLiveSession(goal);
+      return;
+    }
+    // Simulated mode (no backend configured) — keeps the embed demonstrable.
+    if (this.turnInProgress) {
       return;
     }
     this.turnInProgress = true;
     this.emit("turn", { goal });
 
-    // Capture the page as a DOM digest at the start of the turn (8.3 sends it to the AI).
+    // Capture the page as a DOM digest at the start of the turn.
     const digest = this.getPageDigest();
 
     this.widget.setState("listening");
@@ -138,6 +160,107 @@ class SkillyController {
     }
   }
 
+  // ----- Live voice mode (Phase 8.3) ---------------------------------------
+
+  /** Toggle the continuous Realtime session: connect if idle, stop if active. */
+  private async toggleLiveSession(goal?: string): Promise<void> {
+    if (this.liveActive) {
+      this.stopLiveSession();
+      return;
+    }
+    const config = this.config;
+    if (!this.widget || !config || !config.backendUrl) {
+      return;
+    }
+    const backendUrl = config.backendUrl;
+
+    this.liveActive = true;
+    this.emit("turn", { goal });
+    this.widget.setState("thinking");
+    this.widget.setBubbleText("Connecting…");
+
+    try {
+      // Capture the page + fetch the tenant's token and skill in parallel.
+      const digest = this.getPageDigest();
+      const [token, skillContent] = await Promise.all([
+        fetchSessionToken({ backendUrl, publishableKey: config.key }),
+        config.skill
+          ? fetchTenantSkill({ backendUrl, publishableKey: config.key, skillId: config.skill }).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      const instructions = buildCompanionInstructions({ skillContent, digest });
+      this.realtimeSession = new RealtimeSession({
+        clientSecret: token.clientSecret,
+        model: token.model,
+        instructions,
+        callbacks: {
+          onStateChange: (state) => this.onRealtimeState(state),
+          onUserTranscript: () => {},
+          onAssistantText: (text) => this.onAssistantText(text),
+          onError: (message) => {
+            this.widget?.setBubbleText(`Sorry — ${message}`);
+            this.emit("error", { message });
+          },
+        },
+      });
+      await this.realtimeSession.connect();
+    } catch (sessionError) {
+      this.liveActive = false;
+      const message = sessionError instanceof Error ? sessionError.message : "couldn't start session";
+      this.widget.setState("idle");
+      this.widget.setBubbleText(`Sorry — ${message}`);
+      this.emit("error", { message });
+    }
+  }
+
+  private onRealtimeState(state: RealtimeState): void {
+    if (!this.widget) {
+      return;
+    }
+    if (state === "connecting") {
+      this.widget.setState("thinking");
+    } else if (state === "live") {
+      this.widget.setState("listening");
+      this.widget.setBubbleText("Listening… ask me anything.");
+    } else if (state === "closed" || state === "error") {
+      this.widget.setState("idle");
+    }
+  }
+
+  /** Each assistant text update: show it, and drive any new [POINT] tag. */
+  private onAssistantText(fullText: string): void {
+    if (!this.widget || !this.pointing) {
+      return;
+    }
+    this.widget.setState("speaking");
+    const { cleanedText, points } = parsePointTags(fullText);
+    this.widget.setBubbleText(cleanedText);
+
+    const point = points[0];
+    if (point && point.target !== this.lastPointedTarget) {
+      this.lastPointedTarget = point.target;
+      void this.pointing
+        .pointAt(point.target, point.label, this.currentRegistry ?? undefined)
+        .then((resolved) => {
+          if (resolved) {
+            this.emit("point", { selector: point.target, label: resolved.label });
+          }
+        });
+    }
+  }
+
+  private stopLiveSession(): void {
+    this.realtimeSession?.close();
+    this.realtimeSession = null;
+    this.liveActive = false;
+    this.lastPointedTarget = null;
+    this.pointing?.clear();
+    this.widget?.setState("idle");
+    this.widget?.setBubbleText("");
+    this.emit("complete", {});
+  }
+
   /** Subscribe to a companion event. Returns an unsubscribe function. */
   on<Name extends SkillyEventName>(event: Name, handler: SkillyEventHandler<Name>): () => void {
     let handlerSet = this.handlers.get(event);
@@ -160,11 +283,15 @@ class SkillyController {
 
   /** Tear down the widget and clear subscriptions. */
   destroy(): void {
+    this.realtimeSession?.close();
+    this.realtimeSession = null;
+    this.liveActive = false;
     this.pointing?.clear();
     this.pointing = null;
     this.currentRegistry = null;
     this.widget?.destroy();
     this.widget = null;
+    this.config = null;
     this.handlers.clear();
     this.turnInProgress = false;
   }

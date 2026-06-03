@@ -8,21 +8,28 @@ install it on their own web app; their visitors get the companion. See
 This package consumes the shared Rust core compiled to WASM (`core/web-sdk`,
 output in `sdk/web/generated/`).
 
-## Status — Phases 8.1 + 8.2
+## Status — Phases 8.1 → 8.3
 
 What's here:
 - **8.1** `@skilly/web` package: Shadow-DOM widget (launcher, response bubble,
   blue cursor), the public `Skilly` API, and the lazy WASM-core loader.
-- **8.2** **DOM digest** (`getPageDigest()`) — a structured, screenshot-free view
-  of the page's interactive/annotated elements with stable ids + rects — and the
-  **selector-based pointing engine**: `[POINT:id:label]` → resolve (digest id /
-  `data-skilly` / CSS / visible text) → **bezier-arc cursor flight** → re-anchor
-  on scroll/resize.
-- A simulated turn lifecycle (listening → thinking → speaking → complete) so the
-  embed is demonstrable end-to-end.
+- **8.2** **DOM digest** (`getPageDigest()`) + the **selector-based pointing
+  engine**: `[POINT:id:label]` → resolve (digest id / `data-skilly` / CSS /
+  visible text) → **bezier-arc cursor flight** → re-anchor on scroll/resize.
+- **8.3** **Voice pipeline**: when `backendUrl` is set, the launcher opens a
+  continuous OpenAI **Realtime session over WebRTC** — token from the backend
+  (`token.ts`), companion instructions composed from the SKILL.md + DOM digest
+  (`prompt.ts`), mic up / model voice down (`realtime.ts`), and the model's
+  `[POINT]` tags fed straight into the pointing engine. Without `backendUrl` the
+  widget falls back to a simulated turn lifecycle (so the demo runs key-free).
 
-Layered on next: **8.3** OpenAI Realtime voice pipeline (replaces the simulated
-turn) · **8.4+** multi-tenant Next.js backend (keys, metering, SKILL.md serving).
+Layered on next: **8.5** site-owner dashboard · **8.6** Polar billing +
+session-seconds metering.
+
+> The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` in the backend
+> + a mic, so it's validated by build + a live session, not headless tests. The
+> token-fetch + error-handling seam IS validated end-to-end against the backend
+> (`demo/index.html?backend=http://localhost:4310`).
 
 ## Install / embed
 
