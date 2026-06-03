@@ -164,6 +164,19 @@ cargo check --workspace
 cargo test --workspace
 ```
 
+### Mobile SDK Bindings (`sdk/`) — landed on `develop` (Slice 3)
+
+UniFFI-generated iOS (Swift) and Android (Kotlin) bindings over `core/mobile-sdk`, plus sample consumers and packaging scripts. The `sdk/*/generated/**` files are machine-generated — **regenerate, never hand-edit** (`scripts/generate-mobile-sdk-bindings.sh`; output is byte-reproducible from the crate).
+
+| File | Purpose |
+|------|---------|
+| `sdk/ios/generated/*` | UniFFI Swift bindings + FFI header/modulemap for iOS consumers. |
+| `sdk/android/generated/.../skilly_core_mobile_sdk.kt` | UniFFI Kotlin bindings for Android consumers. |
+| `sdk/{ios,android}/sample/*` | Sample apps showing policy gating + realtime replay against the bindings. |
+| `scripts/generate-mobile-sdk-bindings.sh` | Builds the crate + regenerates Swift/Kotlin bindings into `sdk/`. |
+| `scripts/package-mobile-sdk.sh` / `validate-mobile-sdk-consumers.sh` | Package and end-to-end validate generated SDK consumers. |
+| `.github/workflows/mobile-sdk-artifacts.yml` | Release-triggered packaging/publishing of mobile SDK + FFI tarballs. |
+
 ### Skill Files
 
 The repo ships 5 bundled skills under `skills/`, also copied into the app bundle under `Resources/skills/` so new users get them without downloading anything.

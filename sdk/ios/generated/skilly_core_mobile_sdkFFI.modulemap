@@ -1,0 +1,4 @@
+module skilly_core_mobile_sdkFFI {
+    header "skilly_core_mobile_sdkFFI.h"
+    export *
+}

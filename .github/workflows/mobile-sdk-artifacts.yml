@@ -1,0 +1,75 @@
+name: Mobile SDK Artifacts
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  package-mobile-sdk:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and package mobile SDK artifact
+        run: ./scripts/package-mobile-sdk.sh
+      - name: Upload mobile SDK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-sdk-${{ matrix.os }}
+          path: |
+            dist/mobile-sdk/*.tar.gz
+            dist/mobile-sdk/*.tar.gz.sha256
+
+  package-rust-ffi:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and package Rust FFI artifact
+        run: ./scripts/package-rust-ffi-dylib.sh
+      - name: Upload Rust FFI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-ffi-${{ matrix.os }}
+          path: |
+            dist/rust-ffi/*.tar.gz
+            dist/rust-ffi/*.tar.gz.sha256
+
+  publish-release-assets:
+    if: github.event_name == 'release'
+    needs: [package-mobile-sdk, package-rust-ffi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download mobile SDK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mobile-sdk-*
+          merge-multiple: true
+          path: dist/mobile-sdk
+
+      - name: Download Rust FFI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rust-ffi-*
+          merge-multiple: true
+          path: dist/rust-ffi
+
+      - name: Publish artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/mobile-sdk/*.tar.gz
+            dist/mobile-sdk/*.tar.gz.sha256
+            dist/rust-ffi/*.tar.gz
+            dist/rust-ffi/*.tar.gz.sha256
