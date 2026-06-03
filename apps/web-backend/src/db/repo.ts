@@ -28,6 +28,20 @@ export interface UsageEvent {
   seconds: number;
 }
 
+/** Display-safe key metadata for the dashboard (never includes the raw key). */
+export interface ApiKeyInfo {
+  id: string;
+  keyType: KeyType;
+  prefix: string;
+  last4: string;
+  revoked: boolean;
+}
+
+export interface UsageSummary {
+  usageSecondsThisPeriod: number;
+  capSeconds: number;
+}
+
 export interface WebBackendRepo {
   /** Look up a tenant + key type by the key's sha256 hash. Null if unknown/revoked. */
   findTenantByKeyHash(keyHash: string): Promise<KeyLookup | null>;
@@ -37,4 +51,13 @@ export interface WebBackendRepo {
   getUsageSecondsThisPeriod(tenantId: string): Promise<number>;
   /** Append a metered usage event. */
   recordUsage(event: UsageEvent): Promise<void>;
+
+  // --- Dashboard (Phase 8.5) ---
+  getTenant(tenantId: string): Promise<Tenant | null>;
+  listApiKeys(tenantId: string): Promise<ApiKeyInfo[]>;
+  /** Create a key; returns the raw value ONCE (caller shows it, never stored raw). */
+  createApiKey(tenantId: string, keyType: KeyType): Promise<{ rawKey: string; info: ApiKeyInfo }>;
+  revokeApiKey(tenantId: string, keyId: string): Promise<void>;
+  saveTenantSkill(tenantId: string, skillId: string, content: string): Promise<void>;
+  getUsageSummary(tenantId: string): Promise<UsageSummary>;
 }
