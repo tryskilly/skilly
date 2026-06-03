@@ -92,13 +92,19 @@ export class SkillyWidget {
     }
   }
 
-  /**
-   * Fly the blue cursor to a viewport point. Phase 8.2 resolves a selector to
-   * this point and adds the bezier-arc easing; here it's a direct translate.
-   */
-  moveCursorTo(viewportX: number, viewportY: number): void {
+  /** Make the cursor visible (positioning is driven by the PointingEngine). */
+  showCursor(): void {
     this.cursorElement.setAttribute("data-visible", "true");
-    this.cursorElement.style.transform = `translate(${viewportX}px, ${viewportY}px)`;
+  }
+
+  /**
+   * Set the cursor's viewport position instantly. The PointingEngine calls this
+   * per animation frame to fly the cursor along a bezier arc (Phase 8.2), so the
+   * element itself has no CSS transform transition. Offset by a few px so the
+   * cursor's tip — not its top-left corner — lands on the target.
+   */
+  setCursorPosition(viewportX: number, viewportY: number): void {
+    this.cursorElement.style.transform = `translate(${viewportX - 3}px, ${viewportY - 3}px)`;
   }
 
   hideCursor(): void {

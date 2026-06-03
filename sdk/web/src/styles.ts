@@ -79,7 +79,7 @@ export const WIDGET_STYLES = /* css */ `
   height: 22px;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.2s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.2s ease;
   z-index: 2147483647;
   will-change: transform;
 }

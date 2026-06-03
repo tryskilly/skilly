@@ -15,6 +15,8 @@
 
 import { loadCore } from "./core.js";
 import { SkillyWidget } from "./widget.js";
+import { buildDomDigest, type DomDigest, type ElementRegistry } from "./digest.js";
+import { parsePointTags, PointingEngine } from "./pointing.js";
 import type {
   SkillyConfig,
   SkillyEventHandler,
@@ -26,6 +28,8 @@ const DEFAULT_ACCENT = "#2F6BFF";
 
 class SkillyController {
   private widget: SkillyWidget | null = null;
+  private pointing: PointingEngine | null = null;
+  private currentRegistry: ElementRegistry | null = null;
   // Storage is type-erased; the public on()/emit() signatures keep callers type-safe.
   private handlers = new Map<SkillyEventName, Set<(payload: never) => void>>();
   private turnInProgress = false;
@@ -43,9 +47,21 @@ class SkillyController {
     this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT);
     this.widget.onLauncherActivated = () => this.start();
     this.widget.mount();
+    this.pointing = new PointingEngine(this.widget);
 
     // Begin loading the shared WASM core in the background (optional in 8.1).
     void loadCore(config.coreUrl);
+  }
+
+  /**
+   * Snapshot the host page as a DOM digest — the structured, screenshot-free
+   * view the companion reasons over (and references in [POINT:id] tags). The
+   * AI integration that consumes this lands in Phase 8.3.
+   */
+  getPageDigest(): DomDigest {
+    const { digest, registry } = buildDomDigest();
+    this.currentRegistry = registry;
+    return digest;
   }
 
   /**
@@ -54,11 +70,14 @@ class SkillyController {
    * demonstrable; 8.3 replaces this with the OpenAI Realtime voice pipeline.
    */
   start(goal?: string): void {
-    if (!this.widget || this.turnInProgress) {
+    if (!this.widget || !this.pointing || this.turnInProgress) {
       return;
     }
     this.turnInProgress = true;
     this.emit("turn", { goal });
+
+    // Capture the page as a DOM digest at the start of the turn (8.3 sends it to the AI).
+    const digest = this.getPageDigest();
 
     this.widget.setState("listening");
     this.widget.setBubbleText("Listening…");
@@ -69,24 +88,54 @@ class SkillyController {
     }, 800);
 
     window.setTimeout(() => {
-      this.widget?.setState("speaking");
-      this.widget?.setBubbleText(
-        goal
-          ? `Let's get started with: ${goal}`
-          : "Hi! I'm Skilly. Ask me how to do anything on this site and I'll point you to it.",
-      );
-      // Pointing demo (8.2 will resolve a real selector to these coordinates).
-      this.widget?.moveCursorTo(window.innerWidth / 2, window.innerHeight / 2);
-      this.emit("point", { selector: "body", label: "demo target" });
+      void this.respondAndPoint(goal, digest);
     }, 1600);
 
     window.setTimeout(() => {
       this.widget?.setState("idle");
       this.widget?.setBubbleText("");
-      this.widget?.hideCursor();
+      this.pointing?.clear();
       this.turnInProgress = false;
       this.emit("complete", {});
-    }, 3600);
+    }, 4200);
+  }
+
+  /**
+   * 8.2: simulate the companion's response (which, from 8.3, will come from the
+   * AI over the Realtime connection) and run its `[POINT:id:label]` tag through
+   * the real pointing engine against the live DOM.
+   */
+  private async respondAndPoint(goal: string | undefined, digest: DomDigest): Promise<void> {
+    if (!this.widget || !this.pointing) {
+      return;
+    }
+    this.widget.setState("speaking");
+
+    // Pick a real, demonstrable target: an authored annotation, else a heading.
+    const target =
+      digest.elements.find((element) => !/^el_\d+$/.test(element.id)) ??
+      digest.elements.find((element) => element.role === "heading") ??
+      digest.elements[0];
+
+    const intro = goal ? `Let's start with "${goal}".` : "Hi! I'm Skilly.";
+    const simulatedResponse = target
+      ? `${intro} ${target.label} is right here. [POINT:${target.id}:${target.label}]`
+      : `${intro} Ask me how to do anything on this site and I'll point you to it.`;
+
+    const { cleanedText, points } = parsePointTags(simulatedResponse);
+    this.widget.setBubbleText(cleanedText);
+
+    const firstPoint = points[0];
+    if (firstPoint) {
+      const resolved = await this.pointing.pointAt(
+        firstPoint.target,
+        firstPoint.label,
+        this.currentRegistry ?? undefined,
+      );
+      if (resolved) {
+        this.emit("point", { selector: firstPoint.target, label: resolved.label });
+      }
+    }
   }
 
   /** Subscribe to a companion event. Returns an unsubscribe function. */
@@ -111,6 +160,9 @@ class SkillyController {
 
   /** Tear down the widget and clear subscriptions. */
   destroy(): void {
+    this.pointing?.clear();
+    this.pointing = null;
+    this.currentRegistry = null;
     this.widget?.destroy();
     this.widget = null;
     this.handlers.clear();
@@ -139,8 +191,11 @@ export const on = <Name extends SkillyEventName>(
 export const identify = (endUserId: string, traits?: Record<string, unknown>): void =>
   controller.identify(endUserId, traits);
 export const destroy = (): void => controller.destroy();
+/** Snapshot the host page as a DOM digest (the screenshot-free page view). */
+export const getPageDigest = (): DomDigest => controller.getPageDigest();
 
 export type { SkillyConfig, SkillyEventMap, SkillyEventName } from "./types.js";
+export type { DomDigest, DigestElement } from "./digest.js";
 
 // Auto-init from `<script data-skilly-key="..." data-skilly-skill="...">`.
 // Only runs in the script-embed (IIFE) path, where `currentScript` is set.
