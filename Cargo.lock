@@ -466,6 +466,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "skilly-linux-shell"
+version = "0.1.0"
+dependencies = [
+ "skilly-core-domain",
+ "skilly-core-policy",
+ "skilly-core-realtime",
+]
+
+[[package]]
+name = "skilly-windows-shell"
+version = "0.1.0"
+dependencies = [
+ "skilly-core-domain",
+ "skilly-core-policy",
+ "skilly-core-realtime",
+]
+
+[[package]]
 name = "smawk"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

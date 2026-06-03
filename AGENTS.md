@@ -177,6 +177,18 @@ UniFFI-generated iOS (Swift) and Android (Kotlin) bindings over `core/mobile-sdk
 | `scripts/package-mobile-sdk.sh` / `validate-mobile-sdk-consumers.sh` | Package and end-to-end validate generated SDK consumers. |
 | `.github/workflows/mobile-sdk-artifacts.yml` | Release-triggered packaging/publishing of mobile SDK + FFI tarballs. |
 
+### Native Shells (`apps/`) — landed on `develop` (Slice 4)
+
+Platform shell bootstrap binaries that run the shared-core turn-start flow through explicit capability adapters (capture/hotkey/overlay/audio/permissions). See `docs/architecture/{adapter-contracts,phase-7-windows-shell-prd}.md`.
+
+| File | Purpose |
+|------|---------|
+| `apps/windows-shell/src/{main,lib}.rs` | Windows shell bootstrap + adapter trait surface; `--smoke` runs a turn-start through the Rust core. |
+| `apps/linux-shell/src/main.rs` | Linux shell bootstrap with session-aware capability reporting; `--smoke` flag. |
+| `apps/windows-shell-gui/*` | Windows host app (Tauri 2). **Excluded from the default cargo workspace** (`exclude` in root `Cargo.toml`) — needs Windows/CI build deps; not built by local `cargo check --workspace`. |
+
+> Validated on macOS: `cargo check --workspace` + `cargo run -p skilly-{windows,linux}-shell -- --smoke` both pass (turn-start `allowed=true`, `phase=completed`). The Tauri GUI builds in CI on Windows.
+
 ### Skill Files
 
 The repo ships 5 bundled skills under `skills/`, also copied into the app bundle under `Resources/skills/` so new users get them without downloading anything.

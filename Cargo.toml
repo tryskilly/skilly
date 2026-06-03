@@ -6,8 +6,12 @@ members = [
     "core/skills",
     "core/realtime",
     "core/mobile-sdk",
-    # apps/* shell crates are added in Slice 4 (Windows/Linux shells)
+    "apps/windows-shell",
+    "apps/linux-shell",
 ]
+# windows-shell-gui pulls Tauri 2 (Windows/CI build deps); excluded from the
+# default workspace so `cargo check --workspace` stays buildable on macOS.
+exclude = ["apps/windows-shell-gui"]
 resolver = "2"
 
 [workspace.package]
