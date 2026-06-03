@@ -60,4 +60,8 @@ export interface WebBackendRepo {
   revokeApiKey(tenantId: string, keyId: string): Promise<void>;
   saveTenantSkill(tenantId: string, skillId: string, content: string): Promise<void>;
   getUsageSummary(tenantId: string): Promise<UsageSummary>;
+
+  // --- Billing (Phase 8.6) ---
+  /** Set the tenant's monthly usage cap (0 = unlimited / no paid access). */
+  setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void>;
 }

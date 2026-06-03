@@ -57,6 +57,22 @@ export async function fetchSessionToken(options: ClientOptions): Promise<Session
   };
 }
 
+/** POST /api/web/usage → meter the session's seconds (best-effort; never throws). */
+export async function reportSessionUsage(
+  options: ClientOptions & { seconds: number },
+): Promise<void> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    await fetchImpl(endpoint(options.backendUrl, "/api/web/usage"), {
+      method: "POST",
+      headers: { "X-Skilly-Key": options.publishableKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ seconds: Math.max(0, Math.round(options.seconds)) }),
+    });
+  } catch {
+    // Metering is best-effort; a failed report must not disrupt the user.
+  }
+}
+
 /** GET /api/web/skill?skill=<id> → the tenant's compiled SKILL.md, or null if absent. */
 export async function fetchTenantSkill(
   options: ClientOptions & { skillId: string },
