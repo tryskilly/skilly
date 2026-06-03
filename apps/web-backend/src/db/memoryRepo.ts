@@ -163,4 +163,11 @@ export class MemoryRepo implements WebBackendRepo {
       capSeconds: tenant?.usageCapSeconds ?? 0,
     };
   }
+
+  async setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.usageCapSeconds = capSeconds;
+    }
+  }
 }

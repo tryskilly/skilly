@@ -231,21 +231,21 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 
 > Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (prompt + token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
 
-### Web backend (`apps/web-backend`) — Web SDK Phases 8.4 + 8.5
+### Web backend (`apps/web-backend`) — Web SDK Phases 8.4–8.6
 
-Multi-tenant control plane + dashboard: **Next.js (App Router) + Tailwind + Postgres**, the successor to the Worker's `/openai/token` for the web SDK. Build via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
+Multi-tenant control plane + dashboard + billing: **Next.js (App Router) + Tailwind + Postgres**, the successor to the Worker's `/openai/token` + Polar logic for the web SDK. Build via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
 
 | File | Purpose |
 |------|---------|
-| `src/domain/{keys,origin,quota,openaiToken,skillValidation}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), usage quota, OpenAI mint (injectable `fetch`), SKILL.md safety scan. |
-| `src/db/*` | `WebBackendRepo` interface + Postgres impl (`pg`) + in-memory impl (seeded demo tenant); `getRepo()` picks by `DATABASE_URL`. Includes dashboard ops (key CRUD, skill save, usage summary). |
+| `src/domain/{keys,origin,quota,openaiToken,skillValidation,billing}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), usage quota, OpenAI mint, SKILL.md safety scan, Polar Standard-Webhooks verify + event→cap + checkout body. |
+| `src/db/*` | `WebBackendRepo` interface + Postgres (`pg`) + in-memory (seeded demo) impls; `getRepo()` picks by `DATABASE_URL`. Dashboard + billing ops (key CRUD, skill save, usage summary, `setTenantUsageCap`). |
 | `src/tenantService.ts` | Framework-free auth → quota → mint orchestration. |
-| `src/app/api/web/{token,skill}/route.ts` | Runtime routes: `POST /api/web/token` (mint), `GET /api/web/skill`. CORS + key/origin extraction. |
-| `src/app/dashboard/**` (8.5) | Dashboard UI (Tailwind): `/dashboard` (usage, origins, key management) + `/dashboard/skill` (SKILL.md editor, validate-on-save) + server `actions.ts`. |
+| `src/app/api/web/{token,skill,usage,checkout}/route.ts` + `webhooks/polar` | Routes: mint token, serve SKILL.md, meter session seconds, start checkout, Polar webhook (verified → set cap). |
+| `src/app/dashboard/**` | Dashboard UI (Tailwind): usage, **plan + upgrade**, key management, SKILL.md editor (validate-on-save) + server `actions.ts`. |
 | `src/lib/session.ts` | Tenant resolution — dev = seeded demo tenant; prod = WorkOS session (follow-up). |
 | `db/schema.sql` | Postgres schema (tenants, api_keys, tenant_skills, usage_events). |
 
-> Env: `OPENAI_API_KEY` (mint), `DATABASE_URL` (optional — in-memory demo otherwise). Validated: `bun test` **21/21**, `tsc` clean, `next build` clean, runtime smoke (token: health 200, bad-key **401**, bad-origin **403**, no-key 500, skill 200), and Playwright on the dashboard (renders, create-key one-time reveal, skill validation rejects injection + saves valid). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). Next: **8.6** Polar billing + session metering.
+> Env: `OPENAI_API_KEY`, `DATABASE_URL` (optional), `POLAR_{ACCESS_TOKEN,PRODUCT_ID,WEBHOOK_SECRET,PLAN_CAP_SECONDS}`. Validated: `bun test` **27/27**, `tsc` + `next build` clean, and Playwright end-to-end — token (401/403/500/200), dashboard (key reveal, skill validation), and **billing**: meter usage → signed Polar webhook (bad sig **401**) sets the cap → dashboard shows the new plan (`600 min/month`, `2/600 used`). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). **The web SDK is now functionally complete (8.0–8.6).**
 
 ### Skill Files
 

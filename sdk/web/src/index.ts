@@ -17,7 +17,7 @@ import { loadCore } from "./core.js";
 import { SkillyWidget } from "./widget.js";
 import { buildDomDigest, type DomDigest, type ElementRegistry } from "./digest.js";
 import { parsePointTags, PointingEngine } from "./pointing.js";
-import { fetchSessionToken, fetchTenantSkill } from "./token.js";
+import { fetchSessionToken, fetchTenantSkill, reportSessionUsage } from "./token.js";
 import { buildCompanionInstructions } from "./prompt.js";
 import { RealtimeSession, type RealtimeState } from "./realtime.js";
 import type {
@@ -42,6 +42,7 @@ class SkillyController {
   private liveMode = false;
   private realtimeSession: RealtimeSession | null = null;
   private liveActive = false;
+  private liveSessionStartedAt = 0;
   private lastPointedTarget: string | null = null;
 
   init(config: SkillyConfig): void {
@@ -175,6 +176,7 @@ class SkillyController {
     const backendUrl = config.backendUrl;
 
     this.liveActive = true;
+    this.liveSessionStartedAt = Date.now();
     this.emit("turn", { goal });
     this.widget.setState("thinking");
     this.widget.setBubbleText("Connecting…");
@@ -258,6 +260,18 @@ class SkillyController {
     this.pointing?.clear();
     this.widget?.setState("idle");
     this.widget?.setBubbleText("");
+
+    // Meter the session's seconds (best-effort, Phase 8.6).
+    const elapsedSeconds = this.liveSessionStartedAt ? (Date.now() - this.liveSessionStartedAt) / 1000 : 0;
+    this.liveSessionStartedAt = 0;
+    if (this.config?.backendUrl && elapsedSeconds > 0) {
+      void reportSessionUsage({
+        backendUrl: this.config.backendUrl,
+        publishableKey: this.config.key,
+        seconds: elapsedSeconds,
+      });
+    }
+
     this.emit("complete", {});
   }
 

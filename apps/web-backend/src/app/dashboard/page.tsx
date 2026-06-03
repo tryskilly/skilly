@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getRepo } from "@/db";
 import { getCurrentTenantId } from "@/lib/session";
 import { KeyManager } from "./KeyManager";
+import { BillingCard } from "./BillingCard";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,8 @@ export default async function DashboardPage() {
           </div>
         )}
       </section>
+
+      <BillingCard capSeconds={usage.capSeconds} />
 
       <section className="mb-8 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">Allowed origins</h2>

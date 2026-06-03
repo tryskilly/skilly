@@ -138,4 +138,8 @@ export class PostgresRepo implements WebBackendRepo {
     );
     return { usageSecondsThisPeriod, capSeconds: Number(result.rows[0]?.usage_cap_seconds ?? 0) };
   }
+
+  async setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET usage_cap_seconds = $2 WHERE id = $1`, [tenantId, capSeconds]);
+  }
 }

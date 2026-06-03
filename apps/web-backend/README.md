@@ -5,7 +5,7 @@ Postgres**. Mints ephemeral OpenAI tokens for the `@skilly/web` widget, serves
 tenant skills, and meters usage. This is the multi-tenant successor to the
 Cloudflare Worker's `/openai/token`. See `docs/architecture/web-sdk-prd.md`.
 
-## Status — Phases 8.4 + 8.5
+## Status — Phases 8.4 → 8.6 (web SDK control plane complete)
 
 Control plane (8.4):
 - `POST /api/web/token` — validate publishable key + origin + quota → mint an
@@ -23,8 +23,19 @@ Dashboard (8.5) — Next.js + Tailwind:
 - Auth: dev acts as the seeded demo tenant (`lib/session.ts`); production resolves
   the tenant from a WorkOS session (follow-up).
 
-Next: **8.6** billing + session-seconds metering (Polar). The `@skilly/web` widget
-(8.3) calls `/api/web/token` to get the secret it connects to OpenAI Realtime with.
+Billing + metering (8.6):
+- `POST /api/web/usage` — the widget reports session seconds → `usage_events`
+  (the quota engine already reads these).
+- `POST /api/web/webhooks/polar` — Standard-Webhooks-verified subscription events
+  set the tenant's `usage_cap_seconds` by plan (`domain/billing.ts`).
+- `POST /api/web/checkout` — start a Polar checkout (tenant id in metadata).
+- Dashboard shows the current plan + Manage/Upgrade.
+
+The `@skilly/web` widget (8.3) calls `/api/web/token` to get the secret it connects
+to OpenAI Realtime with, and `/api/web/usage` to meter the session.
+
+Env (billing): `POLAR_ACCESS_TOKEN`, `POLAR_PRODUCT_ID`, `POLAR_WEBHOOK_SECRET`,
+`POLAR_PLAN_CAP_SECONDS` (ports the Worker's Polar setup).
 
 ## Architecture
 
