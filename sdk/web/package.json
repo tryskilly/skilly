@@ -1,0 +1,27 @@
+{
+  "name": "@skilly/web",
+  "version": "0.1.0",
+  "description": "Embeddable Skilly companion for websites — guided onboarding + live support that sees the page, points at UI elements, and talks the user through it.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/skilly-web.js",
+  "module": "./dist/skilly-web.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/skilly-web.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "demo": "tsup && node -e \"require('http').createServer((q,s)=>{const f=require('path').join(process.cwd(),q.url==='/'?'demo/index.html':q.url);require('fs').readFile(f,(e,d)=>{if(e){s.statusCode=404;return s.end()}s.setHeader('content-type',f.endsWith('.js')?'text/javascript':'text/html');s.end(d)})}).listen(4321,()=>console.log('demo on http://localhost:4321'))\""
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  }
+}
