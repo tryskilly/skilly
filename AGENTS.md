@@ -226,7 +226,21 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 | `sdk/web/src/pointing.ts` | **8.2** Pointing engine: parse `[POINT:id:label]`, resolve (digest id / `data-skilly` / CSS / visible text), bezier-arc cursor flight, scroll/resize re-anchor. |
 | `sdk/web/demo/index.html` | Demo host page (`bun run demo`). |
 
-> A simulated turn lifecycle (listening→thinking→speaking→complete) keeps the embed demonstrable until 8.3. Validated: `bun run typecheck` + `bun run build` clean; Playwright confirms the widget mounts and renders, and (8.2) that the cursor flies a bezier arc and lands **exactly** on a `data-skilly`-resolved element (0px error). Next: **8.3** OpenAI Realtime voice (replaces the simulated turn) · **8.4+** multi-tenant Next.js backend. `dist/`, `node_modules/`, `generated/` are gitignored.
+> A simulated turn lifecycle (listening→thinking→speaking→complete) keeps the embed demonstrable until 8.3. Validated: `bun run typecheck` + `bun run build` clean; Playwright confirms the widget mounts and renders, and (8.2) that the cursor flies a bezier arc and lands **exactly** on a `data-skilly`-resolved element (0px error). Next: **8.3** OpenAI Realtime voice (replaces the simulated turn). `dist/`, `node_modules/`, `generated/` are gitignored.
+
+### Web backend (`apps/web-backend`) — Web SDK Phase 8.4
+
+Multi-tenant control plane: **Next.js (App Router) + Postgres**, the successor to the Worker's `/openai/token` for the web SDK. Build it via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
+
+| File | Purpose |
+|------|---------|
+| `src/domain/{keys,origin,quota,openaiToken}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), usage quota, OpenAI mint (injectable `fetch`). |
+| `src/db/*` | `WebBackendRepo` interface + Postgres impl (`pg`) + in-memory impl (seeded demo tenant); `getRepo()` picks by `DATABASE_URL`. |
+| `src/tenantService.ts` | Framework-free auth → quota → mint orchestration. |
+| `src/app/api/web/{token,skill}/route.ts` | Routes: `POST /api/web/token` (mint), `GET /api/web/skill` (serve SKILL.md). CORS + key/origin extraction. |
+| `db/schema.sql` | Postgres schema (tenants, api_keys, tenant_skills, usage_events). |
+
+> Env: `OPENAI_API_KEY` (mint), `DATABASE_URL` (optional — in-memory demo otherwise). Validated: `bun test` 15/15 (domain + auth/quota/mint flow), `tsc` clean, `next build` clean, and a runtime smoke (health 200, bad-key **401**, bad-origin **403**, no-key 500, skill 200). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). Next: **8.5** dashboard · **8.6** Polar billing + session metering.
 
 ### Skill Files
 
