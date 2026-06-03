@@ -8,17 +8,21 @@ install it on their own web app; their visitors get the companion. See
 This package consumes the shared Rust core compiled to WASM (`core/web-sdk`,
 output in `sdk/web/generated/`).
 
-## Status — Phase 8.1 (embed skeleton)
+## Status — Phases 8.1 + 8.2
 
 What's here:
-- `@skilly/web` package: Shadow-DOM widget (launcher, response bubble, blue
-  cursor), the public `Skilly` API, and the lazy WASM-core loader.
+- **8.1** `@skilly/web` package: Shadow-DOM widget (launcher, response bubble,
+  blue cursor), the public `Skilly` API, and the lazy WASM-core loader.
+- **8.2** **DOM digest** (`getPageDigest()`) — a structured, screenshot-free view
+  of the page's interactive/annotated elements with stable ids + rects — and the
+  **selector-based pointing engine**: `[POINT:id:label]` → resolve (digest id /
+  `data-skilly` / CSS / visible text) → **bezier-arc cursor flight** → re-anchor
+  on scroll/resize.
 - A simulated turn lifecycle (listening → thinking → speaking → complete) so the
   embed is demonstrable end-to-end.
 
-Layered on next: **8.2** DOM digest + selector-based pointing · **8.3** OpenAI
-Realtime voice pipeline · **8.4+** multi-tenant Next.js backend (keys, metering,
-SKILL.md serving).
+Layered on next: **8.3** OpenAI Realtime voice pipeline (replaces the simulated
+turn) · **8.4+** multi-tenant Next.js backend (keys, metering, SKILL.md serving).
 
 ## Install / embed
 

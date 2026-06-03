@@ -220,11 +220,13 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 | File | Purpose |
 |------|---------|
 | `sdk/web/src/index.ts` | Public `Skilly` API (`init`/`start`/`on`/`identify`/`destroy`) + auto-init from `data-skilly-*` script attrs + typed event emitter. |
-| `sdk/web/src/widget.ts` | Shadow-DOM UI: launcher button, response bubble, blue cursor element + `moveCursorTo`. |
+| `sdk/web/src/widget.ts` | Shadow-DOM UI: launcher button, response bubble, blue cursor + `setCursorPosition` (driven per-frame by the pointing engine). |
 | `sdk/web/src/core.ts` | Lazy, tolerant loader for the `core/web-sdk` WASM (widget runs UI-only if absent). |
+| `sdk/web/src/digest.ts` | **8.2** DOM digest: structured, screenshot-free page view (interactive/annotated elements → stable ids, labels, rects) + element registry. `getPageDigest()`. |
+| `sdk/web/src/pointing.ts` | **8.2** Pointing engine: parse `[POINT:id:label]`, resolve (digest id / `data-skilly` / CSS / visible text), bezier-arc cursor flight, scroll/resize re-anchor. |
 | `sdk/web/demo/index.html` | Demo host page (`bun run demo`). |
 
-> 8.1 is the embed SKELETON with a simulated turn lifecycle (listening→thinking→speaking→complete). Validated: `bun run typecheck` + `bun run build` clean; Playwright confirms the widget mounts, the launcher renders, and `start()` shows the bubble + cursor. Next: **8.2** DOM digest + selector pointing · **8.3** OpenAI Realtime voice · **8.4+** multi-tenant Next.js backend. `dist/`, `node_modules/`, `generated/` are gitignored.
+> A simulated turn lifecycle (listening→thinking→speaking→complete) keeps the embed demonstrable until 8.3. Validated: `bun run typecheck` + `bun run build` clean; Playwright confirms the widget mounts and renders, and (8.2) that the cursor flies a bezier arc and lands **exactly** on a `data-skilly`-resolved element (0px error). Next: **8.3** OpenAI Realtime voice (replaces the simulated turn) · **8.4+** multi-tenant Next.js backend. `dist/`, `node_modules/`, `generated/` are gitignored.
 
 ### Skill Files
 
