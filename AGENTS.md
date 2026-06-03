@@ -231,19 +231,21 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 
 > Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (prompt + token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
 
-### Web backend (`apps/web-backend`) — Web SDK Phase 8.4
+### Web backend (`apps/web-backend`) — Web SDK Phases 8.4 + 8.5
 
-Multi-tenant control plane: **Next.js (App Router) + Postgres**, the successor to the Worker's `/openai/token` for the web SDK. Build it via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
+Multi-tenant control plane + dashboard: **Next.js (App Router) + Tailwind + Postgres**, the successor to the Worker's `/openai/token` for the web SDK. Build via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
 
 | File | Purpose |
 |------|---------|
-| `src/domain/{keys,origin,quota,openaiToken}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), usage quota, OpenAI mint (injectable `fetch`). |
-| `src/db/*` | `WebBackendRepo` interface + Postgres impl (`pg`) + in-memory impl (seeded demo tenant); `getRepo()` picks by `DATABASE_URL`. |
+| `src/domain/{keys,origin,quota,openaiToken,skillValidation}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), usage quota, OpenAI mint (injectable `fetch`), SKILL.md safety scan. |
+| `src/db/*` | `WebBackendRepo` interface + Postgres impl (`pg`) + in-memory impl (seeded demo tenant); `getRepo()` picks by `DATABASE_URL`. Includes dashboard ops (key CRUD, skill save, usage summary). |
 | `src/tenantService.ts` | Framework-free auth → quota → mint orchestration. |
-| `src/app/api/web/{token,skill}/route.ts` | Routes: `POST /api/web/token` (mint), `GET /api/web/skill` (serve SKILL.md). CORS + key/origin extraction. |
+| `src/app/api/web/{token,skill}/route.ts` | Runtime routes: `POST /api/web/token` (mint), `GET /api/web/skill`. CORS + key/origin extraction. |
+| `src/app/dashboard/**` (8.5) | Dashboard UI (Tailwind): `/dashboard` (usage, origins, key management) + `/dashboard/skill` (SKILL.md editor, validate-on-save) + server `actions.ts`. |
+| `src/lib/session.ts` | Tenant resolution — dev = seeded demo tenant; prod = WorkOS session (follow-up). |
 | `db/schema.sql` | Postgres schema (tenants, api_keys, tenant_skills, usage_events). |
 
-> Env: `OPENAI_API_KEY` (mint), `DATABASE_URL` (optional — in-memory demo otherwise). Validated: `bun test` 15/15 (domain + auth/quota/mint flow), `tsc` clean, `next build` clean, and a runtime smoke (health 200, bad-key **401**, bad-origin **403**, no-key 500, skill 200). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). Next: **8.5** dashboard · **8.6** Polar billing + session metering.
+> Env: `OPENAI_API_KEY` (mint), `DATABASE_URL` (optional — in-memory demo otherwise). Validated: `bun test` **21/21**, `tsc` clean, `next build` clean, runtime smoke (token: health 200, bad-key **401**, bad-origin **403**, no-key 500, skill 200), and Playwright on the dashboard (renders, create-key one-time reveal, skill validation rejects injection + saves valid). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). Next: **8.6** Polar billing + session metering.
 
 ### Skill Files
 

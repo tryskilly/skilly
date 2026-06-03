@@ -5,17 +5,26 @@ Postgres**. Mints ephemeral OpenAI tokens for the `@skilly/web` widget, serves
 tenant skills, and meters usage. This is the multi-tenant successor to the
 Cloudflare Worker's `/openai/token`. See `docs/architecture/web-sdk-prd.md`.
 
-## Status — Phase 8.4 (control plane + token mint)
+## Status — Phases 8.4 + 8.5
 
+Control plane (8.4):
 - `POST /api/web/token` — validate publishable key + origin + quota → mint an
   ephemeral OpenAI Realtime client secret (raw `OPENAI_API_KEY` stays server-side).
 - `GET /api/web/skill?skill=<id>` — serve the tenant's compiled SKILL.md.
 - `GET /api/health` — liveness.
 - Postgres schema in `db/schema.sql` (tenants, api_keys, tenant_skills, usage_events).
 
-Next: **8.5** site-owner dashboard (key management, SKILL.md authoring) · **8.6**
-billing + session-seconds metering (Polar). The `@skilly/web` widget (8.3) calls
-`/api/web/token` to get the secret it connects to OpenAI Realtime with.
+Dashboard (8.5) — Next.js + Tailwind:
+- `/dashboard` — usage, allowed origins, and API-key management (create with a
+  one-time reveal, revoke).
+- `/dashboard/skill` — author the SKILL.md, **safety-scanned** before save
+  (`domain/skillValidation.ts` — size limits + injection/exfiltration phrases +
+  raw-URL check; the desktop counterpart is `SkillValidation.swift`).
+- Auth: dev acts as the seeded demo tenant (`lib/session.ts`); production resolves
+  the tenant from a WorkOS session (follow-up).
+
+Next: **8.6** billing + session-seconds metering (Polar). The `@skilly/web` widget
+(8.3) calls `/api/web/token` to get the secret it connects to OpenAI Realtime with.
 
 ## Architecture
 
