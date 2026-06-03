@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@skilly/web — embed demo</title>
+    <style>
+      body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #faf9f6; color: #1c1c1e; }
+      header { padding: 48px 24px; text-align: center; background: #0f0f10; color: #fff; }
+      header h1 { margin: 0 0 8px; font-size: 28px; }
+      header p { margin: 0; opacity: 0.7; }
+      main { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
+      .card { background: #fff; border: 1px solid #e8e6e0; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+      button.host-btn { background: #2f6bff; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+      code { background: #f0eee8; padding: 2px 6px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Acme Inc. — Demo host site</h1>
+      <p>The Skilly companion is embedded bottom-right. Click it, or the button below.</p>
+    </header>
+    <main>
+      <div class="card">
+        <h2>Getting started</h2>
+        <p>This page simulates a website owner's app. The <code>@skilly/web</code> widget is mounted via a single script tag.</p>
+        <button class="host-btn" id="start-onboarding">Start onboarding with Skilly</button>
+      </div>
+      <div class="card" data-skilly="pricing-section">
+        <h2>Pricing</h2>
+        <p>A section the companion could point at (target resolution lands in Phase 8.2).</p>
+      </div>
+    </main>
+
+    <!-- The embed. In production: <script src="https://cdn.tryskilly.app/web/v1.js" ...>. -->
+    <script src="../dist/skilly-web.global.js"
+            data-skilly-key="pk_demo_local"
+            data-skilly-skill="acme-onboarding"
+            defer></script>
+
+    <script>
+      // Programmatic API usage (the IIFE exposes window.Skilly).
+      window.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("start-onboarding").addEventListener("click", () => {
+          window.Skilly.start("set up your first project");
+        });
+        window.Skilly.on("complete", () => console.log("[demo] turn complete"));
+      });
+    </script>
+  </body>
+</html>

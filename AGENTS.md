@@ -211,7 +211,20 @@ Browser sibling of `core/mobile-sdk`: the shared core (`policy`, `realtime`, `sk
 | `scripts/build-web-sdk.sh` | `wasm-pack build` → `sdk/web/generated/`. |
 | `sdk/web/` | Browser SDK artifacts (sibling of `sdk/ios`, `sdk/android`). |
 
-> The `wasm-bindgen`/`serde-wasm-bindgen` deps are `wasm32`-only, so `cargo test --workspace` stays green on macOS with no wasm toolchain. Host-validated: `cargo test -p skilly-core-web-sdk` (4 tests, incl. `compose_prompt` parity vs the shared `core/skills` fixture). The actual wasm compile runs via `wasm-pack`/CI. The `@skilly/web` widget (Shadow-DOM overlay, DOM digest, selector pointing, voice) is Phase 8.1+.
+> The `wasm-bindgen`/`serde-wasm-bindgen` deps are `wasm32`-only, so `cargo test --workspace` stays green on macOS with no wasm toolchain. Host-validated: `cargo test -p skilly-core-web-sdk` (4 tests, incl. `compose_prompt` parity vs the shared `core/skills` fixture). The actual wasm compile runs via `wasm-pack`/CI.
+
+### `@skilly/web` embed widget (`sdk/web`) — Web SDK Phase 8.1
+
+The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework — embeds must be tiny + style-isolated) that site owners drop into their web app via one `<script>`. Builds to a ~7KB IIFE (`window.Skilly`) + an ESM build via `tsup`.
+
+| File | Purpose |
+|------|---------|
+| `sdk/web/src/index.ts` | Public `Skilly` API (`init`/`start`/`on`/`identify`/`destroy`) + auto-init from `data-skilly-*` script attrs + typed event emitter. |
+| `sdk/web/src/widget.ts` | Shadow-DOM UI: launcher button, response bubble, blue cursor element + `moveCursorTo`. |
+| `sdk/web/src/core.ts` | Lazy, tolerant loader for the `core/web-sdk` WASM (widget runs UI-only if absent). |
+| `sdk/web/demo/index.html` | Demo host page (`bun run demo`). |
+
+> 8.1 is the embed SKELETON with a simulated turn lifecycle (listening→thinking→speaking→complete). Validated: `bun run typecheck` + `bun run build` clean; Playwright confirms the widget mounts, the launcher renders, and `start()` shows the bubble + cursor. Next: **8.2** DOM digest + selector pointing · **8.3** OpenAI Realtime voice · **8.4+** multi-tenant Next.js backend. `dist/`, `node_modules/`, `generated/` are gitignored.
 
 ### Skill Files
 
