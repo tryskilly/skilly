@@ -401,6 +401,12 @@ final class RealtimeTelemetry: ObservableObject {
         do {
             let dir = logFileURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            // FileHandle(forWritingTo:) throws if the file doesn't exist yet, so
+            // create an empty file first on the very first run (the directory
+            // existing is not enough — the log file itself must be present).
+            if !fileManager.fileExists(atPath: logFileURL.path) {
+                fileManager.createFile(atPath: logFileURL.path, contents: nil)
+            }
             let handle = try FileHandle(forWritingTo: logFileURL)
             handle.seekToEndOfFile()
             fileHandle = handle
