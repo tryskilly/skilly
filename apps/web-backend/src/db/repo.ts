@@ -8,6 +8,8 @@ export interface Tenant {
   id: string;
   name: string;
   allowedOrigins: string[];
+  /** Allowed native app ids (iOS bundle id / Android package name) for the mobile SDK. */
+  allowedAppIds: string[];
   usageCapSeconds: number;
 }
 
@@ -64,4 +66,8 @@ export interface WebBackendRepo {
   // --- Billing (Phase 8.6) ---
   /** Set the tenant's monthly usage cap (0 = unlimited / no paid access). */
   setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void>;
+
+  // --- Mobile app-id tenancy (Phase 9.0) ---
+  /** Replace the tenant's allowed native app ids (iOS bundle id / Android package). */
+  setTenantAppIds(tenantId: string, appIds: string[]): Promise<void>;
 }

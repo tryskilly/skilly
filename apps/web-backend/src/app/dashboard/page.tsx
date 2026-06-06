@@ -3,6 +3,7 @@ import { getRepo } from "@/db";
 import { getCurrentTenantId } from "@/lib/session";
 import { KeyManager } from "./KeyManager";
 import { BillingCard } from "./BillingCard";
+import { addAppIdAction, removeAppIdAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,44 @@ export default async function DashboardPage() {
         ) : (
           <p className="mt-2 text-sm text-neutral-500">No origins configured.</p>
         )}
+      </section>
+
+      <section className="mb-8 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">Allowed app IDs</h2>
+        <p className="mt-2 text-sm text-neutral-400">
+          Native app ids (iOS bundle id / Android package) allowed to use the mobile SDK. Trailing
+          <code className="mx-1 rounded bg-neutral-800 px-1">.*</code> wildcard supported.
+        </p>
+        {tenant && tenant.allowedAppIds.length > 0 ? (
+          <ul className="mt-3 divide-y divide-neutral-800">
+            {tenant.allowedAppIds.map((appId) => (
+              <li key={appId} className="flex items-center justify-between py-2">
+                <span className="font-mono text-sm">{appId}</span>
+                <form action={removeAppIdAction}>
+                  <input type="hidden" name="appId" value={appId} />
+                  <button className="text-xs text-neutral-400 hover:text-red-400" type="submit">
+                    Remove
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-500">No app ids registered.</p>
+        )}
+        <form action={addAppIdAction} className="mt-4 flex items-center gap-2">
+          <input
+            name="appId"
+            placeholder="com.acme.app"
+            className="flex-1 rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            type="submit"
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+          >
+            Add
+          </button>
+        </form>
       </section>
 
       <KeyManager keys={keys} />

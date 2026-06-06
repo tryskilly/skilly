@@ -237,7 +237,7 @@ Multi-tenant control plane + dashboard + billing: **Next.js (App Router) + Tailw
 
 | File | Purpose |
 |------|---------|
-| `src/domain/{keys,origin,quota,openaiToken,skillValidation,billing}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), usage quota, OpenAI mint, SKILL.md safety scan, Polar Standard-Webhooks verify + event→cap + checkout body. |
+| `src/domain/{keys,origin,appId,quota,openaiToken,skillValidation,billing}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), **app-id allowlist (incl. `com.acme.*`) for the mobile SDK**, usage quota, OpenAI mint, SKILL.md safety scan, Polar Standard-Webhooks verify + event→cap + checkout body. |
 | `src/db/*` | `WebBackendRepo` interface + Postgres (`pg`) + in-memory (seeded demo) impls; `getRepo()` picks by `DATABASE_URL`. Dashboard + billing ops (key CRUD, skill save, usage summary, `setTenantUsageCap`). |
 | `src/tenantService.ts` | Framework-free auth → quota → mint orchestration. |
 | `src/app/api/web/{token,skill,usage,checkout}/route.ts` + `webhooks/polar` | Routes: mint token, serve SKILL.md, meter session seconds, start checkout, Polar webhook (verified → set cap). |
@@ -245,7 +245,7 @@ Multi-tenant control plane + dashboard + billing: **Next.js (App Router) + Tailw
 | `src/lib/session.ts` | Tenant resolution — dev = seeded demo tenant; prod = WorkOS session (follow-up). |
 | `db/schema.sql` | Postgres schema (tenants, api_keys, tenant_skills, usage_events). |
 
-> Env: `OPENAI_API_KEY`, `DATABASE_URL` (optional), `POLAR_{ACCESS_TOKEN,PRODUCT_ID,WEBHOOK_SECRET,PLAN_CAP_SECONDS}`. Validated: `bun test` **27/27**, `tsc` + `next build` clean, and Playwright end-to-end — token (401/403/500/200), dashboard (key reveal, skill validation), and **billing**: meter usage → signed Polar webhook (bad sig **401**) sets the cap → dashboard shows the new plan (`600 min/month`, `2/600 used`). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). **The web SDK is now functionally complete (8.0–8.6).**
+> Env: `OPENAI_API_KEY`, `DATABASE_URL` (optional), `POLAR_{ACCESS_TOKEN,PRODUCT_ID,WEBHOOK_SECRET,PLAN_CAP_SECONDS}`. Validated: `bun test` **34/34**, `tsc` + `next build` clean, and Playwright end-to-end — token (401/403/500/200), dashboard (key reveal, skill validation, app-id add/remove), **billing** (meter → signed webhook sets cap → dashboard shows new plan), and **mobile app-id tenancy** (9.0): a native request (`X-Skilly-App-Id`, no Origin) authenticates against the app-id allowlist; a web request with a disallowed Origin can't bypass it via a spoofed app-id (**403**). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). The web SDK is functionally complete (8.0–8.6); the backend now also serves the mobile SDK (Phase 9.0).
 
 ### Skill Files
 

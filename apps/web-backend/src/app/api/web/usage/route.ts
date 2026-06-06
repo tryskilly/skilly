@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
 import { authenticateWebRequest } from "@/tenantService";
-import { corsHeaders, extractKey, extractOrigin } from "@/http";
+import { corsHeaders, extractAppId, extractKey, extractOrigin } from "@/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +20,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const origin = extractOrigin(request);
   const headers = corsHeaders(origin);
 
-  const auth = await authenticateWebRequest(getRepo(), { rawKey: extractKey(request), origin });
+  const auth = await authenticateWebRequest(getRepo(), {
+    rawKey: extractKey(request),
+    origin,
+    appId: extractAppId(request),
+  });
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status, headers });
   }

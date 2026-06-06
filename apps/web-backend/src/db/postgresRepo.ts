@@ -21,10 +21,11 @@ export class PostgresRepo implements WebBackendRepo {
       id: string;
       name: string;
       allowed_origins: string[];
+      allowed_app_ids: string[];
       usage_cap_seconds: number;
       key_type: "publishable" | "secret";
     }>(
-      `SELECT t.id, t.name, t.allowed_origins, t.usage_cap_seconds, k.key_type
+      `SELECT t.id, t.name, t.allowed_origins, t.allowed_app_ids, t.usage_cap_seconds, k.key_type
          FROM api_keys k
          JOIN tenants t ON t.id = k.tenant_id
         WHERE k.key_hash = $1 AND k.revoked = false
@@ -40,6 +41,7 @@ export class PostgresRepo implements WebBackendRepo {
         id: row.id,
         name: row.name,
         allowedOrigins: row.allowed_origins,
+        allowedAppIds: row.allowed_app_ids,
         usageCapSeconds: row.usage_cap_seconds,
       },
       keyType: row.key_type,
@@ -77,11 +79,21 @@ export class PostgresRepo implements WebBackendRepo {
       id: string;
       name: string;
       allowed_origins: string[];
+      allowed_app_ids: string[];
       usage_cap_seconds: number;
-    }>(`SELECT id, name, allowed_origins, usage_cap_seconds FROM tenants WHERE id = $1`, [tenantId]);
+    }>(
+      `SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds FROM tenants WHERE id = $1`,
+      [tenantId],
+    );
     const row = result.rows[0];
     return row
-      ? { id: row.id, name: row.name, allowedOrigins: row.allowed_origins, usageCapSeconds: row.usage_cap_seconds }
+      ? {
+          id: row.id,
+          name: row.name,
+          allowedOrigins: row.allowed_origins,
+          allowedAppIds: row.allowed_app_ids,
+          usageCapSeconds: row.usage_cap_seconds,
+        }
       : null;
   }
 
@@ -141,5 +153,9 @@ export class PostgresRepo implements WebBackendRepo {
 
   async setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void> {
     await this.pool.query(`UPDATE tenants SET usage_cap_seconds = $2 WHERE id = $1`, [tenantId, capSeconds]);
+  }
+
+  async setTenantAppIds(tenantId: string, appIds: string[]): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET allowed_app_ids = $2 WHERE id = $1`, [tenantId, appIds]);
   }
 }
