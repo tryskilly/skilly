@@ -189,6 +189,21 @@ UniFFI-generated iOS (Swift) and Android (Kotlin) bindings over `core/mobile-sdk
 | `scripts/package-mobile-sdk.sh` / `validate-mobile-sdk-consumers.sh` | Package and end-to-end validate generated SDK consumers. |
 | `.github/workflows/mobile-sdk-artifacts.yml` | Release-triggered packaging/publishing of mobile SDK + FFI tarballs. |
 
+> ⚠ `sdk/ios/generated` + `sdk/android/generated` are the UniFFI **brain** bindings (policy/realtime). The embeddable **companion** SDKs (the iOS/Android analog of `@skilly/web`) are a separate layer on top — see below.
+
+### iOS Companion SDK (`sdk/ios/companion`) — Mobile SDK Phase 9.1
+
+The embeddable Skilly companion for iOS apps: a Swift Package a mobile-app owner adds so their users get the in-app tutor (sees the screen → points → talks). The iOS analog of `@skilly/web`; backed by the same multi-tenant backend (app-id-locked, Phase 9.0) + the `core/mobile-sdk` brain.
+
+| File | Purpose |
+|------|---------|
+| `Package.swift` | Swift Package `SkillyCompanion` (iOS 15+). |
+| `Sources/SkillyCompanion/Skilly.swift` | Public API: `configure`/`start`/`on`/`teardown` + simulated turn lifecycle. |
+| `Sources/SkillyCompanion/SkillyOverlay.swift` | Passthrough overlay window (launcher + bubble + cursor); touches pass through to the host app except the launcher. |
+| `Sources/SkillyCompanion/{SkillyConfig,SkillyEvent}.swift` | Config + event types. |
+
+> 9.1 is the embed skeleton (overlay + simulated lifecycle). Validated agent-side: `xcrun --sdk iphonesimulator swiftc -typecheck` (the whole package type-checks against real UIKit — no `xcodebuild`/TCC). Runtime (overlay appearing, touch passthrough) needs an Xcode build into a host app. Next: **9.2** accessibility-tree UI digest + pointing · **9.3** voice (AVAudioSession + WebRTC). Android mirror is 9.4–9.6.
+
 ### Native Shells (`apps/`) — landed on `develop` (Slice 4)
 
 Platform shell bootstrap binaries that run the shared-core turn-start flow through explicit capability adapters (capture/hotkey/overlay/audio/permissions). See `docs/architecture/{adapter-contracts,phase-7-windows-shell-prd}.md`.
