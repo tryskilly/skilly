@@ -21,12 +21,17 @@ export function extractOrigin(request: NextRequest): string | null {
   return request.headers.get("origin") ?? request.headers.get("referer") ?? null;
 }
 
+/** Native app id (iOS bundle id / Android package) for mobile SDK requests. */
+export function extractAppId(request: NextRequest): string | null {
+  return request.headers.get("x-skilly-app-id");
+}
+
 /** CORS headers reflecting the request origin (allowlist enforcement is separate). */
 export function corsHeaders(origin: string | null): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": origin ?? "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Skilly-Key",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Skilly-Key, X-Skilly-App-Id",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };

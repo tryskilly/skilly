@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS tenants (
   -- Origins allowed to use this tenant's publishable key. Supports a single
   -- "*.example.com" wildcard label, e.g. 'https://*.acme.com'.
   allowed_origins  TEXT[] NOT NULL DEFAULT '{}',
+  -- Native app ids (iOS bundle id / Android package) allowed to use the key,
+  -- for the mobile SDK. Supports a trailing ".*" wildcard, e.g. 'com.acme.*'.
+  allowed_app_ids  TEXT[] NOT NULL DEFAULT '{}',
   -- Monthly usage cap in seconds (0 = unlimited). Mirrors the desktop UsageTracker cap.
   usage_cap_seconds INTEGER NOT NULL DEFAULT 0,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()

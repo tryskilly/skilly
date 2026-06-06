@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
 import { mintTokenForRequest } from "@/tenantService";
-import { corsHeaders, extractKey, extractOrigin } from "@/http";
+import { corsHeaders, extractAppId, extractKey, extractOrigin } from "@/http";
 
 export const runtime = "nodejs"; // pg + crypto need the Node runtime
 export const dynamic = "force-dynamic";
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const outcome = await mintTokenForRequest(getRepo(), {
     rawKey,
     origin,
+    appId: extractAppId(request),
     openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   });
   return NextResponse.json(outcome.body, { status: outcome.status, headers: corsHeaders(origin) });

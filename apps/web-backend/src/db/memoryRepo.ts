@@ -40,6 +40,7 @@ export function defaultSeed(): MemorySeed {
         id: tenantId,
         name: "Acme Inc. (demo)",
         allowedOrigins: ["http://localhost:4399", "http://localhost:4310", "https://*.acme.com"],
+        allowedAppIds: ["com.acme.demo", "app.tryskilly.demo"],
         usageCapSeconds: 10_800, // 3h, mirrors the desktop monthly cap default
       },
     ],
@@ -168,6 +169,13 @@ export class MemoryRepo implements WebBackendRepo {
     const tenant = this.tenants.get(tenantId);
     if (tenant) {
       tenant.usageCapSeconds = capSeconds;
+    }
+  }
+
+  async setTenantAppIds(tenantId: string, appIds: string[]): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.allowedAppIds = appIds;
     }
   }
 }

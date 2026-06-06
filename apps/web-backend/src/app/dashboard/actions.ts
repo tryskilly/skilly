@@ -33,6 +33,35 @@ export async function revokeKeyAction(formData: FormData): Promise<void> {
   }
 }
 
+/** Register a native app id (iOS bundle id / Android package) for the mobile SDK. */
+export async function addAppIdAction(formData: FormData): Promise<void> {
+  const appId = String(formData.get("appId") ?? "").trim();
+  if (!appId) {
+    return;
+  }
+  const repo = getRepo();
+  const tenantId = getCurrentTenantId();
+  const tenant = await repo.getTenant(tenantId);
+  if (tenant && !tenant.allowedAppIds.includes(appId)) {
+    await repo.setTenantAppIds(tenantId, [...tenant.allowedAppIds, appId]);
+  }
+  revalidatePath("/dashboard");
+}
+
+export async function removeAppIdAction(formData: FormData): Promise<void> {
+  const appId = String(formData.get("appId") ?? "");
+  const repo = getRepo();
+  const tenantId = getCurrentTenantId();
+  const tenant = await repo.getTenant(tenantId);
+  if (tenant) {
+    await repo.setTenantAppIds(
+      tenantId,
+      tenant.allowedAppIds.filter((existing) => existing !== appId),
+    );
+  }
+  revalidatePath("/dashboard");
+}
+
 export interface SaveSkillState {
   ok?: boolean;
   issues?: string[];

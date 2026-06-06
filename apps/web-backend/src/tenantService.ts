@@ -4,6 +4,7 @@
 
 import { hashKey, isValidKeyFormat } from "./domain/keys";
 import { matchOrigin } from "./domain/origin";
+import { matchAppId } from "./domain/appId";
 import { isOverQuota, remainingSeconds } from "./domain/quota";
 import {
   mintRealtimeToken,
@@ -26,7 +27,10 @@ export type AuthResult = AuthSuccess | AuthFailure;
 
 export interface AuthParams {
   rawKey: string | null;
+  /** Browser-enforced Origin (web request), or null for native clients. */
   origin: string | null;
+  /** Self-reported native app id (iOS bundle id / Android package), or null. */
+  appId?: string | null;
 }
 
 /** Validate the publishable key + origin allowlist for an inbound widget request. */
@@ -43,8 +47,20 @@ export async function authenticateWebRequest(
     return { ok: false, status: 401, error: "unknown or revoked API key" };
   }
 
-  if (!matchOrigin(params.origin, lookup.tenant.allowedOrigins)) {
-    return { ok: false, status: 403, error: "origin not allowed for this key" };
+  // A browser always sends Origin (which it enforces), so a web request is
+  // validated against the origin allowlist. Only when there's NO origin (a
+  // native client) do we consult the app-id allowlist — this prevents a web
+  // caller from bypassing origin checks with a spoofed app-id header.
+  if (params.origin) {
+    if (!matchOrigin(params.origin, lookup.tenant.allowedOrigins)) {
+      return { ok: false, status: 403, error: "origin not allowed for this key" };
+    }
+  } else if (params.appId) {
+    if (!matchAppId(params.appId, lookup.tenant.allowedAppIds)) {
+      return { ok: false, status: 403, error: "app id not allowed for this key" };
+    }
+  } else {
+    return { ok: false, status: 403, error: "missing origin or app id" };
   }
 
   return { ok: true, tenant: lookup.tenant };
