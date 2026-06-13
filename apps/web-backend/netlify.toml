@@ -1,0 +1,7 @@
+[build]
+  command = "bun run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NETLIFY_NEXT_SKEW_PROTECTION = "true"
