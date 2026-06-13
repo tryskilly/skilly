@@ -49,3 +49,6 @@ apps/windows-shell-gui/gen/
 
 # wasm-pack output for core/web-sdk (regenerate via scripts/build-web-sdk.sh / CI)
 sdk/web/generated/
+
+# Local Netlify folder
+.netlify
