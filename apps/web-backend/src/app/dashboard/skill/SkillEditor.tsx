@@ -2,28 +2,25 @@
 
 import { useActionState } from "react";
 import { saveSkillAction, type SaveSkillState } from "../actions";
+import { FormButton } from "../ui";
 
 export function SkillEditor({ initialContent }: { initialContent: string }) {
   const [state, save, saving] = useActionState<SaveSkillState, FormData>(saveSkillAction, {});
 
   return (
-    <form action={save} className="mt-6">
+    <form action={save}>
       <textarea
         name="content"
         defaultValue={initialContent}
         rows={16}
-        placeholder="# My Product&#10;&#10;Guide the user through their first task…"
-        className="w-full rounded-xl border border-neutral-800 bg-neutral-900 p-4 font-mono text-sm text-neutral-100 focus:border-blue-500 focus:outline-none"
+        placeholder="# My Product&#10;&#10;Guide the user through their first task..."
+        className="min-h-[420px] w-full rounded-xl border border-white/10 bg-neutral-950 p-4 font-mono text-sm leading-relaxed text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-amber-500/80"
       />
       <div className="mt-3 flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Validate & save"}
-        </button>
-        {state.ok && <span className="text-sm text-green-400">Saved ✓</span>}
+        <FormButton analyticsEvent="dashboard_skill_save_clicked" analyticsLabel="Validate and save" disabled={saving}>
+          {saving ? "Saving..." : "Validate and save"}
+        </FormButton>
+        {state.ok && <span className="text-sm font-bold text-green-300">Saved</span>}
       </div>
 
       {state.issues && state.issues.length > 0 && (

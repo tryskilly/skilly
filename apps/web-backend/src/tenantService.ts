@@ -75,6 +75,8 @@ export interface MintParams extends AuthParams {
 export interface MintOutcome {
   status: 200 | 401 | 403 | 429 | 500 | 502;
   body: Record<string, unknown>;
+  /** Internal observability context; route handlers do not expose it to clients. */
+  tenantId?: string;
 }
 
 /** Authenticate → quota-check → mint an ephemeral OpenAI token → record usage. */
@@ -90,12 +92,12 @@ export async function mintTokenForRequest(
   const usageSecondsThisPeriod = await repo.getUsageSecondsThisPeriod(auth.tenant.id);
   const capSeconds = auth.tenant.usageCapSeconds;
   if (isOverQuota({ usageSecondsThisPeriod, capSeconds })) {
-    return { status: 429, body: { error: "monthly usage quota reached" } };
+    return { status: 429, body: { error: "monthly usage quota reached" }, tenantId: auth.tenant.id };
   }
 
   // Server-config check AFTER auth so invalid requests still get 401/403, not 500.
   if (!params.openaiApiKey) {
-    return { status: 500, body: { error: "server is missing OPENAI_API_KEY" } };
+    return { status: 500, body: { error: "server is missing OPENAI_API_KEY" }, tenantId: auth.tenant.id };
   }
 
   let token: EphemeralToken;
@@ -107,7 +109,7 @@ export async function mintTokenForRequest(
     });
   } catch (mintError) {
     const status = mintError instanceof TokenMintError ? 502 : 502;
-    return { status, body: { error: "failed to mint realtime token" } };
+    return { status, body: { error: "failed to mint realtime token" }, tenantId: auth.tenant.id };
   }
 
   // The mint itself is metered as 0s; session seconds are recorded in 8.3/8.6.
@@ -121,5 +123,6 @@ export async function mintTokenForRequest(
       model: token.model,
       remainingSeconds: remainingSeconds({ usageSecondsThisPeriod, capSeconds }),
     },
+    tenantId: auth.tenant.id,
   };
 }

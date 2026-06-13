@@ -74,6 +74,23 @@ export class PostgresRepo implements WebBackendRepo {
     );
   }
 
+  async listTenants(): Promise<Tenant[]> {
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      usage_cap_seconds: number;
+    }>(`SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds FROM tenants ORDER BY created_at DESC`);
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      allowedOrigins: row.allowed_origins,
+      allowedAppIds: row.allowed_app_ids,
+      usageCapSeconds: row.usage_cap_seconds,
+    }));
+  }
+
   async getTenant(tenantId: string): Promise<Tenant | null> {
     const result = await this.pool.query<{
       id: string;
@@ -153,6 +170,10 @@ export class PostgresRepo implements WebBackendRepo {
 
   async setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void> {
     await this.pool.query(`UPDATE tenants SET usage_cap_seconds = $2 WHERE id = $1`, [tenantId, capSeconds]);
+  }
+
+  async setTenantOrigins(tenantId: string, origins: string[]): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET allowed_origins = $2 WHERE id = $1`, [tenantId, origins]);
   }
 
   async setTenantAppIds(tenantId: string, appIds: string[]): Promise<void> {

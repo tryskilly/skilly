@@ -4,6 +4,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCheckoutBody } from "@/domain/billing";
+import { captureServerEvent } from "@/lib/analytics";
 import { getCurrentTenantId } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -13,14 +14,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
   const productId = process.env.POLAR_PRODUCT_ID;
   const apiBase = process.env.POLAR_API_BASE ?? "https://api.polar.sh";
+  const tenantId = getCurrentTenantId();
   if (!accessToken || !productId) {
+    await captureServerEvent("dashboard_checkout_failed", {
+      tenant_id: tenantId,
+      reason: "billing_not_configured",
+      source_surface: "web_backend",
+    });
     return NextResponse.json({ error: "billing not configured" }, { status: 500 });
   }
 
   const body = buildCheckoutBody({
     productId,
-    tenantId: getCurrentTenantId(),
+    tenantId,
     successUrl: new URL("/dashboard", request.nextUrl.origin).toString(),
+  });
+  await captureServerEvent("dashboard_checkout_started", {
+    tenant_id: tenantId,
+    source_surface: "web_dashboard",
   });
 
   const response = await fetch(`${apiBase}/v1/checkouts`, {
@@ -29,9 +40,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
+    await captureServerEvent("dashboard_checkout_failed", {
+      tenant_id: tenantId,
+      status: response.status,
+      reason: "polar_non_2xx",
+      source_surface: "web_backend",
+    });
     return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
   }
 
   const checkout = (await response.json()) as { url?: string; checkout_url?: string };
+  await captureServerEvent("dashboard_checkout_url_created", {
+    tenant_id: tenantId,
+    source_surface: "web_backend",
+  });
   return NextResponse.json({ url: checkout.url ?? checkout.checkout_url ?? null }, { status: 200 });
 }

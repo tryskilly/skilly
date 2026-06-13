@@ -37,6 +37,10 @@ to OpenAI Realtime with, and `/api/web/usage` to meter the session.
 Env (billing): `POLAR_ACCESS_TOKEN`, `POLAR_PRODUCT_ID`, `POLAR_WEBHOOK_SECRET`,
 `POLAR_PLAN_CAP_SECONDS` (ports the Worker's Polar setup).
 
+Env (analytics): `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`,
+`POSTHOG_PROJECT_API_KEY`, `POSTHOG_HOST`, `NEXT_PUBLIC_GA_MEASUREMENT_ID`,
+`GA_MEASUREMENT_ID`, `GA_API_SECRET`. See `docs/analytics-tracking-plan.md`.
+
 ## Architecture
 
 - `src/domain/*` — pure, unit-tested logic: key format/hash (`keys`), origin

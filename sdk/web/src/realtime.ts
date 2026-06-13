@@ -28,7 +28,7 @@ export interface RealtimeConfig {
   fetchImpl?: typeof fetch;
 }
 
-const DEFAULT_REALTIME_URL = "https://api.openai.com/v1/realtime";
+const DEFAULT_REALTIME_URL = "https://api.openai.com/v1/realtime/calls";
 
 export class RealtimeSession {
   private peerConnection: RTCPeerConnection | null = null;
@@ -76,17 +76,14 @@ export class RealtimeSession {
       await peerConnection.setLocalDescription(offer);
 
       const fetchImpl = this.config.fetchImpl ?? fetch;
-      const sdpResponse = await fetchImpl(
-        `${this.config.realtimeBaseUrl ?? DEFAULT_REALTIME_URL}?model=${encodeURIComponent(this.config.model)}`,
-        {
-          method: "POST",
-          body: offer.sdp ?? "",
-          headers: {
-            Authorization: `Bearer ${this.config.clientSecret}`,
-            "Content-Type": "application/sdp",
-          },
+      const sdpResponse = await fetchImpl(this.config.realtimeBaseUrl ?? DEFAULT_REALTIME_URL, {
+        method: "POST",
+        body: offer.sdp ?? "",
+        headers: {
+          Authorization: `Bearer ${this.config.clientSecret}`,
+          "Content-Type": "application/sdp",
         },
-      );
+      });
       if (!sdpResponse.ok) {
         throw new Error(`Realtime SDP exchange failed (${sdpResponse.status})`);
       }
@@ -121,10 +118,19 @@ export class RealtimeSession {
       JSON.stringify({
         type: "session.update",
         session: {
+          type: "realtime",
+          model: this.config.model,
           instructions: this.config.instructions,
-          modalities: ["audio", "text"],
-          input_audio_transcription: { model: "whisper-1" },
-          turn_detection: { type: "server_vad" },
+          output_modalities: ["audio"],
+          audio: {
+            input: {
+              transcription: { model: "gpt-4o-mini-transcribe" },
+              turn_detection: { type: "server_vad" },
+            },
+            output: {
+              format: { type: "audio/pcm", rate: 24000 },
+            },
+          },
         },
       }),
     );

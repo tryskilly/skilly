@@ -1,116 +1,100 @@
-import Link from "next/link";
 import { getRepo } from "@/db";
-import { getCurrentTenantId } from "@/lib/session";
-import { KeyManager } from "./KeyManager";
-import { BillingCard } from "./BillingCard";
-import { addAppIdAction, removeAppIdAction } from "./actions";
+import { DEFAULT_SKILL_ID, getCurrentTenantId } from "@/lib/session";
+import { Badge, ButtonLink, Card, SectionHeader, UsageMeter } from "./ui";
 
 export const dynamic = "force-dynamic";
-
-function formatUsage(usageSeconds: number, capSeconds: number): string {
-  const minutes = Math.round(usageSeconds / 60);
-  if (capSeconds <= 0) {
-    return `${minutes} min used (unlimited)`;
-  }
-  return `${minutes} / ${Math.round(capSeconds / 60)} min used this month`;
-}
 
 export default async function DashboardPage() {
   const repo = getRepo();
   const tenantId = getCurrentTenantId();
-  const [tenant, keys, usage] = await Promise.all([
+  const [tenant, keys, usage, skill] = await Promise.all([
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),
     repo.getUsageSummary(tenantId),
+    repo.getTenantSkill(tenantId, DEFAULT_SKILL_ID),
   ]);
 
-  const usedFraction =
-    usage.capSeconds > 0 ? Math.min(1, usage.usageSecondsThisPeriod / usage.capSeconds) : 0;
+  const hasOrigin = Boolean(tenant?.allowedOrigins.length);
+  const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
+  const hasSkill = Boolean(skill?.content.trim());
+  const setupSteps = [
+    { label: "Create workspace", done: Boolean(tenant) },
+    { label: "Add allowed origin", done: hasOrigin },
+    { label: "Generate publishable key", done: hasPublishableKey },
+    { label: "Install script", done: hasOrigin && hasPublishableKey },
+    { label: "Save teaching skill", done: hasSkill },
+    { label: "Test widget", done: false },
+  ];
+  const firstIncomplete = setupSteps.findIndex((step) => !step.done);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <header className="mb-10">
-        <p className="text-sm font-medium text-blue-400">Skilly Web</p>
-        <h1 className="mt-1 text-2xl font-semibold">{tenant?.name ?? "Dashboard"}</h1>
-      </header>
-
-      <section className="mb-8 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">Usage</h2>
-        <p className="mt-2 text-lg">{formatUsage(usage.usageSecondsThisPeriod, usage.capSeconds)}</p>
-        {usage.capSeconds > 0 && (
-          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-neutral-800">
-            <div className="h-full rounded-full bg-blue-500" style={{ width: `${usedFraction * 100}%` }} />
-          </div>
-        )}
-      </section>
-
-      <BillingCard capSeconds={usage.capSeconds} />
-
-      <section className="mb-8 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">Allowed origins</h2>
-        {tenant && tenant.allowedOrigins.length > 0 ? (
-          <ul className="mt-3 space-y-1 text-sm text-neutral-300">
-            {tenant.allowedOrigins.map((origin) => (
-              <li key={origin} className="font-mono">{origin}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-2 text-sm text-neutral-500">No origins configured.</p>
-        )}
-      </section>
-
-      <section className="mb-8 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">Allowed app IDs</h2>
-        <p className="mt-2 text-sm text-neutral-400">
-          Native app ids (iOS bundle id / Android package) allowed to use the mobile SDK. Trailing
-          <code className="mx-1 rounded bg-neutral-800 px-1">.*</code> wildcard supported.
+    <>
+      <section className="mb-8">
+        <Badge tone="amber">Skilly Web</Badge>
+        <h1 className="mt-4 max-w-4xl text-4xl font-extrabold leading-tight tracking-[-0.045em] md:text-5xl">
+          Install, teach, and monitor your Skilly companion.
+        </h1>
+        <p className="mt-4 max-w-3xl text-base leading-7 text-neutral-400">
+          A warm control room for embedded AI teaching across web, mobile, and future desktop surfaces.
+          Configure tenancy, serve SKILL.md, meter usage, and test the assistant before going live.
         </p>
-        {tenant && tenant.allowedAppIds.length > 0 ? (
-          <ul className="mt-3 divide-y divide-neutral-800">
-            {tenant.allowedAppIds.map((appId) => (
-              <li key={appId} className="flex items-center justify-between py-2">
-                <span className="font-mono text-sm">{appId}</span>
-                <form action={removeAppIdAction}>
-                  <input type="hidden" name="appId" value={appId} />
-                  <button className="text-xs text-neutral-400 hover:text-red-400" type="submit">
-                    Remove
-                  </button>
-                </form>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <Card>
+          <SectionHeader title="Finish setup" action={<Badge tone="amber">{Math.max(0, setupSteps.length - setupSteps.filter((step) => step.done).length)} steps left</Badge>} />
+          <ul className="grid gap-2">
+            {setupSteps.map((step, index) => (
+              <li
+                key={step.label}
+                className={`flex items-center justify-between gap-4 rounded-lg border px-3 py-3 ${
+                  index === firstIncomplete
+                    ? "border-amber-500/35 bg-amber-500/15"
+                    : "border-white/[0.07] bg-white/[0.035]"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`grid h-5 w-5 place-items-center rounded-full text-xs font-extrabold ${
+                      step.done
+                        ? "bg-green-500/20 text-green-300"
+                        : index === firstIncomplete
+                          ? "bg-amber-500 text-neutral-950"
+                          : "bg-white/[0.08] text-neutral-500"
+                    }`}
+                  >
+                    {step.done ? "✓" : index === firstIncomplete ? "!" : ""}
+                  </span>
+                  <span className={index === firstIncomplete ? "text-amber-200" : "text-neutral-300"}>{step.label}</span>
+                </div>
+                <span className="text-xs text-neutral-500">{step.done ? "Done" : "Pending"}</span>
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="mt-2 text-sm text-neutral-500">No app ids registered.</p>
-        )}
-        <form action={addAppIdAction} className="mt-4 flex items-center gap-2">
-          <input
-            name="appId"
-            placeholder="com.acme.app"
-            className="flex-1 rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
-          >
-            Add
-          </button>
-        </form>
-      </section>
+        </Card>
 
-      <KeyManager keys={keys} />
+        <div className="grid gap-4">
+          <Card>
+            <h2 className="mb-3 text-base font-bold">Usage this month</h2>
+            <UsageMeter usedSeconds={usage.usageSecondsThisPeriod} capSeconds={usage.capSeconds} />
+            <div className="mt-4">
+              <ButtonLink href="/dashboard/usage" variant="secondary">View usage</ButtonLink>
+            </div>
+          </Card>
 
-      <section className="mt-8 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">Teaching skill</h2>
-        <p className="mt-2 text-sm text-neutral-400">
-          Author the SKILL.md your companion teaches from. It's safety-scanned before it's served.
-        </p>
-        <Link
-          href="/dashboard/skill"
-          className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
-        >
-          Edit skill →
-        </Link>
+          <Card>
+            <h2 className="mb-3 text-base font-bold">Widget status</h2>
+            <Badge tone={hasOrigin && hasPublishableKey ? "green" : "amber"}>
+              {hasOrigin && hasPublishableKey ? "Ready to test" : "Needs setup"}
+            </Badge>
+            <p className="mt-3 text-sm text-neutral-400">
+              {hasOrigin && hasPublishableKey
+                ? "Your tenant can mint Realtime tokens from approved origins."
+                : "Add an origin and create a publishable key before embedding."}
+            </p>
+          </Card>
+        </div>
       </section>
-    </main>
+    </>
   );
 }

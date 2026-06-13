@@ -44,6 +44,7 @@ class SkillyController {
   private liveActive = false;
   private liveSessionStartedAt = 0;
   private lastPointedTarget: string | null = null;
+  private identifiedEndUser: { id: string; traits?: Record<string, unknown> } | null = null;
 
   init(config: SkillyConfig): void {
     if (this.widget) {
@@ -269,6 +270,7 @@ class SkillyController {
         backendUrl: this.config.backendUrl,
         publishableKey: this.config.key,
         seconds: elapsedSeconds,
+        endUserId: this.identifiedEndUser?.id,
       });
     }
 
@@ -291,8 +293,11 @@ class SkillyController {
 
   /** Associate the current end-user with the tenant (analytics — wired in 8.4+). */
   identify(endUserId: string, traits?: Record<string, unknown>): void {
-    void endUserId;
-    void traits;
+    const trimmedId = endUserId.trim();
+    if (!trimmedId) {
+      return;
+    }
+    this.identifiedEndUser = { id: trimmedId, traits };
   }
 
   /** Tear down the widget and clear subscriptions. */
@@ -306,6 +311,7 @@ class SkillyController {
     this.widget?.destroy();
     this.widget = null;
     this.config = null;
+    this.identifiedEndUser = null;
     this.handlers.clear();
     this.turnInProgress = false;
   }

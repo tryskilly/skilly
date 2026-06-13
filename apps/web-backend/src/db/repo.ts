@@ -55,6 +55,8 @@ export interface WebBackendRepo {
   recordUsage(event: UsageEvent): Promise<void>;
 
   // --- Dashboard (Phase 8.5) ---
+  /** Super-admin tenant directory. */
+  listTenants(): Promise<Tenant[]>;
   getTenant(tenantId: string): Promise<Tenant | null>;
   listApiKeys(tenantId: string): Promise<ApiKeyInfo[]>;
   /** Create a key; returns the raw value ONCE (caller shows it, never stored raw). */
@@ -66,6 +68,10 @@ export interface WebBackendRepo {
   // --- Billing (Phase 8.6) ---
   /** Set the tenant's monthly usage cap (0 = unlimited / no paid access). */
   setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void>;
+
+  // --- Web origin tenancy ---
+  /** Replace the tenant's allowed web origins. Supports "*.domain" wildcards. */
+  setTenantOrigins(tenantId: string, origins: string[]): Promise<void>;
 
   // --- Mobile app-id tenancy (Phase 9.0) ---
   /** Replace the tenant's allowed native app ids (iOS bundle id / Android package). */

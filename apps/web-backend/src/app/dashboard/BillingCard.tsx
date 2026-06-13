@@ -26,15 +26,20 @@ export function BillingCard({ capSeconds }: { capSeconds: number }) {
   }
 
   return (
-    <section className="mb-8 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">Plan</h2>
-      <p className="mt-2 text-lg">{plan}</p>
+    <section className="rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.025))] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.18)]">
+      <h2 className="text-xl font-bold tracking-[-0.025em] text-neutral-100">Plan</h2>
+      <p className="mt-2 text-lg text-neutral-300">{plan}</p>
+      <p className="mt-1 text-sm text-neutral-500">
+        Plan limits control token minting for every embedded widget session.
+      </p>
       <button
         onClick={startUpgrade}
         disabled={busy}
-        className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+        data-analytics-event="dashboard_checkout_clicked"
+        data-analytics-label={capSeconds > 0 ? "Manage plan" : "Upgrade plan"}
+        className="mt-4 rounded-md bg-amber-500 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-amber-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {busy ? "Starting…" : capSeconds > 0 ? "Manage plan" : "Upgrade plan"}
+        {busy ? "Starting..." : capSeconds > 0 ? "Manage plan" : "Upgrade plan"}
       </button>
       {error && <p className="mt-2 text-sm text-amber-400">{error}</p>}
     </section>

@@ -109,6 +109,10 @@ export class MemoryRepo implements WebBackendRepo {
     this.usage.push(event);
   }
 
+  async listTenants(): Promise<Tenant[]> {
+    return [...this.tenants.values()];
+  }
+
   async getTenant(tenantId: string): Promise<Tenant | null> {
     return this.tenants.get(tenantId) ?? null;
   }
@@ -169,6 +173,13 @@ export class MemoryRepo implements WebBackendRepo {
     const tenant = this.tenants.get(tenantId);
     if (tenant) {
       tenant.usageCapSeconds = capSeconds;
+    }
+  }
+
+  async setTenantOrigins(tenantId: string, origins: string[]): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.allowedOrigins = origins;
     }
   }
 
