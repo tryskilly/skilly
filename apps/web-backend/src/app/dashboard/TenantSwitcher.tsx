@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import type { Tenant } from "@/db/repo";
 import { switchTenantAction } from "./actions";
+import { Select } from "./ui";
 
 /**
  * Super-admin only: switch which tenant the dashboard acts as. Re-issues the
@@ -52,18 +53,13 @@ export function TenantSwitcher({
 
       {open && (
         <div className="mt-3">
-          <select
+          <Select
+            label="Switch to"
             defaultValue={currentTenantId}
             onChange={onChange}
             disabled={pending}
-            className="w-full rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-amber-500/80 disabled:opacity-50"
-          >
-            {tenants.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name}
-              </option>
-            ))}
-          </select>
+            options={tenants.map((tenant) => ({ value: tenant.id, label: tenant.name }))}
+          />
           {pending && <p className="mt-2 text-xs text-neutral-500">Switching…</p>}
         </div>
       )}

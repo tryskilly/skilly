@@ -1,7 +1,7 @@
 import { getRepo } from "@/db";
 import { dashboardAuthModeLabel, getDashboardSession } from "@/lib/dashboardAuth";
 import { getCurrentDashboardTenantId } from "@/lib/session";
-import { Badge, Card, SectionHeader } from "../ui";
+import { Badge, Card, PageHeader, SectionHeader } from "../ui";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +11,12 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <section>
-        <Badge tone="neutral">Control plane</Badge>
-        <h1 className="mt-3 text-3xl font-extrabold tracking-[-0.04em] text-neutral-100">Settings</h1>
-        <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-          Workspace configuration for tenant admins. Super-admin controls live in the dedicated tenant directory.
-        </p>
-      </section>
+      <PageHeader
+        eyebrow="Control plane"
+        eyebrowTone="neutral"
+        title="Settings"
+        description="Workspace configuration for tenant admins. Super-admin controls live in the dedicated tenant directory."
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

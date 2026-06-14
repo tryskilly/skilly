@@ -2,39 +2,32 @@
 
 import { useActionState } from "react";
 import { createTenantAction, type CreateTenantState } from "../../actions";
-import { FormButton } from "../../ui";
+import { Field, FormButton } from "../../ui";
 
 /** Super-admin form to create a new tenant workspace. */
 export function CreateTenantForm() {
   const [state, create, pending] = useActionState<CreateTenantState, FormData>(createTenantAction, {});
 
   return (
-    <form action={create} className="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
-      <label className="grid gap-1.5">
-        <span className="text-sm font-bold text-neutral-300">Tenant name</span>
-        <input
-          name="name"
-          placeholder="Newco Inc."
-          className="rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2.5 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-amber-500/80"
-        />
-      </label>
-      <label className="grid gap-1.5">
-        <span className="text-sm font-bold text-neutral-300">Monthly cap (min)</span>
-        <input
-          name="capMinutes"
-          type="number"
-          min={0}
-          defaultValue={0}
-          className="rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2.5 text-sm text-neutral-100 outline-none transition focus:border-amber-500/80"
-        />
-      </label>
-      <FormButton analyticsEvent="dashboard_tenant_create_clicked" analyticsLabel="Create tenant" disabled={pending}>
-        {pending ? "Creating..." : "Create tenant"}
-      </FormButton>
+    <form action={create} className="grid gap-4">
+      <Field name="name" label="Tenant name" placeholder="Newco Inc." />
+      <Field
+        name="capMinutes"
+        label="Monthly cap (minutes)"
+        type="number"
+        min={0}
+        defaultValue={0}
+        helper="Use 0 for no paid access — you can adjust this later."
+      />
+      <div>
+        <FormButton analyticsEvent="dashboard_tenant_create_clicked" analyticsLabel="Create tenant" disabled={pending}>
+          {pending ? "Creating..." : "Create tenant"}
+        </FormButton>
+      </div>
 
-      {state.error && <p className="text-sm text-red-400 sm:col-span-3">{state.error}</p>}
+      {state.error && <p className="text-sm text-red-400">{state.error}</p>}
       {state.tenantId && (
-        <p className="text-sm font-bold text-green-300 sm:col-span-3">
+        <p className="text-sm font-bold text-green-300">
           Created.{" "}
           <a
             href={`/dashboard/admin/tenants/${state.tenantId}`}

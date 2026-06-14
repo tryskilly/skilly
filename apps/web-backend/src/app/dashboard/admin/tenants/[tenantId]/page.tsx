@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getRepo } from "@/db";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
-import { Badge, ButtonLink, Card, SectionHeader } from "../../../ui";
+import { Badge, ButtonLink, Card, PageHeader, SectionHeader } from "../../../ui";
 import { AddMemberForm, RemoveMemberButton } from "./MemberForms";
 
 export const dynamic = "force-dynamic";
@@ -28,26 +28,24 @@ export default async function TenantDetailPage({
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Link
-            href="/dashboard/admin/tenants"
-            className="text-sm text-neutral-500 transition hover:text-neutral-300"
-          >
-            ← Tenant directory
-          </Link>
-          <div className="mt-2 flex items-center gap-3">
-            <Badge tone="amber">Super admin</Badge>
-            <h1 className="text-3xl font-extrabold tracking-[-0.04em] text-neutral-100">{tenant.name}</h1>
-          </div>
-          <p className="mt-2 max-w-2xl break-all font-mono text-xs text-neutral-500">{tenant.id}</p>
-        </div>
-        <div className="flex gap-2">
+      <div>
+        <Link
+          href="/dashboard/admin/tenants"
+          className="text-sm text-neutral-500 transition hover:text-neutral-300"
+        >
+          ← Tenant directory
+        </Link>
+      </div>
+      <PageHeader
+        eyebrow="Super admin"
+        title={tenant.name}
+        action={
           <ButtonLink href="/dashboard/billing" variant="secondary">
             Billing
           </ButtonLink>
-        </div>
-      </section>
+        }
+      />
+      <p className="-mt-4 max-w-2xl break-all font-mono text-xs text-neutral-500">{tenant.id}</p>
 
       <Card>
         <SectionHeader

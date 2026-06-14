@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { renameTenantAction, setTenantCapAction } from "../../actions";
-import { FormButton } from "../../ui";
+import { Field, FormButton } from "../../ui";
 
 /**
  * Per-tenant super-admin controls rendered inside each directory row:
@@ -21,58 +21,56 @@ export function TenantControls({
   const [renaming, setRenaming] = useState(false);
 
   return (
-    <div className="grid gap-3">
-      <div>
-        <span className="text-sm font-bold text-neutral-300">Monthly cap (min)</span>
-        <form action={setTenantCapAction} className="mt-1.5 flex flex-wrap gap-2">
-          <input type="hidden" name="tenantId" value={tenantId} />
-          <input
-            name="capMinutes"
-            type="number"
-            min={0}
-            defaultValue={capMinutes}
-            className="w-28 rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-amber-500/80"
-          />
+    <div className="grid gap-5">
+      <form action={setTenantCapAction} className="grid gap-2">
+        <Field
+          name="capMinutes"
+          label="Monthly cap (minutes)"
+          type="number"
+          min={0}
+          defaultValue={capMinutes}
+          helper="0 means no paid access."
+        />
+        <input type="hidden" name="tenantId" value={tenantId} />
+        <div>
           <FormButton variant="secondary" analyticsEvent="dashboard_tenant_cap_set" analyticsLabel={tenantName}>
             Set cap
           </FormButton>
-        </form>
-      </div>
+        </div>
+      </form>
 
-      <div>
-        <span className="text-sm font-bold text-neutral-300">Workspace name</span>
-        {renaming ? (
-          <form action={renameTenantAction} className="mt-1.5 flex flex-wrap gap-2">
-            <input type="hidden" name="tenantId" value={tenantId} />
-            <input
-              name="name"
-              defaultValue={tenantName}
-              className="min-w-[12rem] flex-1 rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-amber-500/80"
-            />
+      {renaming ? (
+        <form action={renameTenantAction} className="grid gap-2">
+          <Field name="name" label="Workspace name" defaultValue={tenantName} />
+          <input type="hidden" name="tenantId" value={tenantId} />
+          <div className="flex flex-wrap gap-2">
             <FormButton variant="secondary" analyticsEvent="dashboard_tenant_rename_save" analyticsLabel={tenantName}>
               Save
             </FormButton>
             <button
               type="button"
               onClick={() => setRenaming(false)}
-              className="rounded-md border border-white/10 px-3 py-2 text-sm text-neutral-400 hover:text-neutral-200"
+              className="rounded-md border border-white/10 px-4 py-2 text-sm text-neutral-400 transition hover:text-neutral-200"
             >
               Cancel
             </button>
-          </form>
-        ) : (
-          <div className="mt-1.5 flex items-center gap-2">
+          </div>
+        </form>
+      ) : (
+        <div className="grid gap-1.5">
+          <span className="text-sm font-bold text-neutral-300">Workspace name</span>
+          <div className="flex items-center gap-2">
             <span className="text-sm text-neutral-300">{tenantName}</span>
             <button
               type="button"
               onClick={() => setRenaming(true)}
-              className="rounded-md border border-white/10 px-2.5 py-1 text-xs text-neutral-400 hover:text-neutral-200"
+              className="rounded-md border border-white/10 px-2.5 py-1 text-xs text-neutral-400 transition hover:text-neutral-200"
             >
               Rename
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
