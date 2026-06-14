@@ -41,14 +41,21 @@ function safeEqual(a: string, b: string): boolean {
 export interface CapUpdate {
   tenantId: string;
   capSeconds: number;
+  /** The Polar customer id, when the webhook carries one. Used for portal sessions. */
+  polarCustomerId?: string;
 }
 
 export interface PolarWebhookEvent {
   type?: string;
   data?: {
     metadata?: { tenantId?: string } | null;
-    customer?: { metadata?: { tenantId?: string } | null } | null;
-  };
+    /** Polar subscription events carry a customer id at the top level. */
+    customer_id?: string;
+    customer?: {
+      id?: string;
+      metadata?: { tenantId?: string } | null;
+    } | null;
+  } | null;
 }
 
 /**
@@ -60,16 +67,19 @@ export function interpretSubscriptionEvent(
   event: PolarWebhookEvent,
   activeCapSeconds: number,
 ): CapUpdate | null {
-  const tenantId = event.data?.metadata?.tenantId ?? event.data?.customer?.metadata?.tenantId;
+  const data = event.data ?? null;
+  const tenantId = data?.metadata?.tenantId ?? data?.customer?.metadata?.tenantId;
   if (!tenantId || !event.type) {
     return null;
   }
 
+  const polarCustomerId = data?.customer_id ?? data?.customer?.id;
+
   if (event.type === "subscription.created" || event.type === "subscription.active" || event.type === "subscription.updated") {
-    return { tenantId, capSeconds: activeCapSeconds };
+    return { tenantId, capSeconds: activeCapSeconds, polarCustomerId };
   }
   if (event.type === "subscription.canceled" || event.type === "subscription.revoked") {
-    return { tenantId, capSeconds: 0 };
+    return { tenantId, capSeconds: 0, polarCustomerId };
   }
   return null;
 }

@@ -59,7 +59,7 @@ describe("mintTokenForRequest", () => {
     const tenantId = "22222222-2222-2222-2222-222222222222";
     const repo = new MemoryRepo({
       tenants: [
-        { id: tenantId, name: "Capped", allowedOrigins: [ALLOWED_ORIGIN], allowedAppIds: [], usageCapSeconds: 1 },
+        { id: tenantId, name: "Capped", allowedOrigins: [ALLOWED_ORIGIN], allowedAppIds: [], usageCapSeconds: 1, polarCustomerId: null },
       ],
       keys: [{ rawKey: "pk_test_cappedcappedcappedcapped01", keyType: "publishable", tenantId }],
       skills: [],

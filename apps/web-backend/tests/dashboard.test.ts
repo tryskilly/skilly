@@ -86,6 +86,7 @@ describe("dashboard repo operations", () => {
           allowedOrigins: [],
           allowedAppIds: [],
           usageCapSeconds: 0,
+          polarCustomerId: null,
         },
       ],
       memberships: [
@@ -113,5 +114,89 @@ describe("dashboard repo operations", () => {
     });
 
     expect(membership?.tenantId).toBe(secondTenantId);
+  });
+});
+
+describe("tenant + membership administration", () => {
+  test("createTenant generates a fresh id and is readable back", async () => {
+    const repo = new MemoryRepo();
+    const created = await repo.createTenant({ name: "Newco", usageCapSeconds: 3600 });
+
+    expect(created.id).not.toBe(defaultSeed().tenants[0]!.id);
+    expect(created.name).toBe("Newco");
+    const fetched = await repo.getTenant(created.id);
+    expect(fetched?.usageCapSeconds).toBe(3600);
+  });
+
+  test("updateTenantName renames an existing tenant", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+
+    await repo.updateTenantName(tenantId, "Renamed Co");
+    expect((await repo.getTenant(tenantId))?.name).toBe("Renamed Co");
+  });
+
+  test("upsert → list → delete membership roundtrip", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+
+    await repo.upsertDashboardMembership({
+      workosUserId: "user_invitee",
+      tenantId,
+      role: "tenant_admin",
+      email: "invitee@newco.com",
+    });
+
+    const listed = await repo.listDashboardMemberships(tenantId);
+    expect(listed.some((membership) => membership.workosUserId === "user_invitee")).toBe(true);
+
+    const removed = await repo.deleteDashboardMembership(tenantId, "user_invitee");
+    expect(removed.removed).toBe(true);
+    expect(
+      (await repo.listDashboardMemberships(tenantId)).find(
+        (membership) => membership.workosUserId === "user_invitee",
+      ),
+    ).toBeUndefined();
+  });
+
+  test("deleteDashboardMembership refuses to remove the last super_admin", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+    // The seeded demo tenant has exactly one super_admin (admin@tryskilly.app).
+
+    const result = await repo.deleteDashboardMembership(tenantId, "user_01KP21J3GEVH8AKJ31C59Z1KJQ");
+    expect(result.removed).toBe(false);
+    expect(result.reason).toBe("last_super_admin");
+    // Still present.
+    expect(await repo.findDashboardMembership({ workosUserId: "user_01KP21J3GEVH8AKJ31C59Z1KJQ" })).not.toBeNull();
+  });
+
+  test("deleteDashboardMembership reports not_found for an unknown user", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+
+    const result = await repo.deleteDashboardMembership(tenantId, "user_ghost");
+    expect(result.removed).toBe(false);
+    expect(result.reason).toBe("not_found");
+  });
+});
+
+describe("usage event breakdown", () => {
+  test("listUsageEvents returns newest-first raw events for the tenant", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 30 });
+    await repo.recordUsage({ tenantId, kind: "token_mint", seconds: 0 });
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 45 });
+
+    const events = await repo.listUsageEvents(tenantId, 10);
+    expect(events).toHaveLength(3);
+    // Newest first.
+    expect(events[0]!.seconds).toBe(45);
+    expect(events[0]!.createdAt).toBeInstanceOf(Date);
+    const kinds = events.map((event) => event.kind);
+    expect(kinds).toContain("token_mint");
+    expect(kinds).toContain("session_seconds");
   });
 });

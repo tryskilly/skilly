@@ -17,11 +17,22 @@ Control plane (8.4):
   (tenants, api_keys, tenant_skills, usage_events, dashboard_memberships).
 
 Dashboard (8.5) — Next.js + Tailwind:
-- `/dashboard` — usage, allowed origins, and API-key management (create with a
-  one-time reveal, revoke).
+- `/dashboard` — overview with a setup checklist, usage, and quick links.
+- `/dashboard/install` — embed snippet + connection checklist.
+- `/dashboard/widget` — **widget config** (accent color, language, launcher
+  label) with a live preview; the settings flow into the generated embed
+  snippet (`data-skilly-accent` / `data-skilly-locale` / `data-skilly-launcher`).
+- `/dashboard/origins` — allowed web origins and native app IDs.
+- `/dashboard/keys` — publishable/secret key management (one-time reveal, revoke).
 - `/dashboard/skill` — author the SKILL.md, **safety-scanned** before save
   (`domain/skillValidation.ts` — size limits + injection/exfiltration phrases +
   raw-URL check; the desktop counterpart is `SkillValidation.swift`).
+- `/dashboard/usage` — monthly meter + a recent-events table (token mints +
+  session seconds) derived from `usage_events`.
+- `/dashboard/admin/tenants` — **super-admin** tenant directory: create tenants,
+  adjust monthly caps, rename, and drill into per-tenant member management
+  (`/dashboard/admin/tenants/[tenantId]`). A super_admin can also switch the
+  active tenant from the sidebar.
 - Auth: dashboard pages and mutations are gated by a signed HTTP-only session
   cookie. Production login uses WorkOS AuthKit and resolves users through
   `dashboard_memberships` so a WorkOS user/organization maps to an explicit
@@ -31,8 +42,12 @@ Billing + metering (8.6):
 - `POST /api/web/usage` — the widget reports session seconds → `usage_events`
   (the quota engine already reads these).
 - `POST /api/web/webhooks/polar` — Standard-Webhooks-verified subscription events
-  set the tenant's `usage_cap_seconds` by plan (`domain/billing.ts`).
+  set the tenant's `usage_cap_seconds` by plan and persist the Polar customer id
+  (`domain/billing.ts`).
 - `POST /api/web/checkout` — start a Polar checkout (tenant id in metadata).
+- `POST /api/web/portal` — open a Polar **customer-portal** session for the
+  current tenant (requires a stored `polar_customer_id`; falls back to checkout
+  for first-time upgrades). The Billing page's "Manage plan" routes here.
 - Dashboard shows the current plan + Manage/Upgrade.
 
 The `@skilly/web` widget (8.3) calls `/api/web/token` to get the secret it connects
@@ -52,7 +67,9 @@ Env (analytics): `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`,
   OpenAI mint with injectable `fetch` (`openaiToken`).
 - `src/db/*` — a `WebBackendRepo` interface with a Postgres impl (`pg`) and an
   in-memory impl (seeded demo tenant) used in dev + tests. `getRepo()` picks
-  Postgres when `DATABASE_URL` is set, else in-memory.
+  Postgres when `DATABASE_URL` is set, else in-memory. The Postgres schema is
+  defined with Drizzle ORM (`src/db/schema.ts`) and migrated via
+  `db/migrations` (`bun run db:generate` / `bun run db:migrate`).
 - `dashboard_memberships` — maps WorkOS user IDs and optional WorkOS organization
   IDs to tenant roles. The dashboard must use this table for multi-tenancy; do
   not infer tenant access directly from a signed-in WorkOS user.

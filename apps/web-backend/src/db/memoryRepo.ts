@@ -14,7 +14,9 @@ import type {
   UsageEvent,
   UsageSummary,
   WebBackendRepo,
+  WidgetConfig,
 } from "./repo";
+import { DEFAULT_WIDGET_CONFIG } from "./repo";
 
 interface SeededKey {
   id: string;
@@ -46,6 +48,7 @@ export function defaultSeed(): MemorySeed {
         allowedOrigins: ["http://localhost:4399", "http://localhost:4310", "https://*.acme.com"],
         allowedAppIds: ["com.acme.demo", "app.tryskilly.demo"],
         usageCapSeconds: 10_800, // 3h, mirrors the desktop monthly cap default
+        polarCustomerId: null,
       },
     ],
     keys: [{ rawKey: DEMO_PUBLISHABLE_KEY, keyType: "publishable", tenantId }],
@@ -73,7 +76,12 @@ export class MemoryRepo implements WebBackendRepo {
   private keys = new Map<string, SeededKey>();
   private skills = new Map<string, TenantSkill>();
   private memberships: DashboardMembership[] = [];
-  private usage: UsageEvent[] = [];
+  // Monotonic insertion counter so newest-first ordering is stable even when
+  // many events are recorded within the same millisecond (mirrors Postgres
+  // BIGSERIAL + ORDER BY created_at DESC).
+  private usageSequence = 0;
+  private usage: Array<UsageEvent & { createdAt: Date; sequence: number }> = [];
+  private widgetConfigs = new Map<string, WidgetConfig>();
 
   constructor(seed: MemorySeed = defaultSeed()) {
     for (const tenant of seed.tenants) {
@@ -121,7 +129,19 @@ export class MemoryRepo implements WebBackendRepo {
   }
 
   async recordUsage(event: UsageEvent): Promise<void> {
-    this.usage.push(event);
+    this.usage.push({ ...event, createdAt: new Date(), sequence: this.usageSequence++ });
+  }
+
+  async listUsageEvents(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<UsageEvent & { createdAt: Date }>> {
+    return this.usage
+      .filter((event) => event.tenantId === tenantId)
+      .slice()
+      .sort((a, b) => b.sequence - a.sequence)
+      .slice(0, limit)
+      .map(({ sequence: _sequence, ...event }) => event);
   }
 
   async listTenants(): Promise<Tenant[]> {
@@ -130,6 +150,31 @@ export class MemoryRepo implements WebBackendRepo {
 
   async getTenant(tenantId: string): Promise<Tenant | null> {
     return this.tenants.get(tenantId) ?? null;
+  }
+
+  async createTenant(input: {
+    name: string;
+    allowedOrigins?: string[];
+    allowedAppIds?: string[];
+    usageCapSeconds?: number;
+  }): Promise<Tenant> {
+    const tenant: Tenant = {
+      id: randomUUID(),
+      name: input.name,
+      allowedOrigins: input.allowedOrigins ?? [],
+      allowedAppIds: input.allowedAppIds ?? [],
+      usageCapSeconds: input.usageCapSeconds ?? 0,
+      polarCustomerId: null,
+    };
+    this.tenants.set(tenant.id, tenant);
+    return tenant;
+  }
+
+  async updateTenantName(tenantId: string, name: string): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.name = name;
+    }
   }
 
   async findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null> {
@@ -164,6 +209,38 @@ export class MemoryRepo implements WebBackendRepo {
 
     this.memberships.push(membership);
     return membership;
+  }
+
+  async listDashboardMemberships(tenantId: string): Promise<DashboardMembership[]> {
+    return this.memberships.filter((membership) => membership.tenantId === tenantId);
+  }
+
+  async deleteDashboardMembership(
+    tenantId: string,
+    workosUserId: string,
+  ): Promise<{ removed: boolean; reason?: "last_super_admin" | "not_found" }> {
+    const tenantMemberships = this.memberships.filter(
+      (membership) => membership.tenantId === tenantId,
+    );
+    const target = tenantMemberships.find(
+      (membership) => membership.workosUserId === workosUserId,
+    );
+    if (!target) {
+      return { removed: false, reason: "not_found" };
+    }
+    // Refuse to remove the last super_admin of a tenant — that would orphan it.
+    const otherSuperAdmins = tenantMemberships.filter(
+      (membership) =>
+        membership.role === "super_admin" && membership.workosUserId !== workosUserId,
+    );
+    if (target.role === "super_admin" && otherSuperAdmins.length === 0) {
+      return { removed: false, reason: "last_super_admin" };
+    }
+    this.memberships = this.memberships.filter(
+      (membership) =>
+        !(membership.tenantId === tenantId && membership.workosUserId === workosUserId),
+    );
+    return { removed: true };
   }
 
   async listApiKeys(tenantId: string): Promise<ApiKeyInfo[]> {
@@ -225,6 +302,13 @@ export class MemoryRepo implements WebBackendRepo {
     }
   }
 
+  async setTenantPolarCustomerId(tenantId: string, polarCustomerId: string): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.polarCustomerId = polarCustomerId;
+    }
+  }
+
   async setTenantOrigins(tenantId: string, origins: string[]): Promise<void> {
     const tenant = this.tenants.get(tenantId);
     if (tenant) {
@@ -237,5 +321,13 @@ export class MemoryRepo implements WebBackendRepo {
     if (tenant) {
       tenant.allowedAppIds = appIds;
     }
+  }
+
+  async getWidgetConfig(tenantId: string): Promise<WidgetConfig> {
+    return this.widgetConfigs.get(tenantId) ?? { ...DEFAULT_WIDGET_CONFIG };
+  }
+
+  async saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void> {
+    this.widgetConfigs.set(tenantId, { ...config });
   }
 }

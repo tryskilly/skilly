@@ -55,7 +55,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const activeCapSeconds = Number(process.env.POLAR_PLAN_CAP_SECONDS ?? DEFAULT_PLAN_CAP_SECONDS);
   const update = interpretSubscriptionEvent(event as Parameters<typeof interpretSubscriptionEvent>[0], activeCapSeconds);
   if (update) {
-    await getRepo().setTenantUsageCap(update.tenantId, update.capSeconds);
+    const repo = getRepo();
+    await repo.setTenantUsageCap(update.tenantId, update.capSeconds);
+    // Persist the Polar customer id so we can open a customer-portal session later.
+    if (update.polarCustomerId) {
+      await repo.setTenantPolarCustomerId(update.tenantId, update.polarCustomerId);
+    }
     await captureServerEvent("tenant_plan_cap_updated", {
       tenant_id: update.tenantId,
       cap_seconds: update.capSeconds,

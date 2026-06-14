@@ -70,4 +70,38 @@ describe("buildCheckoutBody + cap update", () => {
     await repo.setTenantUsageCap(tenantId, 36_000);
     expect((await repo.getUsageSummary(tenantId)).capSeconds).toBe(36_000);
   });
+
+  test("setTenantPolarCustomerId persists the customer id on the tenant", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+    expect((await repo.getTenant(tenantId))?.polarCustomerId).toBeNull();
+    await repo.setTenantPolarCustomerId(tenantId, "cust_abc");
+    expect((await repo.getTenant(tenantId))?.polarCustomerId).toBe("cust_abc");
+  });
+});
+
+describe("Polar customer id extraction", () => {
+  test("subscription events carry the top-level customer_id", () => {
+    const update = interpretSubscriptionEvent(
+      { type: "subscription.active", data: { metadata: { tenantId: "t1" }, customer_id: "cust_123" } },
+      36_000,
+    );
+    expect(update?.polarCustomerId).toBe("cust_123");
+  });
+
+  test("falls back to the nested customer.id shape", () => {
+    const update = interpretSubscriptionEvent(
+      { type: "subscription.created", data: { metadata: { tenantId: "t1" }, customer: { id: "cust_456" } } },
+      36_000,
+    );
+    expect(update?.polarCustomerId).toBe("cust_456");
+  });
+
+  test("omits the customer id when the webhook does not carry one", () => {
+    const update = interpretSubscriptionEvent(
+      { type: "subscription.active", data: { metadata: { tenantId: "t1" } } },
+      36_000,
+    );
+    expect(update?.polarCustomerId).toBeUndefined();
+  });
 });

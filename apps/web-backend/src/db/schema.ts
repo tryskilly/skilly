@@ -19,6 +19,8 @@ export const tenants = pgTable("tenants", {
   allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'::text[]`),
   allowedAppIds: text("allowed_app_ids").array().notNull().default(sql`'{}'::text[]`),
   usageCapSeconds: integer("usage_cap_seconds").notNull().default(0),
+  /** Polar customer id, captured from the subscription webhook so we can open a customer-portal session. */
+  polarCustomerId: text("polar_customer_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -90,9 +92,25 @@ export const usageEvents = pgTable(
   (table) => [index("usage_events_tenant_time_idx").on(table.tenantId, table.createdAt)],
 );
 
-export const tenantsRelations = relations(tenants, ({ many }) => ({
+/** Per-tenant widget appearance/behavior config (accent, locale, launcher label). */
+export const tenantWidgetConfigs = pgTable(
+  "tenant_widget_configs",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" })
+      .primaryKey(),
+    accentColor: text("accent_color").notNull().default("#f59e0b"),
+    locale: text("locale").notNull().default("en"),
+    launcherLabel: text("launcher_label"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+export const tenantsRelations = relations(tenants, ({ many, one }) => ({
   apiKeys: many(apiKeys),
   dashboardMemberships: many(dashboardMemberships),
   skills: many(tenantSkills),
   usageEvents: many(usageEvents),
+  widgetConfig: one(tenantWidgetConfigs),
 }));
