@@ -3,6 +3,7 @@ import {
   buildWorkOSAuthorizeUrl,
   createWorkOSState,
   isWorkOSAuthConfigured,
+  parseWorkOSAuthMethod,
   safeDashboardNextPath,
   WORKOS_STATE_COOKIE,
 } from "@/lib/workosAuth";
@@ -17,6 +18,7 @@ function isProduction(): boolean {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const nextPath = safeDashboardNextPath(request.nextUrl.searchParams.get("next"));
+  const method = parseWorkOSAuthMethod(request.nextUrl.searchParams.get("method"));
   if (!isWorkOSAuthConfigured()) {
     const url = publicUrl(request, "/login");
     url.searchParams.set("next", nextPath);
@@ -25,7 +27,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const { state, cookieValue, maxAge } = createWorkOSState(nextPath);
-  const response = NextResponse.redirect(buildWorkOSAuthorizeUrl(state), { status: 303 });
+  const response = NextResponse.redirect(buildWorkOSAuthorizeUrl(state, method), { status: 303 });
 
   response.cookies.set(WORKOS_STATE_COOKIE, cookieValue, {
     httpOnly: true,

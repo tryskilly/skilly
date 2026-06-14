@@ -4,6 +4,7 @@ import {
   buildWorkOSAuthorizeUrl,
   createWorkOSState,
   parseWorkOSStateCookie,
+  parseWorkOSAuthMethod,
   resolveDashboardMembership,
   safeDashboardNextPath,
 } from "../src/lib/workosAuth";
@@ -35,6 +36,21 @@ describe("WorkOS dashboard auth", () => {
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("provider")).toBe("authkit");
     expect(url.searchParams.get("state")).toBe("state_123");
+  });
+
+  test("can build a direct Google OAuth authorization URL", () => {
+    configureWorkOS();
+
+    const url = new URL(buildWorkOSAuthorizeUrl("state_123", "google"));
+
+    expect(url.searchParams.get("provider")).toBe("GoogleOAuth");
+  });
+
+  test("defaults unknown auth methods to email AuthKit", () => {
+    expect(parseWorkOSAuthMethod("google")).toBe("google");
+    expect(parseWorkOSAuthMethod("email")).toBe("email");
+    expect(parseWorkOSAuthMethod("github")).toBe("email");
+    expect(parseWorkOSAuthMethod(null)).toBe("email");
   });
 
   test("roundtrips signed OAuth state and rejects tampering", () => {

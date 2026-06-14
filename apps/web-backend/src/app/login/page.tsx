@@ -13,7 +13,8 @@ export default async function LoginPage({
   const error = params.error;
   const configured = isDashboardAuthConfigured();
   const workosConfigured = isWorkOSDashboardAuthConfigured();
-  const workosUrl = `/api/auth/workos/start?next=${encodeURIComponent(nextPath)}`;
+  const googleUrl = `/api/auth/workos/start?method=google&next=${encodeURIComponent(nextPath)}`;
+  const emailUrl = `/api/auth/workos/start?method=email&next=${encodeURIComponent(nextPath)}`;
   const errorMessage =
     error === "invalid"
       ? "The password did not match."
@@ -51,12 +52,23 @@ export default async function LoginPage({
         )}
 
         {workosConfigured && (
-          <a
-            href={workosUrl}
-            className="block rounded-md bg-amber-500 px-4 py-2.5 text-center text-sm font-bold text-neutral-950 transition hover:bg-amber-600 active:scale-[0.98]"
-          >
-            Continue with WorkOS
-          </a>
+          <div className="grid gap-3">
+            <a
+              href={googleUrl}
+              className="flex items-center justify-center gap-2 rounded-md bg-amber-500 px-4 py-2.5 text-center text-sm font-bold text-neutral-950 transition hover:bg-amber-600 active:scale-[0.98]"
+            >
+              <span className="grid size-5 place-items-center rounded-full bg-white text-xs font-black text-neutral-950">
+                G
+              </span>
+              Continue with Google
+            </a>
+            <a
+              href={emailUrl}
+              className="block rounded-md border border-white/15 px-4 py-2.5 text-center text-sm font-bold text-neutral-100 transition hover:border-amber-500/60 active:scale-[0.98]"
+            >
+              Continue with email
+            </a>
+          </div>
         )}
 
         {configured && (

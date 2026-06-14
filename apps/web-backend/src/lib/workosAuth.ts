@@ -23,6 +23,8 @@ export interface WorkOSAuthResult {
   workosOrganizationId: string | null;
 }
 
+export type WorkOSAuthMethod = "email" | "google";
+
 export function isWorkOSAuthConfigured(): boolean {
   return Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_DASHBOARD_REDIRECT_URI);
 }
@@ -55,6 +57,10 @@ function base64UrlDecodeJson<T>(value: string): T {
 
 export function safeDashboardNextPath(value: string | null | undefined): string {
   return value?.startsWith("/dashboard") ? value : "/dashboard";
+}
+
+export function parseWorkOSAuthMethod(value: string | null | undefined): WorkOSAuthMethod {
+  return value === "google" ? "google" : "email";
 }
 
 export function createWorkOSState(nextPath: string): { state: string; cookieValue: string; maxAge: number } {
@@ -101,7 +107,7 @@ export function parseWorkOSStateCookie(rawValue: string | undefined): WorkOSStat
   }
 }
 
-export function buildWorkOSAuthorizeUrl(state: string): string {
+export function buildWorkOSAuthorizeUrl(state: string, method: WorkOSAuthMethod = "email"): string {
   if (!isWorkOSAuthConfigured()) {
     throw new Error("WorkOS dashboard auth is not configured");
   }
@@ -109,7 +115,7 @@ export function buildWorkOSAuthorizeUrl(state: string): string {
   authUrl.searchParams.set("client_id", process.env.WORKOS_CLIENT_ID!);
   authUrl.searchParams.set("redirect_uri", process.env.WORKOS_DASHBOARD_REDIRECT_URI!);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("provider", "authkit");
+  authUrl.searchParams.set("provider", method === "google" ? "GoogleOAuth" : "authkit");
   authUrl.searchParams.set("state", state);
   return authUrl.toString();
 }
