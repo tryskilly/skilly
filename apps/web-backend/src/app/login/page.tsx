@@ -3,6 +3,17 @@ import { SkillyMark } from "../dashboard/ui";
 
 export const dynamic = "force-dynamic";
 
+const loginErrorMessages: Record<string, string> = {
+  invalid: "The password did not match.",
+  magic_email: "Enter a valid email address.",
+  magic_start: "We could not send an email code. Try again.",
+  magic_expired: "The email code expired. Start again with your email.",
+  no_membership: "Your WorkOS account is not mapped to a Skilly tenant yet.",
+  workos_state: "The sign-in session expired. Try signing in again.",
+  workos: "WorkOS sign-in failed. Try again or use the fallback password.",
+  workos_unconfigured: "WorkOS sign-in is not configured yet. Use the fallback password.",
+};
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -14,19 +25,7 @@ export default async function LoginPage({
   const configured = isDashboardAuthConfigured();
   const workosConfigured = isWorkOSDashboardAuthConfigured();
   const googleUrl = `/api/auth/workos/start?method=google&next=${encodeURIComponent(nextPath)}`;
-  const emailUrl = `/api/auth/workos/start?method=email&next=${encodeURIComponent(nextPath)}`;
-  const errorMessage =
-    error === "invalid"
-      ? "The password did not match."
-      : error === "no_membership"
-        ? "Your WorkOS account is not mapped to a Skilly tenant yet."
-        : error === "workos_state"
-        ? "The sign-in session expired. Try signing in again."
-        : error === "workos"
-          ? "WorkOS sign-in failed. Try again or use the fallback password."
-          : error === "workos_unconfigured"
-            ? "WorkOS sign-in is not configured yet. Use the fallback password."
-            : null;
+  const errorMessage = error ? loginErrorMessages[error] : null;
 
   return (
     <main className="grid min-h-dvh place-items-center bg-[radial-gradient(circle_at_50%_-20%,rgba(245,158,11,0.16),transparent_34%),#0F0F10] px-4 text-neutral-100">
@@ -77,12 +76,25 @@ export default async function LoginPage({
               </svg>
               Continue with Google
             </a>
-            <a
-              href={emailUrl}
-              className="block rounded-md border border-white/15 px-4 py-2.5 text-center text-sm font-bold text-neutral-100 transition hover:border-amber-500/60 active:scale-[0.98]"
-            >
-              Continue with email
-            </a>
+            <form action="/api/auth/workos/magic/start" method="post" className="grid gap-3">
+              <input type="hidden" name="next" value={nextPath} />
+              <label className="grid gap-1.5">
+                <span className="text-sm font-bold text-neutral-300">Email</span>
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  className="rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2.5 text-sm text-neutral-100 outline-none transition focus:border-amber-500/80"
+                />
+              </label>
+              <button
+                type="submit"
+                className="rounded-md border border-white/15 px-4 py-2.5 text-sm font-bold text-neutral-100 transition hover:border-amber-500/60 active:scale-[0.98]"
+              >
+                Continue with email
+              </button>
+            </form>
           </div>
         )}
 

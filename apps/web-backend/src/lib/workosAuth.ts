@@ -3,10 +3,18 @@ import type { DashboardMembership, WebBackendRepo } from "@/db/repo";
 import { getDefaultTenantId } from "./session";
 
 export const WORKOS_STATE_COOKIE = "skilly_workos_oauth_state";
+export const WORKOS_MAGIC_EMAIL_COOKIE = "skilly_workos_magic_email";
 const STATE_TTL_SECONDS = 10 * 60;
+const MAGIC_EMAIL_TTL_SECONDS = 10 * 60;
 
 export interface WorkOSStatePayload {
   nonce: string;
+  nextPath: string;
+  issuedAt: number;
+}
+
+export interface WorkOSMagicEmailPayload {
+  email: string;
   nextPath: string;
   issuedAt: number;
 }
@@ -55,6 +63,26 @@ function base64UrlDecodeJson<T>(value: string): T {
   return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as T;
 }
 
+function signedCookieValue(payload: unknown): string {
+  const encoded = base64UrlEncodeJson(payload);
+  return `${encoded}.${signPayload(encoded)}`;
+}
+
+function parseSignedCookieValue<T>(rawValue: string | undefined): T | null {
+  if (!rawValue) {
+    return null;
+  }
+  const [encoded, signature] = rawValue.split(".");
+  if (!encoded || !signature || !signaturesMatch(signature, signPayload(encoded))) {
+    return null;
+  }
+  try {
+    return base64UrlDecodeJson<T>(encoded);
+  } catch {
+    return null;
+  }
+}
+
 export function safeDashboardNextPath(value: string | null | undefined): string {
   return value?.startsWith("/dashboard") ? value : "/dashboard";
 }
@@ -69,42 +97,78 @@ export function createWorkOSState(nextPath: string): { state: string; cookieValu
     nextPath: safeDashboardNextPath(nextPath),
     issuedAt: Date.now(),
   };
-  const encoded = base64UrlEncodeJson(payload);
   return {
     state: payload.nonce,
-    cookieValue: `${encoded}.${signPayload(encoded)}`,
+    cookieValue: signedCookieValue(payload),
     maxAge: STATE_TTL_SECONDS,
   };
 }
 
 export function parseWorkOSStateCookie(rawValue: string | undefined): WorkOSStatePayload | null {
-  if (!rawValue) {
+  const payload = parseSignedCookieValue<Partial<WorkOSStatePayload>>(rawValue);
+  if (
+    !payload ||
+    typeof payload.nonce !== "string" ||
+    typeof payload.nextPath !== "string" ||
+    typeof payload.issuedAt !== "number"
+  ) {
     return null;
   }
-  const [encoded, signature] = rawValue.split(".");
-  if (!encoded || !signature || !signaturesMatch(signature, signPayload(encoded))) {
+  if (Date.now() - payload.issuedAt > STATE_TTL_SECONDS * 1000) {
     return null;
   }
-  try {
-    const payload = base64UrlDecodeJson<Partial<WorkOSStatePayload>>(encoded);
-    if (
-      typeof payload.nonce !== "string" ||
-      typeof payload.nextPath !== "string" ||
-      typeof payload.issuedAt !== "number"
-    ) {
-      return null;
-    }
-    if (Date.now() - payload.issuedAt > STATE_TTL_SECONDS * 1000) {
-      return null;
-    }
-    return {
-      nonce: payload.nonce,
-      nextPath: safeDashboardNextPath(payload.nextPath),
-      issuedAt: payload.issuedAt,
-    };
-  } catch {
+  return {
+    nonce: payload.nonce,
+    nextPath: safeDashboardNextPath(payload.nextPath),
+    issuedAt: payload.issuedAt,
+  };
+}
+
+export function normalizeWorkOSEmail(value: string | null | undefined): string | null {
+  const email = value?.trim().toLowerCase();
+  if (!email || email.length > 254) {
     return null;
   }
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+export function createWorkOSMagicEmailCookie(
+  email: string,
+  nextPath: string,
+): { cookieValue: string; maxAge: number } {
+  const normalizedEmail = normalizeWorkOSEmail(email);
+  if (!normalizedEmail) {
+    throw new Error("Invalid email");
+  }
+  return {
+    cookieValue: signedCookieValue({
+      email: normalizedEmail,
+      nextPath: safeDashboardNextPath(nextPath),
+      issuedAt: Date.now(),
+    } satisfies WorkOSMagicEmailPayload),
+    maxAge: MAGIC_EMAIL_TTL_SECONDS,
+  };
+}
+
+export function parseWorkOSMagicEmailCookie(rawValue: string | undefined): WorkOSMagicEmailPayload | null {
+  const payload = parseSignedCookieValue<Partial<WorkOSMagicEmailPayload>>(rawValue);
+  if (
+    !payload ||
+    typeof payload.email !== "string" ||
+    typeof payload.nextPath !== "string" ||
+    typeof payload.issuedAt !== "number"
+  ) {
+    return null;
+  }
+  const email = normalizeWorkOSEmail(payload.email);
+  if (!email || Date.now() - payload.issuedAt > MAGIC_EMAIL_TTL_SECONDS * 1000) {
+    return null;
+  }
+  return {
+    email,
+    nextPath: safeDashboardNextPath(payload.nextPath),
+    issuedAt: payload.issuedAt,
+  };
 }
 
 export function buildWorkOSAuthorizeUrl(state: string, method: WorkOSAuthMethod = "email"): string {
@@ -136,6 +200,24 @@ function extractOrganizationId(data: Record<string, unknown>): string | null {
   return null;
 }
 
+function parseWorkOSAuthenticateResult(data: Record<string, unknown>): WorkOSAuthResult {
+  const user = data.user && typeof data.user === "object" ? (data.user as Record<string, unknown>) : null;
+  const id = user ? asString(user.id) : null;
+  if (!id) {
+    throw new Error("WorkOS authenticate response did not include a user id");
+  }
+
+  return {
+    user: {
+      id,
+      email: user ? asString(user.email) : null,
+      firstName: user ? asString(user.first_name) ?? asString(user.firstName) : null,
+      lastName: user ? asString(user.last_name) ?? asString(user.lastName) : null,
+    },
+    workosOrganizationId: extractOrganizationId(data),
+  };
+}
+
 export async function exchangeWorkOSCode(code: string): Promise<WorkOSAuthResult> {
   if (!isWorkOSAuthConfigured()) {
     throw new Error("WorkOS dashboard auth is not configured");
@@ -156,21 +238,49 @@ export async function exchangeWorkOSCode(code: string): Promise<WorkOSAuthResult
   }
 
   const data = (await response.json()) as Record<string, unknown>;
-  const user = data.user && typeof data.user === "object" ? (data.user as Record<string, unknown>) : null;
-  const id = user ? asString(user.id) : null;
-  if (!id) {
-    throw new Error("WorkOS authenticate response did not include a user id");
+  return parseWorkOSAuthenticateResult(data);
+}
+
+export async function sendWorkOSMagicAuthCode(email: string): Promise<void> {
+  if (!isWorkOSAuthConfigured()) {
+    throw new Error("WorkOS dashboard auth is not configured");
+  }
+  const response = await fetch("https://api.workos.com/user_management/magic_auth", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.WORKOS_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ email }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`WorkOS Magic Auth create failed with ${response.status}`);
+  }
+}
+
+export async function exchangeWorkOSMagicAuthCode(email: string, code: string): Promise<WorkOSAuthResult> {
+  if (!isWorkOSAuthConfigured()) {
+    throw new Error("WorkOS dashboard auth is not configured");
+  }
+  const response = await fetch("https://api.workos.com/user_management/authenticate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_id: process.env.WORKOS_CLIENT_ID,
+      client_secret: process.env.WORKOS_API_KEY,
+      grant_type: "urn:workos:oauth:grant-type:magic-auth:code",
+      email,
+      code,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`WorkOS Magic Auth authenticate failed with ${response.status}`);
   }
 
-  return {
-    user: {
-      id,
-      email: user ? asString(user.email) : null,
-      firstName: user ? asString(user.first_name) ?? asString(user.firstName) : null,
-      lastName: user ? asString(user.last_name) ?? asString(user.lastName) : null,
-    },
-    workosOrganizationId: extractOrganizationId(data),
-  };
+  const data = (await response.json()) as Record<string, unknown>;
+  return parseWorkOSAuthenticateResult(data);
 }
 
 export async function resolveDashboardMembership(

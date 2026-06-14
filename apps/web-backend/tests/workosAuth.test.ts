@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { MemoryRepo } from "../src/db/memoryRepo";
 import {
   buildWorkOSAuthorizeUrl,
+  createWorkOSMagicEmailCookie,
   createWorkOSState,
+  normalizeWorkOSEmail,
+  parseWorkOSMagicEmailCookie,
   parseWorkOSStateCookie,
   parseWorkOSAuthMethod,
   resolveDashboardMembership,
@@ -62,6 +65,24 @@ describe("WorkOS dashboard auth", () => {
     expect(parsed?.nonce).toBe(state.state);
     expect(parsed?.nextPath).toBe("/dashboard/keys");
     expect(parseWorkOSStateCookie(`${state.cookieValue}tampered`)).toBeNull();
+  });
+
+  test("normalizes valid dashboard emails and rejects invalid addresses", () => {
+    expect(normalizeWorkOSEmail(" Admin@TrySkilly.App ")).toBe("admin@tryskilly.app");
+    expect(normalizeWorkOSEmail("not-an-email")).toBeNull();
+    expect(normalizeWorkOSEmail("")).toBeNull();
+  });
+
+  test("roundtrips the signed Magic Auth pending email cookie", () => {
+    configureWorkOS();
+
+    const cookie = createWorkOSMagicEmailCookie("Admin@TrySkilly.App", "/dashboard/keys");
+    const parsed = parseWorkOSMagicEmailCookie(cookie.cookieValue);
+
+    expect(parsed?.email).toBe("admin@tryskilly.app");
+    expect(parsed?.nextPath).toBe("/dashboard/keys");
+    expect(cookie.maxAge).toBeGreaterThan(0);
+    expect(parseWorkOSMagicEmailCookie(`${cookie.cookieValue}tampered`)).toBeNull();
   });
 
   test("allows only dashboard-relative redirect targets", () => {
