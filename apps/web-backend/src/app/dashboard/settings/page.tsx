@@ -54,7 +54,7 @@ export default async function SettingsPage() {
       <Card>
         <SectionHeader
           title="Authentication status"
-          description="Dashboard pages and mutations are protected by a signed HTTP-only session cookie. WorkOS tenant mapping remains the production identity provider follow-up."
+          description="Dashboard pages and mutations are protected by a signed HTTP-only session cookie. WorkOS AuthKit resolves a signed-in user to an explicit tenant membership."
         />
         <div className="flex flex-wrap gap-2">
           <Badge tone="green">{dashboardAuthModeLabel()}</Badge>

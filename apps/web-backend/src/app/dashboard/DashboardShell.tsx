@@ -5,7 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { DashboardRole } from "@/lib/dashboardAuth";
+import type { Tenant } from "@/db/repo";
 import { SkillyMark } from "./ui";
+import { TenantSwitcher } from "./TenantSwitcher";
 
 const navItems = [
   { href: "/dashboard", label: "Overview" },
@@ -31,14 +33,22 @@ export function DashboardShell({
   children,
   tenantName,
   role,
+  needsSetup,
+  switchableTenants,
+  currentTenantId,
 }: {
   children: ReactNode;
   tenantName: string;
   role: DashboardRole;
+  needsSetup: boolean;
+  /** Tenants a super_admin can switch into; empty for tenant_admins. */
+  switchableTenants: Tenant[];
+  currentTenantId: string;
 }) {
   const pathname = usePathname();
   const visibleNavItems = navItems.filter((item) => !item.requiredRole || item.requiredRole === role);
   const current = navItems.find((item) => isActive(pathname, item.href));
+  const canSwitchTenants = role === "super_admin" && switchableTenants.length > 1;
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(circle_at_30%_-20%,rgba(245,158,11,0.14),transparent_36%),#0F0F10] text-neutral-100 lg:grid lg:grid-cols-[248px_1fr]">
@@ -75,13 +85,17 @@ export function DashboardShell({
         </nav>
 
         <div className="mt-5 border-t border-white/10 pt-4 lg:mt-auto">
-          <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-            <strong className="block text-sm">{tenantName}</strong>
-            <span className="text-xs text-neutral-500">Tenant workspace · live backend</span>
-            <span className="mt-1 block text-xs text-neutral-600">
-              {role === "super_admin" ? "Super admin" : "Tenant admin"}
-            </span>
-          </div>
+          {canSwitchTenants ? (
+            <TenantSwitcher tenants={switchableTenants} currentTenantId={currentTenantId} />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+              <strong className="block text-sm">{tenantName}</strong>
+              <span className="text-xs text-neutral-500">Tenant workspace · live backend</span>
+              <span className="mt-1 block text-xs text-neutral-600">
+                {role === "super_admin" ? "Super admin" : "Tenant admin"}
+              </span>
+            </div>
+          )}
           <div className="mt-3 flex items-center gap-3 text-xs text-neutral-500 lg:grid lg:gap-2">
             <Link href="/dashboard/install" className="hover:text-neutral-200">
               Docs
@@ -102,9 +116,14 @@ export function DashboardShell({
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-white/10 bg-neutral-950/75 px-4 backdrop-blur md:px-8">
           <div className="text-sm text-neutral-400">Dashboard / {current?.label ?? "Overview"}</div>
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-300 sm:inline-flex">
-              Needs setup
-            </span>
+            {needsSetup && (
+              <Link
+                href="/dashboard/install"
+                className="hidden rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-300 transition hover:bg-amber-500/25 sm:inline-flex"
+              >
+                Needs setup
+              </Link>
+            )}
             <Link
               href="/dashboard/widget"
               data-analytics-event="dashboard_widget_test_clicked"

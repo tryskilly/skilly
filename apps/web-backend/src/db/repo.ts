@@ -12,6 +12,8 @@ export interface Tenant {
   /** Allowed native app ids (iOS bundle id / Android package name) for the mobile SDK. */
   allowedAppIds: string[];
   usageCapSeconds: number;
+  /** Polar customer id, captured from the subscription webhook so we can open a customer-portal session. */
+  polarCustomerId: string | null;
 }
 
 export interface KeyLookup {
@@ -45,6 +47,19 @@ export interface UsageSummary {
   capSeconds: number;
 }
 
+/** Per-tenant widget appearance/behavior config surfaced in the embed snippet. */
+export interface WidgetConfig {
+  accentColor: string;
+  locale: string;
+  launcherLabel: string | null;
+}
+
+export const DEFAULT_WIDGET_CONFIG: WidgetConfig = {
+  accentColor: "#f59e0b",
+  locale: "en",
+  launcherLabel: null,
+};
+
 export interface DashboardMembership {
   workosUserId: string;
   tenantId: string;
@@ -73,15 +88,33 @@ export interface WebBackendRepo {
   getUsageSecondsThisPeriod(tenantId: string): Promise<number>;
   /** Append a metered usage event. */
   recordUsage(event: UsageEvent): Promise<void>;
+  /** Recent raw usage events for the tenant (newest first), capped at `limit`. */
+  listUsageEvents(tenantId: string, limit: number): Promise<Array<UsageEvent & { createdAt: Date }>>;
 
   // --- Dashboard (Phase 8.5) ---
   /** Super-admin tenant directory. */
   listTenants(): Promise<Tenant[]>;
   getTenant(tenantId: string): Promise<Tenant | null>;
+  /** Create a new tenant. The id is generated server-side; returns the full tenant. */
+  createTenant(input: {
+    name: string;
+    allowedOrigins?: string[];
+    allowedAppIds?: string[];
+    usageCapSeconds?: number;
+  }): Promise<Tenant>;
+  /** Rename a tenant (super-admin / tenant-admin profile edit). */
+  updateTenantName(tenantId: string, name: string): Promise<void>;
   /** Resolve dashboard access from WorkOS identity to an explicit tenant membership. */
   findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null>;
   /** Create or update a dashboard membership for a verified WorkOS identity. */
   upsertDashboardMembership(input: DashboardMembershipInput): Promise<DashboardMembership>;
+  /** Every membership for a tenant (member management / drill-in view). */
+  listDashboardMemberships(tenantId: string): Promise<DashboardMembership[]>;
+  /** Remove a membership. Refuses to remove the last super_admin of a tenant. */
+  deleteDashboardMembership(
+    tenantId: string,
+    workosUserId: string,
+  ): Promise<{ removed: boolean; reason?: "last_super_admin" | "not_found" }>;
   listApiKeys(tenantId: string): Promise<ApiKeyInfo[]>;
   /** Create a key; returns the raw value ONCE (caller shows it, never stored raw). */
   createApiKey(tenantId: string, keyType: KeyType): Promise<{ rawKey: string; info: ApiKeyInfo }>;
@@ -92,6 +125,8 @@ export interface WebBackendRepo {
   // --- Billing (Phase 8.6) ---
   /** Set the tenant's monthly usage cap (0 = unlimited / no paid access). */
   setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void>;
+  /** Persist the Polar customer id captured from a subscription webhook. */
+  setTenantPolarCustomerId(tenantId: string, polarCustomerId: string): Promise<void>;
 
   // --- Web origin tenancy ---
   /** Replace the tenant's allowed web origins. Supports "*.domain" wildcards. */
@@ -100,4 +135,10 @@ export interface WebBackendRepo {
   // --- Mobile app-id tenancy (Phase 9.0) ---
   /** Replace the tenant's allowed native app ids (iOS bundle id / Android package). */
   setTenantAppIds(tenantId: string, appIds: string[]): Promise<void>;
+
+  // --- Widget config (Phase: dashboard completeness) ---
+  /** The tenant's widget config, or the defaults if none saved. */
+  getWidgetConfig(tenantId: string): Promise<WidgetConfig>;
+  /** Save the tenant's widget config (upsert). */
+  saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void>;
 }

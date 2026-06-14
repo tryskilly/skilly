@@ -17,13 +17,18 @@ export default async function DashboardPage() {
   const hasOrigin = Boolean(tenant?.allowedOrigins.length);
   const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
   const hasSkill = Boolean(skill?.content.trim());
+  // "Test widget" is considered ready once the tenant can actually serve a
+  // widget session: origin + publishable key + skill all in place. The
+  // Test widget button on the page links to the live preview, so once the
+  // prerequisites are met the step is satisfiable.
+  const canTestWidget = hasOrigin && hasPublishableKey && hasSkill;
   const setupSteps = [
     { label: "Create workspace", done: Boolean(tenant) },
     { label: "Add allowed origin", done: hasOrigin },
     { label: "Generate publishable key", done: hasPublishableKey },
     { label: "Install script", done: hasOrigin && hasPublishableKey },
     { label: "Save teaching skill", done: hasSkill },
-    { label: "Test widget", done: false },
+    { label: "Test widget", done: canTestWidget },
   ];
   const firstIncomplete = setupSteps.findIndex((step) => !step.done);
 

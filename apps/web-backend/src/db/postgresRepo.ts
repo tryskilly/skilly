@@ -15,7 +15,9 @@ import type {
   UsageEvent,
   UsageSummary,
   WebBackendRepo,
+  WidgetConfig,
 } from "./repo";
+import { DEFAULT_WIDGET_CONFIG } from "./repo";
 
 export class PostgresRepo implements WebBackendRepo {
   constructor(private readonly pool: Pool) {}
@@ -27,9 +29,10 @@ export class PostgresRepo implements WebBackendRepo {
       allowed_origins: string[];
       allowed_app_ids: string[];
       usage_cap_seconds: number;
+      polar_customer_id: string | null;
       key_type: "publishable" | "secret";
     }>(
-      `SELECT t.id, t.name, t.allowed_origins, t.allowed_app_ids, t.usage_cap_seconds, k.key_type
+      `SELECT t.id, t.name, t.allowed_origins, t.allowed_app_ids, t.usage_cap_seconds, t.polar_customer_id, k.key_type
          FROM api_keys k
          JOIN tenants t ON t.id = k.tenant_id
         WHERE k.key_hash = $1 AND k.revoked = false
@@ -47,6 +50,7 @@ export class PostgresRepo implements WebBackendRepo {
         allowedOrigins: row.allowed_origins,
         allowedAppIds: row.allowed_app_ids,
         usageCapSeconds: row.usage_cap_seconds,
+        polarCustomerId: row.polar_customer_id,
       },
       keyType: row.key_type,
     };
@@ -78,6 +82,31 @@ export class PostgresRepo implements WebBackendRepo {
     );
   }
 
+  async listUsageEvents(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<UsageEvent & { createdAt: Date }>> {
+    const result = await this.pool.query<{
+      tenant_id: string;
+      kind: string;
+      seconds: number;
+      created_at: Date;
+    }>(
+      `SELECT tenant_id, kind, seconds, created_at
+         FROM usage_events
+        WHERE tenant_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({
+      tenantId: row.tenant_id,
+      kind: row.kind as UsageEvent["kind"],
+      seconds: row.seconds,
+      createdAt: row.created_at,
+    }));
+  }
+
   async listTenants(): Promise<Tenant[]> {
     const result = await this.pool.query<{
       id: string;
@@ -85,13 +114,17 @@ export class PostgresRepo implements WebBackendRepo {
       allowed_origins: string[];
       allowed_app_ids: string[];
       usage_cap_seconds: number;
-    }>(`SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds FROM tenants ORDER BY created_at DESC`);
+      polar_customer_id: string | null;
+    }>(
+      `SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds, polar_customer_id FROM tenants ORDER BY created_at DESC`,
+    );
     return result.rows.map((row) => ({
       id: row.id,
       name: row.name,
       allowedOrigins: row.allowed_origins,
       allowedAppIds: row.allowed_app_ids,
       usageCapSeconds: row.usage_cap_seconds,
+      polarCustomerId: row.polar_customer_id,
     }));
   }
 
@@ -102,8 +135,9 @@ export class PostgresRepo implements WebBackendRepo {
       allowed_origins: string[];
       allowed_app_ids: string[];
       usage_cap_seconds: number;
+      polar_customer_id: string | null;
     }>(
-      `SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds FROM tenants WHERE id = $1`,
+      `SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds, polar_customer_id FROM tenants WHERE id = $1`,
       [tenantId],
     );
     const row = result.rows[0];
@@ -114,8 +148,48 @@ export class PostgresRepo implements WebBackendRepo {
           allowedOrigins: row.allowed_origins,
           allowedAppIds: row.allowed_app_ids,
           usageCapSeconds: row.usage_cap_seconds,
+          polarCustomerId: row.polar_customer_id,
         }
       : null;
+  }
+
+  async createTenant(input: {
+    name: string;
+    allowedOrigins?: string[];
+    allowedAppIds?: string[];
+    usageCapSeconds?: number;
+  }): Promise<Tenant> {
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      usage_cap_seconds: number;
+      polar_customer_id: string | null;
+    }>(
+      `INSERT INTO tenants (name, allowed_origins, allowed_app_ids, usage_cap_seconds)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, name, allowed_origins, allowed_app_ids, usage_cap_seconds, polar_customer_id`,
+      [
+        input.name,
+        input.allowedOrigins ?? [],
+        input.allowedAppIds ?? [],
+        input.usageCapSeconds ?? 0,
+      ],
+    );
+    const row = result.rows[0]!;
+    return {
+      id: row.id,
+      name: row.name,
+      allowedOrigins: row.allowed_origins,
+      allowedAppIds: row.allowed_app_ids,
+      usageCapSeconds: row.usage_cap_seconds,
+      polarCustomerId: row.polar_customer_id,
+    };
+  }
+
+  async updateTenantName(tenantId: string, name: string): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET name = $2 WHERE id = $1`, [tenantId, name]);
   }
 
   async findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null> {
@@ -189,6 +263,61 @@ export class PostgresRepo implements WebBackendRepo {
     };
   }
 
+  async listDashboardMemberships(tenantId: string): Promise<DashboardMembership[]> {
+    const result = await this.pool.query<{
+      workos_user_id: string;
+      tenant_id: string;
+      role: "tenant_admin" | "super_admin";
+      email: string | null;
+      workos_organization_id: string | null;
+    }>(
+      `SELECT workos_user_id, tenant_id, role, email, workos_organization_id
+         FROM dashboard_memberships
+        WHERE tenant_id = $1
+        ORDER BY created_at ASC`,
+      [tenantId],
+    );
+    return result.rows.map((row) => ({
+      workosUserId: row.workos_user_id,
+      tenantId: row.tenant_id,
+      role: row.role,
+      email: row.email,
+      workosOrganizationId: row.workos_organization_id,
+    }));
+  }
+
+  async deleteDashboardMembership(
+    tenantId: string,
+    workosUserId: string,
+  ): Promise<{ removed: boolean; reason?: "last_super_admin" | "not_found" }> {
+    const target = await this.pool.query<{ role: "tenant_admin" | "super_admin" }>(
+      `SELECT role FROM dashboard_memberships WHERE tenant_id = $1 AND workos_user_id = $2`,
+      [tenantId, workosUserId],
+    );
+    if (target.rows.length === 0) {
+      return { removed: false, reason: "not_found" };
+    }
+    // Refuse to remove the last super_admin of a tenant — that would orphan it.
+    if (target.rows[0]!.role === "super_admin") {
+      const otherSuperAdmins = await this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM dashboard_memberships
+          WHERE tenant_id = $1
+            AND role = 'super_admin'
+            AND workos_user_id <> $2`,
+        [tenantId, workosUserId],
+      );
+      if (Number(otherSuperAdmins.rows[0]?.count ?? 0) === 0) {
+        return { removed: false, reason: "last_super_admin" };
+      }
+    }
+    await this.pool.query(
+      `DELETE FROM dashboard_memberships WHERE tenant_id = $1 AND workos_user_id = $2`,
+      [tenantId, workosUserId],
+    );
+    return { removed: true };
+  }
+
   async listApiKeys(tenantId: string): Promise<ApiKeyInfo[]> {
     const result = await this.pool.query<{
       id: string;
@@ -247,11 +376,45 @@ export class PostgresRepo implements WebBackendRepo {
     await this.pool.query(`UPDATE tenants SET usage_cap_seconds = $2 WHERE id = $1`, [tenantId, capSeconds]);
   }
 
+  async setTenantPolarCustomerId(tenantId: string, polarCustomerId: string): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET polar_customer_id = $2 WHERE id = $1`, [
+      tenantId,
+      polarCustomerId,
+    ]);
+  }
+
   async setTenantOrigins(tenantId: string, origins: string[]): Promise<void> {
     await this.pool.query(`UPDATE tenants SET allowed_origins = $2 WHERE id = $1`, [tenantId, origins]);
   }
 
   async setTenantAppIds(tenantId: string, appIds: string[]): Promise<void> {
     await this.pool.query(`UPDATE tenants SET allowed_app_ids = $2 WHERE id = $1`, [tenantId, appIds]);
+  }
+
+  async getWidgetConfig(tenantId: string): Promise<WidgetConfig> {
+    const result = await this.pool.query<{
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+    }>(`SELECT accent_color, locale, launcher_label FROM tenant_widget_configs WHERE tenant_id = $1`, [
+      tenantId,
+    ]);
+    const row = result.rows[0];
+    return row
+      ? { accentColor: row.accent_color, locale: row.locale, launcherLabel: row.launcher_label }
+      : { ...DEFAULT_WIDGET_CONFIG };
+  }
+
+  async saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO tenant_widget_configs (tenant_id, accent_color, locale, launcher_label)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tenant_id) DO UPDATE SET
+           accent_color = EXCLUDED.accent_color,
+           locale = EXCLUDED.locale,
+           launcher_label = EXCLUDED.launcher_label,
+           updated_at = now()`,
+      [tenantId, config.accentColor, config.locale, config.launcherLabel],
+    );
   }
 }
