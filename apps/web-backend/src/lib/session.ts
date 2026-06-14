@@ -7,9 +7,18 @@
 // auth is a follow-up; this seam keeps the dashboard code unchanged when it lands.
 
 import { defaultSeed } from "@/db/memoryRepo";
+import { requireDashboardSession } from "./dashboardAuth";
+
+export function getDefaultTenantId(): string {
+  return process.env.SKILLY_TENANT_ID ?? defaultSeed().tenants[0]!.id;
+}
 
 export function getCurrentTenantId(): string {
-  return process.env.SKILLY_TENANT_ID ?? defaultSeed().tenants[0]!.id;
+  return getDefaultTenantId();
+}
+
+export async function getCurrentDashboardTenantId(): Promise<string> {
+  return (await requireDashboardSession()).tenantId;
 }
 
 export const DEFAULT_SKILL_ID = "acme-onboarding";

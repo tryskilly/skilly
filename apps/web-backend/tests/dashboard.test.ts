@@ -60,4 +60,58 @@ describe("dashboard repo operations", () => {
     const summary = await repo.getUsageSummary(tenantId);
     expect(summary.capSeconds).toBe(10_800);
   });
+
+  test("dashboard membership resolves WorkOS identity to an explicit tenant role", async () => {
+    const repo = new MemoryRepo();
+
+    const membership = await repo.findDashboardMembership({
+      workosUserId: "user_01KP21J3GEVH8AKJ31C59Z1KJQ",
+    });
+
+    expect(membership?.tenantId).toBe(tenantId);
+    expect(membership?.role).toBe("super_admin");
+    expect(await repo.findDashboardMembership({ workosUserId: "user_unknown" })).toBeNull();
+  });
+
+  test("dashboard membership prefers the matching WorkOS organization", async () => {
+    const seed = defaultSeed();
+    const secondTenantId = "22222222-2222-2222-2222-222222222222";
+    const repo = new MemoryRepo({
+      ...seed,
+      tenants: [
+        ...seed.tenants,
+        {
+          id: secondTenantId,
+          name: "Second tenant",
+          allowedOrigins: [],
+          allowedAppIds: [],
+          usageCapSeconds: 0,
+        },
+      ],
+      memberships: [
+        ...(seed.memberships ?? []),
+        {
+          workosUserId: "user_multi",
+          tenantId,
+          role: "tenant_admin",
+          email: "multi@example.com",
+          workosOrganizationId: "org_first",
+        },
+        {
+          workosUserId: "user_multi",
+          tenantId: secondTenantId,
+          role: "tenant_admin",
+          email: "multi@example.com",
+          workosOrganizationId: "org_second",
+        },
+      ],
+    });
+
+    const membership = await repo.findDashboardMembership({
+      workosUserId: "user_multi",
+      workosOrganizationId: "org_second",
+    });
+
+    expect(membership?.tenantId).toBe(secondTenantId);
+  });
 });

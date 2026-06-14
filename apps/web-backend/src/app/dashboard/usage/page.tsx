@@ -1,11 +1,11 @@
 import { getRepo } from "@/db";
-import { getCurrentTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
 import { Badge, Card, SectionHeader, UsageMeter } from "../ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function UsagePage() {
-  const usage = await getRepo().getUsageSummary(getCurrentTenantId());
+  const usage = await getRepo().getUsageSummary(await getCurrentDashboardTenantId());
   const remainingSeconds = usage.capSeconds > 0 ? Math.max(0, usage.capSeconds - usage.usageSecondsThisPeriod) : null;
 
   return (
@@ -48,4 +48,3 @@ export default async function UsagePage() {
     </>
   );
 }
-

@@ -1,11 +1,13 @@
 import { getRepo } from "@/db";
-import { getCurrentTenantId } from "@/lib/session";
+import { dashboardAuthModeLabel, getDashboardSession } from "@/lib/dashboardAuth";
+import { getCurrentDashboardTenantId } from "@/lib/session";
 import { Badge, Card, SectionHeader } from "../ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const tenant = await getRepo().getTenant(getCurrentTenantId());
+  const tenantId = await getCurrentDashboardTenantId();
+  const [tenant, session] = await Promise.all([getRepo().getTenant(tenantId), getDashboardSession()]);
 
   return (
     <div className="space-y-6">
@@ -52,11 +54,12 @@ export default async function SettingsPage() {
       <Card>
         <SectionHeader
           title="Authentication status"
-          description="Local development still uses the seeded demo tenant. Production should gate these surfaces with WorkOS roles before launch."
+          description="Dashboard pages and mutations are protected by a signed HTTP-only session cookie. WorkOS tenant mapping remains the production identity provider follow-up."
         />
         <div className="flex flex-wrap gap-2">
-          <Badge tone="amber">Role gating pending</Badge>
-          <Badge>Dev tenant resolver active</Badge>
+          <Badge tone="green">{dashboardAuthModeLabel()}</Badge>
+          <Badge>{session?.role === "super_admin" ? "Super admin" : "Tenant admin"}</Badge>
+          <Badge>Tenant resolver active</Badge>
         </div>
       </Card>
     </div>

@@ -8,13 +8,21 @@ import type { WebBackendRepo } from "./repo";
 
 let cachedRepo: WebBackendRepo | null = null;
 
+export function getRepoMode(): "memory" | "postgres" {
+  return getDatabaseUrl() ? "postgres" : "memory";
+}
+
 export function getRepo(): WebBackendRepo {
   if (cachedRepo) {
     return cachedRepo;
   }
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = getDatabaseUrl();
   cachedRepo = databaseUrl
     ? new PostgresRepo(new Pool({ connectionString: databaseUrl }))
     : new MemoryRepo();
   return cachedRepo;
+}
+
+export function getDatabaseUrl(): string | undefined {
+  return process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
 }

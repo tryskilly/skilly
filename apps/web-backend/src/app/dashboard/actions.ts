@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { getRepo } from "@/db";
 import { validateSkillContent } from "@/domain/skillValidation";
 import { captureServerEvent } from "@/lib/analytics";
-import { DEFAULT_SKILL_ID, getCurrentTenantId } from "@/lib/session";
+import { requireDashboardSession } from "@/lib/dashboardAuth";
+import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
 
 export interface CreateKeyState {
   rawKey?: string;
@@ -16,8 +17,9 @@ export async function createKeyAction(
   _previous: CreateKeyState,
   formData: FormData,
 ): Promise<CreateKeyState> {
+  await requireDashboardSession();
   const keyType = formData.get("keyType") === "secret" ? "secret" : "publishable";
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   try {
     const { rawKey } = await getRepo().createApiKey(tenantId, keyType);
     await captureServerEvent("dashboard_key_created", {
@@ -39,8 +41,9 @@ export async function createKeyAction(
 }
 
 export async function revokeKeyAction(formData: FormData): Promise<void> {
+  await requireDashboardSession();
   const keyId = String(formData.get("keyId") ?? "");
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   if (keyId) {
     await getRepo().revokeApiKey(tenantId, keyId);
     await captureServerEvent("dashboard_key_revoked", {
@@ -53,12 +56,13 @@ export async function revokeKeyAction(formData: FormData): Promise<void> {
 
 /** Register a web origin allowed to use the widget publishable key. */
 export async function addOriginAction(formData: FormData): Promise<void> {
+  await requireDashboardSession();
   const origin = String(formData.get("origin") ?? "").trim();
   if (!origin) {
     return;
   }
   const repo = getRepo();
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   const tenant = await repo.getTenant(tenantId);
   if (tenant && !tenant.allowedOrigins.includes(origin)) {
     await repo.setTenantOrigins(tenantId, [...tenant.allowedOrigins, origin]);
@@ -73,9 +77,10 @@ export async function addOriginAction(formData: FormData): Promise<void> {
 }
 
 export async function removeOriginAction(formData: FormData): Promise<void> {
+  await requireDashboardSession();
   const origin = String(formData.get("origin") ?? "");
   const repo = getRepo();
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   const tenant = await repo.getTenant(tenantId);
   if (tenant) {
     await repo.setTenantOrigins(
@@ -94,12 +99,13 @@ export async function removeOriginAction(formData: FormData): Promise<void> {
 
 /** Register a native app id (iOS bundle id / Android package) for the mobile SDK. */
 export async function addAppIdAction(formData: FormData): Promise<void> {
+  await requireDashboardSession();
   const appId = String(formData.get("appId") ?? "").trim();
   if (!appId) {
     return;
   }
   const repo = getRepo();
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   const tenant = await repo.getTenant(tenantId);
   if (tenant && !tenant.allowedAppIds.includes(appId)) {
     await repo.setTenantAppIds(tenantId, [...tenant.allowedAppIds, appId]);
@@ -114,9 +120,10 @@ export async function addAppIdAction(formData: FormData): Promise<void> {
 }
 
 export async function removeAppIdAction(formData: FormData): Promise<void> {
+  await requireDashboardSession();
   const appId = String(formData.get("appId") ?? "");
   const repo = getRepo();
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   const tenant = await repo.getTenant(tenantId);
   if (tenant) {
     await repo.setTenantAppIds(
@@ -144,8 +151,9 @@ export async function saveSkillAction(
   _previous: SaveSkillState,
   formData: FormData,
 ): Promise<SaveSkillState> {
+  await requireDashboardSession();
   const content = String(formData.get("content") ?? "");
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   const validation = validateSkillContent(content);
   if (!validation.ok) {
     await captureServerEvent("dashboard_skill_validation_failed", {

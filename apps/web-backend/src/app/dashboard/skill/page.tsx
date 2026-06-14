@@ -1,12 +1,12 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentTenantId } from "@/lib/session";
+import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
 import { Badge, Card, SectionHeader } from "../ui";
 import { SkillEditor } from "./SkillEditor";
 
 export const dynamic = "force-dynamic";
 
 export default async function SkillPage() {
-  const skill = await getRepo().getTenantSkill(getCurrentTenantId(), DEFAULT_SKILL_ID);
+  const skill = await getRepo().getTenantSkill(await getCurrentDashboardTenantId(), DEFAULT_SKILL_ID);
 
   return (
     <div className="space-y-6">

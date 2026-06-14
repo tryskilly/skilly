@@ -1,12 +1,12 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentTenantId } from "@/lib/session";
+import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
 import { Badge, ButtonLink, Card, SectionHeader, UsageMeter } from "./ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const repo = getRepo();
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   const [tenant, keys, usage, skill] = await Promise.all([
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),

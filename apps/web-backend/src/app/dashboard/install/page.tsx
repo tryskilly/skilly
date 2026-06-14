@@ -1,12 +1,12 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentTenantId } from "@/lib/session";
+import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
 import { Badge, ButtonLink, Card, CodeBlock, SectionHeader } from "../ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function InstallPage() {
   const repo = getRepo();
-  const tenantId = getCurrentTenantId();
+  const tenantId = await getCurrentDashboardTenantId();
   const [tenant, keys] = await Promise.all([repo.getTenant(tenantId), repo.listApiKeys(tenantId)]);
   const publishableKey = keys.find((key) => key.keyType === "publishable" && !key.revoked);
   const displayKey = publishableKey ? `${publishableKey.prefix}_...${publishableKey.last4}` : "pk_live_your_key";

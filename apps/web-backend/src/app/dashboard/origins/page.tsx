@@ -1,12 +1,12 @@
 import { getRepo } from "@/db";
-import { getCurrentTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
 import { addAppIdAction, addOriginAction, removeAppIdAction, removeOriginAction } from "../actions";
 import { Badge, Card, Field, FormButton, SectionHeader } from "../ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function OriginsPage() {
-  const tenant = await getRepo().getTenant(getCurrentTenantId());
+  const tenant = await getRepo().getTenant(await getCurrentDashboardTenantId());
 
   return (
     <>
@@ -72,4 +72,3 @@ export default async function OriginsPage() {
     </>
   );
 }
-

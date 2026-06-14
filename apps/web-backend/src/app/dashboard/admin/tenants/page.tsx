@@ -1,9 +1,11 @@
 import { getRepo } from "@/db";
+import { requireDashboardSession } from "@/lib/dashboardAuth";
 import { Badge, Card, SectionHeader, UsageMeter } from "../../ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminTenantsPage() {
+  await requireDashboardSession("super_admin");
   const repo = getRepo();
   const tenants = await repo.listTenants();
   const summaries = await Promise.all(

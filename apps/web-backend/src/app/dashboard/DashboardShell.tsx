@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import type { DashboardRole } from "@/lib/dashboardAuth";
 import { SkillyMark } from "./ui";
 
 const navItems = [
@@ -16,7 +17,7 @@ const navItems = [
   { href: "/dashboard/usage", label: "Usage" },
   { href: "/dashboard/billing", label: "Billing" },
   { href: "/dashboard/settings", label: "Settings" },
-  { href: "/dashboard/admin/tenants", label: "Super Admin" },
+  { href: "/dashboard/admin/tenants", label: "Super Admin", requiredRole: "super_admin" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -26,8 +27,17 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function DashboardShell({ children, tenantName }: { children: ReactNode; tenantName: string }) {
+export function DashboardShell({
+  children,
+  tenantName,
+  role,
+}: {
+  children: ReactNode;
+  tenantName: string;
+  role: DashboardRole;
+}) {
   const pathname = usePathname();
+  const visibleNavItems = navItems.filter((item) => !item.requiredRole || item.requiredRole === role);
   const current = navItems.find((item) => isActive(pathname, item.href));
 
   return (
@@ -42,7 +52,7 @@ export function DashboardShell({ children, tenantName }: { children: ReactNode; 
         </div>
 
         <nav className="mt-5 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:flex lg:flex-col">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const active = isActive(pathname, item.href);
             return (
               <Link
@@ -68,6 +78,9 @@ export function DashboardShell({ children, tenantName }: { children: ReactNode; 
           <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
             <strong className="block text-sm">{tenantName}</strong>
             <span className="text-xs text-neutral-500">Tenant workspace · live backend</span>
+            <span className="mt-1 block text-xs text-neutral-600">
+              {role === "super_admin" ? "Super admin" : "Tenant admin"}
+            </span>
           </div>
           <div className="mt-3 flex items-center gap-3 text-xs text-neutral-500 lg:grid lg:gap-2">
             <Link href="/dashboard/install" className="hover:text-neutral-200">
@@ -76,6 +89,11 @@ export function DashboardShell({ children, tenantName }: { children: ReactNode; 
             <Link href="/dashboard/settings" className="hover:text-neutral-200">
               Support
             </Link>
+            <form action="/api/dashboard/logout" method="post">
+              <button type="submit" className="hover:text-neutral-200">
+                Sign out
+              </button>
+            </form>
           </div>
         </div>
       </aside>

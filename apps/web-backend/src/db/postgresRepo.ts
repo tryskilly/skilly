@@ -1,10 +1,14 @@
 // Postgres implementation of WebBackendRepo (node-postgres). Compiles without a
-// database; it connects lazily on first query. Schema: db/schema.sql.
+// database; it connects lazily on first query. Schema changes are owned by
+// Drizzle migrations in db/migrations.
 
 import { Pool } from "pg";
 import { generateKey, hashKey, keyDisplay, type KeyType } from "../domain/keys";
 import type {
   ApiKeyInfo,
+  DashboardMembership,
+  DashboardMembershipInput,
+  DashboardMembershipLookup,
   KeyLookup,
   Tenant,
   TenantSkill,
@@ -112,6 +116,77 @@ export class PostgresRepo implements WebBackendRepo {
           usageCapSeconds: row.usage_cap_seconds,
         }
       : null;
+  }
+
+  async findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null> {
+    const result = await this.pool.query<{
+      workos_user_id: string;
+      tenant_id: string;
+      role: "tenant_admin" | "super_admin";
+      email: string | null;
+      workos_organization_id: string | null;
+    }>(
+      `SELECT workos_user_id, tenant_id, role, email, workos_organization_id
+         FROM dashboard_memberships
+        WHERE workos_user_id = $1
+        ORDER BY
+          CASE
+            WHEN $2::text IS NOT NULL AND workos_organization_id = $2 THEN 0
+            WHEN workos_organization_id IS NULL THEN 1
+            ELSE 2
+          END,
+          created_at ASC
+        LIMIT 1`,
+      [lookup.workosUserId, lookup.workosOrganizationId ?? null],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          workosUserId: row.workos_user_id,
+          tenantId: row.tenant_id,
+          role: row.role,
+          email: row.email,
+          workosOrganizationId: row.workos_organization_id,
+        }
+      : null;
+  }
+
+  async upsertDashboardMembership(input: DashboardMembershipInput): Promise<DashboardMembership> {
+    const result = await this.pool.query<{
+      workos_user_id: string;
+      tenant_id: string;
+      role: "tenant_admin" | "super_admin";
+      email: string | null;
+      workos_organization_id: string | null;
+    }>(
+      `INSERT INTO dashboard_memberships (
+         workos_user_id,
+         tenant_id,
+         role,
+         email,
+         workos_organization_id
+       ) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (workos_user_id, tenant_id) DO UPDATE SET
+         role = EXCLUDED.role,
+         email = EXCLUDED.email,
+         workos_organization_id = EXCLUDED.workos_organization_id
+       RETURNING workos_user_id, tenant_id, role, email, workos_organization_id`,
+      [
+        input.workosUserId,
+        input.tenantId,
+        input.role,
+        input.email ?? null,
+        input.workosOrganizationId ?? null,
+      ],
+    );
+    const row = result.rows[0]!;
+    return {
+      workosUserId: row.workos_user_id,
+      tenantId: row.tenant_id,
+      role: row.role,
+      email: row.email,
+      workosOrganizationId: row.workos_organization_id,
+    };
   }
 
   async listApiKeys(tenantId: string): Promise<ApiKeyInfo[]> {

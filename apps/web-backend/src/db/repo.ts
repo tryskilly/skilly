@@ -3,6 +3,7 @@
 // the in-memory implementation and swappable for Postgres in production.
 
 import type { KeyType } from "../domain/keys";
+import type { DashboardRole } from "../lib/dashboardAuth";
 
 export interface Tenant {
   id: string;
@@ -44,6 +45,25 @@ export interface UsageSummary {
   capSeconds: number;
 }
 
+export interface DashboardMembership {
+  workosUserId: string;
+  tenantId: string;
+  role: DashboardRole;
+  email: string | null;
+  workosOrganizationId: string | null;
+}
+
+export interface DashboardMembershipLookup {
+  workosUserId: string;
+  workosOrganizationId?: string | null;
+}
+
+export interface DashboardMembershipInput extends DashboardMembershipLookup {
+  tenantId: string;
+  role: DashboardRole;
+  email?: string | null;
+}
+
 export interface WebBackendRepo {
   /** Look up a tenant + key type by the key's sha256 hash. Null if unknown/revoked. */
   findTenantByKeyHash(keyHash: string): Promise<KeyLookup | null>;
@@ -58,6 +78,10 @@ export interface WebBackendRepo {
   /** Super-admin tenant directory. */
   listTenants(): Promise<Tenant[]>;
   getTenant(tenantId: string): Promise<Tenant | null>;
+  /** Resolve dashboard access from WorkOS identity to an explicit tenant membership. */
+  findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null>;
+  /** Create or update a dashboard membership for a verified WorkOS identity. */
+  upsertDashboardMembership(input: DashboardMembershipInput): Promise<DashboardMembership>;
   listApiKeys(tenantId: string): Promise<ApiKeyInfo[]>;
   /** Create a key; returns the raw value ONCE (caller shows it, never stored raw). */
   createApiKey(tenantId: string, keyType: KeyType): Promise<{ rawKey: string; info: ApiKeyInfo }>;

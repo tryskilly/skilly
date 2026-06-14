@@ -5,16 +5,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCheckoutBody } from "@/domain/billing";
 import { captureServerEvent } from "@/lib/analytics";
-import { getCurrentTenantId } from "@/lib/session";
+import { requireDashboardSession } from "@/lib/dashboardAuth";
+import { publicUrl } from "@/lib/requestOrigin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const session = await requireDashboardSession();
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
   const productId = process.env.POLAR_PRODUCT_ID;
   const apiBase = process.env.POLAR_API_BASE ?? "https://api.polar.sh";
-  const tenantId = getCurrentTenantId();
+  const tenantId = session.tenantId;
   if (!accessToken || !productId) {
     await captureServerEvent("dashboard_checkout_failed", {
       tenant_id: tenantId,
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = buildCheckoutBody({
     productId,
     tenantId,
-    successUrl: new URL("/dashboard", request.nextUrl.origin).toString(),
+    successUrl: publicUrl(request, "/dashboard").toString(),
   });
   await captureServerEvent("dashboard_checkout_started", {
     tenant_id: tenantId,

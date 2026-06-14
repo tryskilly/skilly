@@ -5,6 +5,9 @@ import { randomUUID } from "node:crypto";
 import { generateKey, hashKey, keyDisplay, type KeyType } from "../domain/keys";
 import type {
   ApiKeyInfo,
+  DashboardMembership,
+  DashboardMembershipInput,
+  DashboardMembershipLookup,
   KeyLookup,
   Tenant,
   TenantSkill,
@@ -27,6 +30,7 @@ export interface MemorySeed {
   tenants: Tenant[];
   keys: Array<{ rawKey: string; keyType: KeyType; tenantId: string; revoked?: boolean }>;
   skills: TenantSkill[];
+  memberships?: DashboardMembership[];
 }
 
 /** A demo tenant so the local widget works out of the box. */
@@ -45,6 +49,15 @@ export function defaultSeed(): MemorySeed {
       },
     ],
     keys: [{ rawKey: DEMO_PUBLISHABLE_KEY, keyType: "publishable", tenantId }],
+    memberships: [
+      {
+        workosUserId: "user_01KP21J3GEVH8AKJ31C59Z1KJQ",
+        tenantId,
+        role: "super_admin",
+        email: "admin@tryskilly.app",
+        workosOrganizationId: null,
+      },
+    ],
     skills: [
       {
         tenantId,
@@ -59,6 +72,7 @@ export class MemoryRepo implements WebBackendRepo {
   private tenants = new Map<string, Tenant>();
   private keys = new Map<string, SeededKey>();
   private skills = new Map<string, TenantSkill>();
+  private memberships: DashboardMembership[] = [];
   private usage: UsageEvent[] = [];
 
   constructor(seed: MemorySeed = defaultSeed()) {
@@ -81,6 +95,7 @@ export class MemoryRepo implements WebBackendRepo {
     for (const skill of seed.skills) {
       this.skills.set(`${skill.tenantId}:${skill.skillId}`, skill);
     }
+    this.memberships = [...(seed.memberships ?? [])];
   }
 
   async findTenantByKeyHash(keyHash: string): Promise<KeyLookup | null> {
@@ -115,6 +130,40 @@ export class MemoryRepo implements WebBackendRepo {
 
   async getTenant(tenantId: string): Promise<Tenant | null> {
     return this.tenants.get(tenantId) ?? null;
+  }
+
+  async findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null> {
+    const memberships = this.memberships.filter((membership) => membership.workosUserId === lookup.workosUserId);
+    if (lookup.workosOrganizationId) {
+      const organizationMatch = memberships.find(
+        (membership) => membership.workosOrganizationId === lookup.workosOrganizationId,
+      );
+      if (organizationMatch) {
+        return organizationMatch;
+      }
+    }
+    return memberships[0] ?? null;
+  }
+
+  async upsertDashboardMembership(input: DashboardMembershipInput): Promise<DashboardMembership> {
+    const existing = this.memberships.find(
+      (membership) => membership.workosUserId === input.workosUserId && membership.tenantId === input.tenantId,
+    );
+    const membership: DashboardMembership = {
+      workosUserId: input.workosUserId,
+      tenantId: input.tenantId,
+      role: input.role,
+      email: input.email ?? null,
+      workosOrganizationId: input.workosOrganizationId ?? null,
+    };
+
+    if (existing) {
+      Object.assign(existing, membership);
+      return existing;
+    }
+
+    this.memberships.push(membership);
+    return membership;
   }
 
   async listApiKeys(tenantId: string): Promise<ApiKeyInfo[]> {

@@ -4,3 +4,6 @@ next-env.d.ts
 .env
 .env.*
 *.tsbuildinfo
+
+# Local Netlify folder
+.netlify

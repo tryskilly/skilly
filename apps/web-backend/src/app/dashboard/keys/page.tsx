@@ -1,12 +1,12 @@
 import { getRepo } from "@/db";
-import { getCurrentTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
 import { KeyManager } from "../KeyManager";
 import { Badge } from "../ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function KeysPage() {
-  const keys = await getRepo().listApiKeys(getCurrentTenantId());
+  const keys = await getRepo().listApiKeys(await getCurrentDashboardTenantId());
 
   return (
     <>
@@ -21,4 +21,3 @@ export default async function KeysPage() {
     </>
   );
 }
-

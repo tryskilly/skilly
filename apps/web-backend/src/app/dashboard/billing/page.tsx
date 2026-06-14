@@ -1,12 +1,12 @@
 import { getRepo } from "@/db";
-import { getCurrentTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
 import { BillingCard } from "../BillingCard";
 import { Badge, Card, SectionHeader } from "../ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function BillingPage() {
-  const usage = await getRepo().getUsageSummary(getCurrentTenantId());
+  const usage = await getRepo().getUsageSummary(await getCurrentDashboardTenantId());
 
   return (
     <>
@@ -32,4 +32,3 @@ export default async function BillingPage() {
     </>
   );
 }
-
