@@ -13,6 +13,19 @@ const states = [
   { label: "Error", text: "Permission, quota, or token issue." },
 ];
 
+/** Convert a #rrggbb accent into an rgba() with the given alpha (safe for box-shadow). */
+function hexToRgba(hex: string, alpha: number): string {
+  const match = /^#([0-9a-fA-F]{6})$/.exec(hex);
+  if (!match) {
+    return `rgba(245, 158, 11, ${alpha})`;
+  }
+  const value = match[1]!;
+  const red = parseInt(value.slice(0, 2), 16);
+  const green = parseInt(value.slice(2, 4), 16);
+  const blue = parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 export default async function WidgetPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
@@ -27,6 +40,7 @@ export default async function WidgetPage() {
   const launcherAttr = config.launcherLabel
     ? `\n        data-skilly-launcher="${config.launcherLabel}"`
     : "";
+  const accentGlow = hexToRgba(config.accentColor, 0.14);
 
   return (
     <>
@@ -68,7 +82,7 @@ export default async function WidgetPage() {
               className="absolute bottom-6 right-6 grid h-14 w-14 place-items-center rounded-full text-neutral-950"
               style={{
                 backgroundColor: config.accentColor,
-                boxShadow: `0 0 0 8px ${config.accentColor}24, 0 16px 34px rgba(0,0,0,0.28)`,
+                boxShadow: `0 0 0 8px ${accentGlow}, 0 16px 34px rgba(0,0,0,0.28)`,
               }}
             >
               <Image src="/brand/skilly-cursor.png" alt="" width={28} height={28} />

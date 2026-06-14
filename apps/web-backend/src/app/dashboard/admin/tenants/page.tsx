@@ -1,6 +1,6 @@
 import { getRepo } from "@/db";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
-import { Badge, ButtonLink, Card, SectionHeader, UsageMeter } from "../../ui";
+import { ButtonLink, Card, PageHeader, SectionHeader, UsageMeter } from "../../ui";
 import { CreateTenantForm } from "./CreateTenantForm";
 import { TenantControls } from "./TenantControls";
 
@@ -19,17 +19,12 @@ export default async function AdminTenantsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Badge tone="amber">Super admin</Badge>
-          <h1 className="mt-3 text-3xl font-extrabold tracking-[-0.04em] text-neutral-100">Tenant directory</h1>
-          <p className="mt-2 max-w-3xl text-sm text-neutral-400">
-            Cross-tenant operations for you as the platform owner: onboard customers, set quota, manage members,
-            and audit usage from one surface.
-          </p>
-        </div>
-        <Badge>{tenants.length} tenants</Badge>
-      </section>
+      <PageHeader
+        eyebrow="Super admin"
+        title="Tenant directory"
+        description="Cross-tenant operations for you as the platform owner: onboard customers, set quota, manage members, and audit usage from one surface."
+        action={<span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-bold text-neutral-300">{tenants.length} tenants</span>}
+      />
 
       <Card>
         <SectionHeader
@@ -42,7 +37,7 @@ export default async function AdminTenantsPage() {
       <div className="grid gap-4">
         {summaries.map(({ tenant, usage }) => (
           <Card key={tenant.id}>
-            <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr_0.8fr]">
+            <div className="grid gap-6 xl:grid-cols-2">
               <div>
                 <SectionHeader
                   title={tenant.name}
@@ -64,7 +59,7 @@ export default async function AdminTenantsPage() {
                     <dd className="mt-1 text-neutral-200">{tenant.allowedAppIds.length}</dd>
                   </div>
                 </dl>
-                <div className="mt-4">
+                <div className="mt-5">
                   <ButtonLink
                     href={`/dashboard/admin/tenants/${tenant.id}`}
                     variant="secondary"
@@ -76,14 +71,15 @@ export default async function AdminTenantsPage() {
                 </div>
               </div>
 
-              <TenantControls
-                tenantId={tenant.id}
-                tenantName={tenant.name}
-                capMinutes={tenant.usageCapSeconds > 0 ? Math.round(tenant.usageCapSeconds / 60) : 0}
-              />
-
-              <div className="rounded-xl border border-white/10 bg-neutral-950/55 p-4">
-                <UsageMeter usedSeconds={usage.usageSecondsThisPeriod} capSeconds={usage.capSeconds} />
+              <div className="grid gap-6 rounded-xl border border-white/10 bg-neutral-950/40 p-5">
+                <TenantControls
+                  tenantId={tenant.id}
+                  tenantName={tenant.name}
+                  capMinutes={tenant.usageCapSeconds > 0 ? Math.round(tenant.usageCapSeconds / 60) : 0}
+                />
+                <div className="border-t border-white/10 pt-5">
+                  <UsageMeter usedSeconds={usage.usageSecondsThisPeriod} capSeconds={usage.capSeconds} />
+                </div>
               </div>
             </div>
           </Card>

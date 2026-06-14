@@ -56,6 +56,37 @@ export function SectionHeader({
   );
 }
 
+/**
+ * Canonical page header: eyebrow badge + 4xl headline + supporting copy.
+ * Every dashboard page starts with this so the header scale is identical
+ * across overview, install, widget, keys, skill, usage, billing, settings,
+ * and the super-admin directory.
+ */
+export function PageHeader({
+  eyebrow,
+  eyebrowTone = "amber",
+  title,
+  description,
+  action,
+}: {
+  eyebrow: string;
+  eyebrowTone?: "amber" | "neutral";
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <section className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <Badge tone={eyebrowTone}>{eyebrow}</Badge>
+        <h1 className="mt-4 max-w-4xl text-4xl font-extrabold leading-tight tracking-[-0.045em]">{title}</h1>
+        {description && <p className="mt-3 max-w-3xl text-base leading-7 text-neutral-400">{description}</p>}
+      </div>
+      {action}
+    </section>
+  );
+}
+
 export function Badge({
   children,
   tone = "neutral",
@@ -137,17 +168,26 @@ export function FormButton({
   );
 }
 
+// Shared input control styling so every field across the dashboard renders
+// identically (per skilly-design-system §6: dark rgba bg, 8px radius, amber focus).
+const inputClasses =
+  "w-full rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2.5 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-amber-500/80";
+
 export function Field({
   label,
   name,
+  type = "text",
   placeholder,
   defaultValue,
+  min,
   helper,
 }: {
   label: string;
   name: string;
+  type?: "text" | "number" | "password" | "email" | "url";
   placeholder?: string;
-  defaultValue?: string;
+  defaultValue?: string | number;
+  min?: number;
   helper?: string;
 }) {
   return (
@@ -155,10 +195,50 @@ export function Field({
       <span className="text-sm font-bold text-neutral-300">{label}</span>
       <input
         name={name}
+        type={type}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="rounded-lg border border-white/15 bg-white/[0.055] px-3 py-2.5 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-amber-500/80"
+        min={min}
+        className={inputClasses}
       />
+      {helper && <span className="text-xs text-neutral-500">{helper}</span>}
+    </label>
+  );
+}
+
+export function Select({
+  label,
+  name,
+  defaultValue,
+  options,
+  helper,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  name?: string;
+  defaultValue?: string;
+  options: Array<{ value: string; label: string }>;
+  helper?: string;
+  onChange?: (event: React.ChangeEvent<HTMLSelectElement>) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-sm font-bold text-neutral-300">{label}</span>
+      <select
+        name={name}
+        defaultValue={defaultValue}
+        onChange={onChange}
+        disabled={disabled}
+        className={`${inputClasses} disabled:opacity-50`}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
       {helper && <span className="text-xs text-neutral-500">{helper}</span>}
     </label>
   );
