@@ -24,3 +24,4 @@ export { LogoMark, CursorGlyph } from "./LogoMark";
 export { AppShell } from "./AppShell";
 export { AccountChip } from "./AccountChip";
 export { Footer } from "./Footer";
+export { AuthShowcase, type ShowcaseSlide } from "./AuthShowcase";
