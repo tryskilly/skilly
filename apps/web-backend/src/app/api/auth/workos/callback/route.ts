@@ -29,7 +29,40 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const auth = await exchangeWorkOSCode(code);
-    const membership = await resolveDashboardMembership(getRepo(), auth);
+    const repo = getRepo();
+    let membership = await resolveDashboardMembership(repo, auth);
+
+    // Self-serve signup: a brand-new WorkOS user arriving via the /signup entry
+    // (intent === "signup") with no membership gets a fresh tenant + super_admin
+    // membership, then routes to onboarding. An existing member who happens to
+    // use the signup entry still just signs in normally (membership resolves).
+    if (!membership && storedState.intent === "signup") {
+      const tenant = await repo.createTenant({
+        name: auth.user.email?.split("@")[0]
+          ? `${auth.user.email.split("@")[0]!.charAt(0).toUpperCase()}${auth.user.email.split("@")[0]!.slice(1)} workspace`
+          : "New workspace",
+      });
+      membership = await repo.upsertDashboardMembership({
+        workosUserId: auth.user.id,
+        tenantId: tenant.id,
+        role: "super_admin",
+        email: auth.user.email,
+        workosOrganizationId: auth.workosOrganizationId,
+      });
+      await setDashboardSession({
+        role: membership.role,
+        tenantId: membership.tenantId,
+        issuedAt: Date.now(),
+        workosUserId: auth.user.id,
+        email: auth.user.email ?? membership.email,
+        workosOrganizationId: membership.workosOrganizationId ?? auth.workosOrganizationId,
+      });
+      // New tenant → onboarding. Carry the stored nextPath if it was onboarding-scoped.
+      const onboardingPath = storedState.nextPath.startsWith("/onboarding") ? storedState.nextPath : "/onboarding/company";
+      const response = NextResponse.redirect(publicUrl(request, onboardingPath), { status: 303 });
+      response.cookies.delete(WORKOS_STATE_COOKIE);
+      return response;
+    }
 
     if (!membership) {
       console.warn("[workos-callback] No dashboard membership for WorkOS user", {
