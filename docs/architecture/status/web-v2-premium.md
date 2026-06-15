@@ -9,7 +9,7 @@
 - **Worktree:** `../skilly-web-v2` (isolated)
 - **Lane:** Backend (Next.js) — `apps/web-backend/**`
 - **Agent:** ZCode session (started 2026-06-15)
-- **State:** in progress — implementing the Skilly Web v2 premium design
+- **State:** **ready for review** — all 6 slices complete, validated green
 
 ## Intent
 
