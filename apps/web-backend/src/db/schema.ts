@@ -87,6 +87,12 @@ export const usageEvents = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
     seconds: integer("seconds").notNull().default(0),
+    // v2 richer dimensions (nullable — additive; old rows + token_mint events
+    // simply leave them null). Populated by session_seconds events from the SDK.
+    page: text("page"),
+    domain: text("domain"),
+    durationSeconds: integer("duration_seconds"),
+    result: text("result"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("usage_events_tenant_time_idx").on(table.tenantId, table.createdAt)],

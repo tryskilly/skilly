@@ -11,6 +11,13 @@ export interface WorkOSStatePayload {
   nonce: string;
   nextPath: string;
   issuedAt: number;
+  /**
+   * "signin" (default) — resolve an existing membership, fail with no_membership if none.
+   * "signup" — when no membership exists, create a tenant + super_admin membership
+   *   for this WorkOS user and route to onboarding. Existing members signing in via
+   *   the signup entry still just sign in normally.
+   */
+  intent: "signin" | "signup";
 }
 
 export interface WorkOSMagicEmailPayload {
@@ -84,18 +91,26 @@ function parseSignedCookieValue<T>(rawValue: string | undefined): T | null {
 }
 
 export function safeDashboardNextPath(value: string | null | undefined): string {
-  return value?.startsWith("/dashboard") ? value : "/dashboard";
+  // Allow both /dashboard and /onboarding next-paths (signup routes to onboarding).
+  if (value?.startsWith("/dashboard") || value?.startsWith("/onboarding")) {
+    return value;
+  }
+  return "/dashboard";
 }
 
 export function parseWorkOSAuthMethod(value: string | null | undefined): WorkOSAuthMethod {
   return value === "google" ? "google" : "email";
 }
 
-export function createWorkOSState(nextPath: string): { state: string; cookieValue: string; maxAge: number } {
+export function createWorkOSState(
+  nextPath: string,
+  intent: "signin" | "signup" = "signin",
+): { state: string; cookieValue: string; maxAge: number } {
   const payload: WorkOSStatePayload = {
     nonce: randomBytes(24).toString("base64url"),
     nextPath: safeDashboardNextPath(nextPath),
     issuedAt: Date.now(),
+    intent,
   };
   return {
     state: payload.nonce,
@@ -121,6 +136,7 @@ export function parseWorkOSStateCookie(rawValue: string | undefined): WorkOSStat
     nonce: payload.nonce,
     nextPath: safeDashboardNextPath(payload.nextPath),
     issuedAt: payload.issuedAt,
+    intent: payload.intent === "signup" ? "signup" : "signin",
   };
 }
 

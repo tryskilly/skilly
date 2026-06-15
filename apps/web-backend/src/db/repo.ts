@@ -33,6 +33,30 @@ export interface UsageEvent {
   seconds: number;
 }
 
+/** Outcome of a voice session, recorded on session_seconds events. */
+export type SessionResult = "completed" | "mic_denied" | "error" | "quota";
+
+/** v2 richer usage dimensions (nullable; only session_seconds events carry them). */
+export interface UsageDimensions {
+  page?: string | null;
+  domain?: string | null;
+  durationSeconds?: number | null;
+  result?: SessionResult | null;
+}
+
+/** A recent session row for the dashboard "recent sessions" table. */
+export interface RecentSession extends UsageDimensions {
+  createdAt: Date;
+  seconds: number;
+}
+
+/** Aggregate usage metrics for the dashboard metric strip. */
+export interface UsageMetrics {
+  sessionCount: number;
+  avgSessionSeconds: number;
+  errorRate: number; // 0..1 fraction of sessions that ended in error/mic_denied
+}
+
 /** Display-safe key metadata for the dashboard (never includes the raw key). */
 export interface ApiKeyInfo {
   id: string;
@@ -86,10 +110,18 @@ export interface WebBackendRepo {
   getTenantSkill(tenantId: string, skillId: string): Promise<TenantSkill | null>;
   /** Seconds of metered usage for the tenant in the current billing period. */
   getUsageSecondsThisPeriod(tenantId: string): Promise<number>;
-  /** Append a metered usage event. */
-  recordUsage(event: UsageEvent): Promise<void>;
+  /** Append a metered usage event (with optional v2 dimensions). */
+  recordUsage(event: UsageEvent & UsageDimensions): Promise<void>;
   /** Recent raw usage events for the tenant (newest first), capped at `limit`. */
   listUsageEvents(tenantId: string, limit: number): Promise<Array<UsageEvent & { createdAt: Date }>>;
+  /** v2: recent session_seconds events with page/domain/duration/result. */
+  listRecentSessions(tenantId: string, limit: number): Promise<RecentSession[]>;
+  /** v2: aggregate session metrics (count, avg, error rate) this billing period. */
+  getUsageMetrics(tenantId: string): Promise<UsageMetrics>;
+  /** v2: top pages by session count this billing period. */
+  getTopPages(tenantId: string, limit: number): Promise<Array<{ page: string; count: number }>>;
+  /** v2: top domains by session count this billing period. */
+  getTopDomains(tenantId: string, limit: number): Promise<Array<{ domain: string; count: number }>>;
 
   // --- Dashboard (Phase 8.5) ---
   /** Super-admin tenant directory. */

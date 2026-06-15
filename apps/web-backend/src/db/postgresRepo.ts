@@ -10,9 +10,13 @@ import type {
   DashboardMembershipInput,
   DashboardMembershipLookup,
   KeyLookup,
+  RecentSession,
+  SessionResult,
   Tenant,
   TenantSkill,
+  UsageDimensions,
   UsageEvent,
+  UsageMetrics,
   UsageSummary,
   WebBackendRepo,
   WidgetConfig,
@@ -75,10 +79,19 @@ export class PostgresRepo implements WebBackendRepo {
     return Number(result.rows[0]?.total ?? 0);
   }
 
-  async recordUsage(event: UsageEvent): Promise<void> {
+  async recordUsage(event: UsageEvent & UsageDimensions): Promise<void> {
     await this.pool.query(
-      `INSERT INTO usage_events (tenant_id, kind, seconds) VALUES ($1, $2, $3)`,
-      [event.tenantId, event.kind, event.seconds],
+      `INSERT INTO usage_events (tenant_id, kind, seconds, page, domain, duration_seconds, result)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        event.tenantId,
+        event.kind,
+        event.seconds,
+        event.page ?? null,
+        event.domain ?? null,
+        event.durationSeconds ?? null,
+        event.result ?? null,
+      ],
     );
   }
 
@@ -105,6 +118,93 @@ export class PostgresRepo implements WebBackendRepo {
       seconds: row.seconds,
       createdAt: row.created_at,
     }));
+  }
+
+  async listRecentSessions(tenantId: string, limit: number): Promise<RecentSession[]> {
+    const result = await this.pool.query<{
+      seconds: number;
+      created_at: Date;
+      page: string | null;
+      domain: string | null;
+      duration_seconds: number | null;
+      result: string | null;
+    }>(
+      `SELECT seconds, created_at, page, domain, duration_seconds, result
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds'
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({
+      seconds: row.seconds,
+      createdAt: row.created_at,
+      page: row.page,
+      domain: row.domain,
+      durationSeconds: row.duration_seconds,
+      result: row.result as SessionResult | null,
+    }));
+  }
+
+  async getUsageMetrics(tenantId: string): Promise<UsageMetrics> {
+    const result = await this.pool.query<{
+      session_count: string;
+      avg_seconds: string | null;
+      error_count: string;
+    }>(
+      `SELECT
+         COUNT(*)::text AS session_count,
+         COALESCE(AVG(seconds), 0)::text AS avg_seconds,
+         COUNT(*) FILTER (WHERE result IN ('error', 'mic_denied'))::text AS error_count
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds'
+          AND created_at >= date_trunc('month', now())`,
+      [tenantId],
+    );
+    const row = result.rows[0];
+    if (!row || Number(row.session_count) === 0) {
+      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0 };
+    }
+    const sessionCount = Number(row.session_count);
+    return {
+      sessionCount,
+      avgSessionSeconds: Math.round(Number(row.avg_seconds ?? 0)),
+      errorRate: Number(row.error_count) / sessionCount,
+    };
+  }
+
+  async getTopPages(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ page: string; count: number }>> {
+    const result = await this.pool.query<{ page: string; count: string }>(
+      `SELECT page, COUNT(*)::text AS count
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds' AND page IS NOT NULL
+          AND created_at >= date_trunc('month', now())
+        GROUP BY page
+        ORDER BY count DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({ page: row.page, count: Number(row.count) }));
+  }
+
+  async getTopDomains(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ domain: string; count: number }>> {
+    const result = await this.pool.query<{ domain: string; count: string }>(
+      `SELECT domain, COUNT(*)::text AS count
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds' AND domain IS NOT NULL
+          AND created_at >= date_trunc('month', now())
+        GROUP BY domain
+        ORDER BY count DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({ domain: row.domain, count: Number(row.count) }));
   }
 
   async listTenants(): Promise<Tenant[]> {

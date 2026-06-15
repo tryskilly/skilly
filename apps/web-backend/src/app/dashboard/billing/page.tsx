@@ -1,33 +1,44 @@
 import { getRepo } from "@/db";
 import { getCurrentDashboardTenantId } from "@/lib/session";
 import { BillingCard } from "../BillingCard";
-import { Badge, Card, SectionHeader } from "../ui";
+import { PageHeader, Panel, PanelBody, PanelHeader, StatusPill } from "../v2";
 
 export const dynamic = "force-dynamic";
 
 export default async function BillingPage() {
   const usage = await getRepo().getUsageSummary(await getCurrentDashboardTenantId());
+  const hasPlan = usage.capSeconds > 0;
 
   return (
     <>
-      <section className="mb-8">
-        <Badge tone="amber">Billing</Badge>
-        <h1 className="mt-4 text-4xl font-extrabold tracking-[-0.045em]">Manage plan and quota.</h1>
-        <p className="mt-3 max-w-3xl text-neutral-400">
-          Tenant caps gate Realtime token minting across web, iOS, Android, and future desktop surfaces.
-        </p>
-      </section>
+      <PageHeader
+        eyebrow="Billing"
+        title="Manage plan and quota."
+        description="Tenant caps gate Realtime token minting across web, iOS, Android, and future desktop surfaces."
+      />
 
-      <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         <BillingCard capSeconds={usage.capSeconds} />
-        <Card>
-          <SectionHeader title="Billing model" />
-          <div className="grid gap-3 text-sm text-neutral-400">
-            <p>Skilly meters browser and app sessions as seconds. Token mint events are recorded separately with zero seconds.</p>
-            <p>Polar subscription webhooks update the tenant usage cap. A cap of zero means no paid plan is active.</p>
-            <p>The OpenAI provider key stays on the backend and is never exposed to widgets or SDK clients.</p>
-          </div>
-        </Card>
+
+        <Panel>
+          <PanelHeader title="Billing model" description="How Skilly meters usage and applies caps." />
+          <PanelBody>
+            <div className="grid gap-3 text-sm text-gray-300">
+              <p>
+                Skilly meters browser and app sessions as seconds. Token mint events are recorded separately with zero
+                seconds.
+              </p>
+              <p>
+                Polar subscription webhooks update the tenant usage cap. A cap of zero means no paid plan is active.
+              </p>
+              <p>The OpenAI provider key stays on the backend and is never exposed to widgets or SDK clients.</p>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <StatusPill tone={hasPlan ? "green" : "amber"} label={hasPlan ? "Paid plan active" : "No paid plan"} showDot />
+              <StatusPill label={hasPlan ? `${Math.round(usage.capSeconds / 60)} min / month` : "0 min cap"} />
+            </div>
+          </PanelBody>
+        </Panel>
       </div>
     </>
   );

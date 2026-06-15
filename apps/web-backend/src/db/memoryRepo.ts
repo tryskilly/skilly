@@ -9,9 +9,12 @@ import type {
   DashboardMembershipInput,
   DashboardMembershipLookup,
   KeyLookup,
+  RecentSession,
   Tenant,
   TenantSkill,
+  UsageDimensions,
   UsageEvent,
+  UsageMetrics,
   UsageSummary,
   WebBackendRepo,
   WidgetConfig,
@@ -80,7 +83,7 @@ export class MemoryRepo implements WebBackendRepo {
   // many events are recorded within the same millisecond (mirrors Postgres
   // BIGSERIAL + ORDER BY created_at DESC).
   private usageSequence = 0;
-  private usage: Array<UsageEvent & { createdAt: Date; sequence: number }> = [];
+  private usage: Array<UsageEvent & UsageDimensions & { createdAt: Date; sequence: number }> = [];
   private widgetConfigs = new Map<string, WidgetConfig>();
 
   constructor(seed: MemorySeed = defaultSeed()) {
@@ -128,8 +131,16 @@ export class MemoryRepo implements WebBackendRepo {
       .reduce((total, event) => total + event.seconds, 0);
   }
 
-  async recordUsage(event: UsageEvent): Promise<void> {
-    this.usage.push({ ...event, createdAt: new Date(), sequence: this.usageSequence++ });
+  async recordUsage(event: UsageEvent & UsageDimensions): Promise<void> {
+    this.usage.push({
+      ...event,
+      page: event.page ?? null,
+      domain: event.domain ?? null,
+      durationSeconds: event.durationSeconds ?? null,
+      result: event.result ?? null,
+      createdAt: new Date(),
+      sequence: this.usageSequence++,
+    });
   }
 
   async listUsageEvents(
@@ -141,7 +152,74 @@ export class MemoryRepo implements WebBackendRepo {
       .slice()
       .sort((a, b) => b.sequence - a.sequence)
       .slice(0, limit)
-      .map(({ sequence: _sequence, ...event }) => event);
+      .map(({ sequence: _sequence, page: _page, domain: _domain, durationSeconds: _durationSeconds, result: _result, ...event }) => event);
+  }
+
+  async listRecentSessions(tenantId: string, limit: number): Promise<RecentSession[]> {
+    return this.usage
+      .filter((event) => event.tenantId === tenantId && event.kind === "session_seconds")
+      .slice()
+      .sort((a, b) => b.sequence - a.sequence)
+      .slice(0, limit)
+      .map((event) => ({
+        createdAt: event.createdAt,
+        seconds: event.seconds,
+        page: event.page,
+        domain: event.domain,
+        durationSeconds: event.durationSeconds,
+        result: event.result,
+      }));
+  }
+
+  async getUsageMetrics(tenantId: string): Promise<UsageMetrics> {
+    const sessions = this.usage.filter(
+      (event) => event.tenantId === tenantId && event.kind === "session_seconds",
+    );
+    const sessionCount = sessions.length;
+    if (sessionCount === 0) {
+      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0 };
+    }
+    const totalSeconds = sessions.reduce((total, event) => total + event.seconds, 0);
+    const errorCount = sessions.filter(
+      (event) => event.result === "error" || event.result === "mic_denied",
+    ).length;
+    return {
+      sessionCount,
+      avgSessionSeconds: Math.round(totalSeconds / sessionCount),
+      errorRate: errorCount / sessionCount,
+    };
+  }
+
+  async getTopPages(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ page: string; count: number }>> {
+    const counts = new Map<string, number>();
+    for (const event of this.usage) {
+      if (event.tenantId === tenantId && event.kind === "session_seconds" && event.page) {
+        counts.set(event.page, (counts.get(event.page) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([page, count]) => ({ page, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+  }
+
+  async getTopDomains(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ domain: string; count: number }>> {
+    const counts = new Map<string, number>();
+    for (const event of this.usage) {
+      if (event.tenantId === tenantId && event.kind === "session_seconds" && event.domain) {
+        counts.set(event.domain, (counts.get(event.domain) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([domain, count]) => ({ domain, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
   }
 
   async listTenants(): Promise<Tenant[]> {

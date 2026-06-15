@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import type { Tenant } from "@/db/repo";
 import { switchTenantAction } from "./actions";
-import { Select } from "./ui";
+import { Select } from "./v2";
 
 /**
  * Super-admin only: switch which tenant the dashboard acts as. Re-issues the
