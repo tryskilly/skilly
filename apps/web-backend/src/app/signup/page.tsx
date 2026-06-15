@@ -1,5 +1,5 @@
 import { isWorkOSDashboardAuthConfigured } from "@/lib/dashboardAuth";
-import { CursorGlyph, LogoMark } from "../dashboard/v2";
+import { CursorGlyph, Footer, LogoMark } from "../dashboard/v2";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,8 @@ export default async function SignupPage({
   const errorMessage = params.error ? signupErrorMessages[params.error] : null;
 
   return (
-    <div className="grid min-h-dvh lg:grid-cols-[460px_1fr] lg:items-center lg:gap-6 lg:px-6">
+    <div className="flex min-h-dvh flex-col">
+      <div className="grid flex-1 lg:grid-cols-[460px_1fr] lg:items-center lg:gap-6 lg:px-6">
       {/* Left — signup card */}
       <main className="mx-auto flex w-full max-w-md flex-col px-4 py-10 lg:mx-0 lg:max-w-none lg:px-0">
         <section className="rounded-[20px] border border-line bg-[linear-gradient(180deg,rgba(255,255,255,0.065),rgba(255,255,255,0.035))] p-7 shadow-[0_30px_80px_rgba(0,0,0,0.48)]">
@@ -118,6 +119,8 @@ export default async function SignupPage({
           </ol>
         </div>
       </aside>
+      </div>
+      <Footer variant="auth" />
     </div>
   );
 }

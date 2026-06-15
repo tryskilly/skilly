@@ -46,6 +46,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       <AppShell
         tenantName={tenant?.name ?? "Workspace"}
         role={session.role}
+        accountEmail={session.email ?? null}
         needsSetup={needsSetup}
         switchableTenants={switchableTenants}
         currentTenantId={tenantId}

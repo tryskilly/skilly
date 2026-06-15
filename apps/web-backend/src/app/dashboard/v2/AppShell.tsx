@@ -20,6 +20,8 @@ import type { DashboardRole } from "@/lib/dashboardAuth";
 import type { Tenant } from "@/db/repo";
 import { LogoMark } from "./LogoMark";
 import { StatusPill } from "./primitives";
+import { AccountChip } from "./AccountChip";
+import { Footer } from "./Footer";
 import { TenantSwitcher } from "../TenantSwitcher";
 
 /*
@@ -63,6 +65,7 @@ export function AppShell({
   children,
   tenantName,
   role,
+  accountEmail,
   needsSetup,
   switchableTenants,
   currentTenantId,
@@ -74,6 +77,7 @@ export function AppShell({
   children: ReactNode;
   tenantName: string;
   role: DashboardRole;
+  accountEmail: string | null;
   needsSetup: boolean;
   switchableTenants: Tenant[];
   currentTenantId: string;
@@ -220,6 +224,7 @@ export function AppShell({
             >
               Test widget
             </Link>
+            <AccountChip email={accountEmail} role={role} />
           </div>
         </header>
 
@@ -227,6 +232,7 @@ export function AppShell({
         <div className="mx-auto w-[min(1280px,calc(100vw-var(--spacing-sidebar)-56px))] px-4 py-8 pb-16 md:px-8">
           {children}
         </div>
+        <Footer />
       </main>
     </div>
   );
