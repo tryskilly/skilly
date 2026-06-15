@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { renameTenantAction, setTenantCapAction } from "../../actions";
-import { Field, FormButton } from "../../ui";
+import { Button, Field } from "../../v2";
 
 /**
- * Per-tenant super-admin controls rendered inside each directory row:
- * adjust the monthly usage cap and rename the workspace. Both are plain
- * server-action POSTs (no optimistic UI — the page revalidates).
+ * Per-tenant super-admin controls: adjust the monthly usage cap and rename the
+ * workspace. Both are plain server-action POSTs (no optimistic UI — the page
+ * revalidates).
  */
 export function TenantControls({
   tenantId,
@@ -33,9 +33,9 @@ export function TenantControls({
         />
         <input type="hidden" name="tenantId" value={tenantId} />
         <div>
-          <FormButton variant="secondary" analyticsEvent="dashboard_tenant_cap_set" analyticsLabel={tenantName}>
+          <Button variant="secondary" analyticsEvent="dashboard_tenant_cap_set" analyticsLabel={tenantName}>
             Set cap
-          </FormButton>
+          </Button>
         </div>
       </form>
 
@@ -44,27 +44,27 @@ export function TenantControls({
           <Field name="name" label="Workspace name" defaultValue={tenantName} />
           <input type="hidden" name="tenantId" value={tenantId} />
           <div className="flex flex-wrap gap-2">
-            <FormButton variant="secondary" analyticsEvent="dashboard_tenant_rename_save" analyticsLabel={tenantName}>
+            <Button variant="secondary" analyticsEvent="dashboard_tenant_rename_save" analyticsLabel={tenantName}>
               Save
-            </FormButton>
+            </Button>
             <button
               type="button"
               onClick={() => setRenaming(false)}
-              className="rounded-md border border-white/10 px-4 py-2 text-sm text-neutral-400 transition hover:text-neutral-200"
+              className="inline-flex h-[38px] items-center rounded-[9px] border border-line px-[13px] text-sm font-bold text-gray-400 transition hover:text-gray-200"
             >
               Cancel
             </button>
           </div>
         </form>
       ) : (
-        <div className="grid gap-1.5">
-          <span className="text-sm font-bold text-neutral-300">Workspace name</span>
+        <div className="grid gap-[7px]">
+          <span className="text-xs font-bold text-gray-300">Workspace name</span>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-neutral-300">{tenantName}</span>
+            <span className="text-sm text-gray-300">{tenantName}</span>
             <button
               type="button"
               onClick={() => setRenaming(true)}
-              className="rounded-md border border-white/10 px-2.5 py-1 text-xs text-neutral-400 transition hover:text-neutral-200"
+              className="inline-flex h-[26px] items-center rounded-[8px] border border-line px-2.5 text-xs font-bold text-gray-400 transition hover:text-gray-200"
             >
               Rename
             </button>

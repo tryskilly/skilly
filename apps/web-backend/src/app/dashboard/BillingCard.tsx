@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "./v2";
 
 /**
- * Plan card. Two flows:
- * - "Upgrade plan" (no active cap) → POST /api/web/checkout (start a Polar checkout).
+ * Plan card (v2). Two flows — both preserved from v1, only the chrome changed:
+ * - "Upgrade plan" (no active cap) → POST /api/web/checkout (Polar checkout).
  * - "Manage plan" (active cap) → POST /api/web/portal (Polar customer-portal
  *   session). If the tenant has no stored Polar customer id yet, the portal
  *   route returns { fallback: "checkout" } and we fall back to checkout so the
@@ -63,24 +64,27 @@ export function BillingCard({ capSeconds }: { capSeconds: number }) {
   }
 
   return (
-    <section className="rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.025))] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.18)]">
-      <h2 className="text-xl font-bold tracking-[-0.025em] text-neutral-100">Plan</h2>
-      <p className="mt-2 text-lg text-neutral-300">{plan}</p>
-      <p className="mt-1 text-sm text-neutral-500">
+    <section className="rounded-[16px] border border-line bg-[linear-gradient(180deg,rgba(255,255,255,0.058),rgba(255,255,255,0.034))] p-[18px] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+      <div className="text-[15px] font-bold tracking-[-0.01em] text-gray-100">Plan</div>
+      <div className="mt-1 text-lg text-gray-300">{plan}</div>
+      <p className="mt-1 text-xs text-muted">
         {hasPlan
           ? "Manage your subscription, invoices, and billing details in the Polar portal."
           : "Plan limits control token minting for every embedded widget session."}
       </p>
-      <button
-        onClick={onManageClick}
-        disabled={busy}
-        data-analytics-event={hasPlan ? "dashboard_portal_clicked" : "dashboard_checkout_clicked"}
-        data-analytics-label={hasPlan ? "Manage plan" : "Upgrade plan"}
-        className="mt-4 rounded-md bg-amber-500 px-4 py-2 text-sm font-bold text-neutral-950 transition hover:bg-amber-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {busy ? "Opening..." : hasPlan ? "Manage plan" : "Upgrade plan"}
-      </button>
-      {error && <p className="mt-2 text-sm text-amber-400">{error}</p>}
+      <div className="mt-4">
+        <Button
+          variant="primary"
+          disabled={busy}
+          analyticsEvent={hasPlan ? "dashboard_portal_clicked" : "dashboard_checkout_clicked"}
+          analyticsLabel={hasPlan ? "Manage plan" : "Upgrade plan"}
+          onClick={onManageClick}
+          type="button"
+        >
+          {busy ? "Opening…" : hasPlan ? "Manage plan" : "Upgrade plan"}
+        </Button>
+      </div>
+      {error && <p className="mt-2 text-xs text-[#fca5a5]">{error}</p>}
     </section>
   );
 }

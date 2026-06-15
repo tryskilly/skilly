@@ -1,28 +1,32 @@
 import { getRepo } from "@/db";
 import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
-import { Card, PageHeader, SectionHeader } from "../ui";
+import { PageHeader, Panel, PanelBody, PanelHeader, StatusPill } from "../v2";
 import { SkillEditor } from "./SkillEditor";
 
 export const dynamic = "force-dynamic";
 
 export default async function SkillPage() {
   const skill = await getRepo().getTenantSkill(await getCurrentDashboardTenantId(), DEFAULT_SKILL_ID);
+  const hasContent = Boolean(skill?.content.trim());
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Tenant workspace"
-        title="Teaching skill"
-        description="Edit the SKILL.md that becomes this tenant's companion instructions after safety validation."
+        eyebrow="Teaching skill"
+        title="Teach Skilly how to guide users."
+        description="Define how Skilly explains, guides, and points inside your product. This SKILL.md is served to the web SDK and composed with the page digest before a live turn — validate before publishing changes."
+        action={<StatusPill tone={hasContent ? "green" : "amber"} label={hasContent ? "Saved" : "Empty"} showDot />}
       />
 
-      <Card>
-        <SectionHeader
+      <Panel>
+        <PanelHeader
           title="SKILL.md editor"
-          description="This content is served to the web SDK and composed with the page digest before a live turn starts."
+          description="Plain-markdown teaching content. The safety scan runs on every save (size limits + injection/exfiltration + raw-URL checks)."
         />
-        <SkillEditor initialContent={skill?.content ?? ""} />
-      </Card>
+        <PanelBody>
+          <SkillEditor initialContent={skill?.content ?? ""} />
+        </PanelBody>
+      </Panel>
     </div>
   );
 }

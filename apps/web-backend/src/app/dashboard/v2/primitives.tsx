@@ -27,7 +27,7 @@ const buttonVariants = {
 
 export type ButtonVariant = keyof typeof buttonVariants;
 
-/** Submit button (for use inside <form action={serverAction}>). */
+/** Submit button (for use inside <form action={serverAction}>) or a clickable button (onClick). */
 export function Button({
   children,
   variant = "secondary",
@@ -36,6 +36,7 @@ export function Button({
   className,
   analyticsEvent,
   analyticsLabel,
+  onClick,
 }: {
   children: ReactNode;
   variant?: ButtonVariant;
@@ -44,11 +45,13 @@ export function Button({
   className?: string;
   analyticsEvent?: string;
   analyticsLabel?: string;
+  onClick?: () => void;
 }) {
   return (
     <button
       type={type}
       disabled={disabled}
+      onClick={onClick}
       data-analytics-event={analyticsEvent}
       data-analytics-label={analyticsLabel}
       className={`${buttonBase} ${buttonVariants[variant]} ${className ?? ""}`}

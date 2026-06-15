@@ -1,5 +1,5 @@
 import { isDashboardAuthConfigured, isWorkOSDashboardAuthConfigured } from "@/lib/dashboardAuth";
-import { SkillyMark } from "../dashboard/ui";
+import { LogoMark } from "../dashboard/v2";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ export default async function LoginPage({
     <main className="grid min-h-dvh place-items-center bg-[radial-gradient(circle_at_50%_-20%,rgba(245,158,11,0.16),transparent_34%),#0F0F10] px-4 text-neutral-100">
       <section className="w-full max-w-md rounded-xl border border-white/10 bg-white/[0.045] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.34)]">
         <div className="mb-6 flex items-center gap-3">
-          <SkillyMark size={40} />
+          <LogoMark size={40} />
           <div>
             <h1 className="text-2xl font-extrabold tracking-[-0.035em]">Skilly Dashboard</h1>
             <p className="text-sm text-neutral-500">Sign in to manage tenants, keys, skills, and usage.</p>

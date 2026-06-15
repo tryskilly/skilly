@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { saveWidgetConfigAction, type WidgetConfigState } from "../actions";
-import { Field, FormButton, Select } from "../ui";
+import { Button, Field, Select } from "../v2";
 
 const LOCALES: Array<{ value: string; label: string }> = [
   { value: "en", label: "English" },
@@ -15,10 +15,10 @@ const LOCALES: Array<{ value: string; label: string }> = [
 ];
 
 /**
- * Editable widget appearance/behavior. accent + locale map to the
- * data-skilly-accent / data-skilly-locale attrs the embedded SDK reads.
- * The color input is the single source of truth (FormData key `accentColor`);
- * the hex label is a live read-only mirror of it.
+ * Editable widget appearance (v2). accent + locale map to the data-skilly-accent
+ * / data-skilly-locale attrs the embedded SDK reads; launcherLabel →
+ * data-skilly-launcher. The color input is the single source of truth (FormData
+ * key `accentColor`); the hex label is a live read-only mirror of it.
  */
 export function WidgetConfigForm({
   initialAccentColor,
@@ -35,26 +35,21 @@ export function WidgetConfigForm({
   return (
     <form action={save} className="grid gap-5">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-1.5">
-          <span className="text-sm font-bold text-neutral-300">Accent color</span>
+        <label className="grid gap-[7px]">
+          <span className="text-xs font-bold text-gray-300">Accent color</span>
           <div className="flex items-center gap-3">
             <input
               type="color"
               name="accentColor"
               value={accent}
               onChange={(event) => setAccent(event.target.value)}
-              className="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-white/15 bg-transparent"
+              className="h-10 w-12 shrink-0 cursor-pointer rounded-[8px] border border-line bg-transparent"
             />
-            <span className="font-mono text-sm text-neutral-300">{accent}</span>
+            <span className="font-mono text-[13px] text-gray-300">{accent}</span>
           </div>
         </label>
 
-        <Select
-          name="locale"
-          label="Language"
-          defaultValue={state.locale ?? initialLocale}
-          options={LOCALES}
-        />
+        <Select name="locale" label="Language" defaultValue={state.locale ?? initialLocale} options={LOCALES} />
       </div>
 
       <Field
@@ -66,15 +61,11 @@ export function WidgetConfigForm({
       />
 
       <div className="flex items-center gap-3">
-        <FormButton
-          analyticsEvent="dashboard_widget_config_save_clicked"
-          analyticsLabel="Save widget config"
-          disabled={pending}
-        >
-          {pending ? "Saving..." : "Save widget config"}
-        </FormButton>
-        {state.ok && <span className="text-sm font-bold text-green-300">Saved</span>}
-        {state.error && <span className="text-sm text-red-400">{state.error}</span>}
+        <Button variant="primary" analyticsEvent="dashboard_widget_config_save_clicked" analyticsLabel="Save widget config" disabled={pending}>
+          {pending ? "Saving…" : "Save widget config"}
+        </Button>
+        {state.ok && <span className="text-sm font-bold text-success">Saved</span>}
+        {state.error && <span className="text-sm text-[#fca5a5]">{state.error}</span>}
       </div>
     </form>
   );
