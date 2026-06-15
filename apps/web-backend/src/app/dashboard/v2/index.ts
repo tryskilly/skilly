@@ -22,3 +22,5 @@ export { Metric } from "./Metric";
 export { ProgressSteps, CheckRow, CheckList, type ReadinessCheck, type ReadinessStatus } from "./ReadinessPanel";
 export { LogoMark, CursorGlyph } from "./LogoMark";
 export { AppShell } from "./AppShell";
+export { AccountChip } from "./AccountChip";
+export { Footer } from "./Footer";
