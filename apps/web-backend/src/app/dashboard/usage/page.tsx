@@ -40,12 +40,23 @@ function quotaTone(fraction: number): "neutral" | "amber" | "red" {
   return "neutral";
 }
 
+/** Format a second count as "1m 58s" / "42s". */
+function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
 export default async function UsagePage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [usage, events] = await Promise.all([
+  const [usage, events, metrics, topPages, topDomains] = await Promise.all([
     repo.getUsageSummary(tenantId),
     repo.listUsageEvents(tenantId, EVENT_LIMIT),
+    repo.getUsageMetrics(tenantId),
+    repo.getTopPages(tenantId, 5),
+    repo.getTopDomains(tenantId, 5),
   ]);
   const usedMinutes = Math.round(usage.usageSecondsThisPeriod / 60);
   const capMinutes = usage.capSeconds > 0 ? Math.round(usage.capSeconds / 60) : 0;
@@ -61,15 +72,12 @@ export default async function UsagePage() {
           ? "Usage is climbing."
           : "Within healthy range.";
 
-  const tokenMintCount = events.filter((event) => event.kind === "token_mint").length;
-  const sessionCount = events.filter((event) => event.kind === "session_seconds").length;
-
   return (
     <>
       <PageHeader
         eyebrow="Usage"
         title="Track voice minutes and sessions."
-        description="Metering tracks monthly session seconds for tenant quota, plus raw token-mint and session events for auditing. Richer dimensions (page, domain, duration, result) arrive with the usage-capture backend extension."
+        description="Metering tracks monthly session seconds for tenant quota. Session events now carry page, domain, duration, and result dimensions."
       />
 
       {/* Metric strip */}
@@ -81,8 +89,8 @@ export default async function UsagePage() {
           foot={capMinutes > 0 ? `of ${capMinutes} this month` : "no cap applied"}
         />
         <Metric label="Remaining" value={remainingMinutes === null ? "∞" : `${remainingMinutes} min`} foot={remainingMinutes === null ? "no cap" : "before minting blocks"} />
-        <Metric label="Token mints" value={tokenMintCount} foot={`last ${EVENT_LIMIT} events`} />
-        <Metric label="Sessions" value={sessionCount} foot={`last ${EVENT_LIMIT} events`} />
+        <Metric label="Sessions" value={metrics.sessionCount} foot="this month" />
+        <Metric label="Avg session" value={metrics.sessionCount > 0 ? formatDuration(metrics.avgSessionSeconds) : "—"} foot={metrics.errorRate > 0 ? `${Math.round(metrics.errorRate * 100)}% error` : "healthy"} />
       </div>
 
       {/* Quota state banner */}
@@ -146,6 +154,45 @@ export default async function UsagePage() {
           )}
         </PanelBody>
       </Panel>
+
+      {/* Top pages + domains (v2 dimensions) */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Panel>
+          <PanelHeader title="Top pages" description="Most-visited pages by session count this month." />
+          <PanelBody>
+            {topPages.length > 0 ? (
+              <ul className="divide-y divide-line-soft">
+                {topPages.map((row) => (
+                  <li key={row.page} className="flex items-center justify-between py-2.5">
+                    <span className="truncate font-mono text-[13px] text-gray-300">{row.page}</span>
+                    <StatusPill label={`${row.count}`} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-4 text-sm text-muted">No page data yet — recorded when the SDK reports a page.</p>
+            )}
+          </PanelBody>
+        </Panel>
+
+        <Panel>
+          <PanelHeader title="Top domains" description="Origins driving the most sessions this month." />
+          <PanelBody>
+            {topDomains.length > 0 ? (
+              <ul className="divide-y divide-line-soft">
+                {topDomains.map((row) => (
+                  <li key={row.domain} className="flex items-center justify-between py-2.5">
+                    <span className="truncate font-mono text-[13px] text-gray-300">{row.domain}</span>
+                    <StatusPill label={`${row.count}`} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-4 text-sm text-muted">No domain data yet — recorded when the SDK reports a domain.</p>
+            )}
+          </PanelBody>
+        </Panel>
+      </div>
     </>
   );
 }

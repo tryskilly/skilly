@@ -5,6 +5,9 @@ import {
   CheckList,
   CheckRow,
   CursorGlyph,
+  DataTable,
+  DataTableBody,
+  DataTableHeader,
   Metric,
   PageHeader,
   Panel,
@@ -12,19 +15,45 @@ import {
   PanelHeader,
   ProgressSteps,
   StatusPill,
+  Th,
+  Td,
+  Tr,
   type ReadinessCheck,
 } from "./v2";
 
 export const dynamic = "force-dynamic";
 
+function formatTimestamp(date: Date): string {
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/** Format a second count as "1m 58s" / "42s". */
+function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+function formatResult(result: string | null | undefined): React.ReactNode {
+  if (!result) return <StatusPill label="—" />;
+  if (result === "completed") return <StatusPill tone="green" label="Completed" showDot />;
+  if (result === "mic_denied") return <StatusPill tone="red" label="Mic denied" showDot />;
+  if (result === "error") return <StatusPill tone="red" label="Error" showDot />;
+  if (result === "quota") return <StatusPill tone="amber" label="Quota" showDot />;
+  return <StatusPill label={result} />;
+}
+
 export default async function DashboardPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [tenant, keys, usage, skill] = await Promise.all([
+  const [tenant, keys, usage, skill, metrics, recentSessions] = await Promise.all([
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),
     repo.getUsageSummary(tenantId),
     repo.getTenantSkill(tenantId, DEFAULT_SKILL_ID),
+    repo.getUsageMetrics(tenantId),
+    repo.listRecentSessions(tenantId, 5),
   ]);
 
   const hasOrigin = Boolean(tenant?.allowedOrigins.length);
@@ -149,9 +178,18 @@ export default async function DashboardPage() {
           value={usedMinutes}
           foot={capMinutes > 0 ? `of ${capMinutes} this month` : "no cap applied"}
         />
-        <Metric label="Sessions" value="—" foot="captured per session soon" />
-        <Metric label="Avg session" value="—" foot="captured per session soon" />
-        <Metric label="Error rate" value="—" foot="last 7 days" />
+        <Metric label="Sessions" value={metrics.sessionCount} foot="this month" />
+        <Metric
+          label="Avg session"
+          value={metrics.sessionCount > 0 ? formatDuration(metrics.avgSessionSeconds) : "—"}
+          foot={metrics.sessionCount > 0 ? "healthy range" : "no sessions yet"}
+        />
+        <Metric
+          label="Error rate"
+          value={metrics.sessionCount > 0 ? `${Math.round(metrics.errorRate * 100)}%` : "—"}
+          tone={metrics.errorRate >= 0.1 ? "amber" : "neutral"}
+          foot="this month"
+        />
       </div>
 
       {/* Widget health + recent sessions */}
@@ -159,16 +197,39 @@ export default async function DashboardPage() {
         <Panel>
           <PanelHeader title="Recent sessions" description="Latest user interactions with the widget." />
           <PanelBody>
-            <div className="flex flex-col items-center gap-3 py-8 text-center">
-              <CursorGlyph size={36} />
-              <div className="text-sm font-bold text-gray-200">No sessions yet</div>
-              <p className="max-w-xs text-xs text-muted">
-                Install the script and start a test session to see real interactions here.
-              </p>
-              <ButtonLink href="/dashboard/widget" variant="secondary" analyticsEvent="dashboard_widget_test_clicked" analyticsLabel="Test widget">
-                Test widget
-              </ButtonLink>
-            </div>
+            {recentSessions.length > 0 ? (
+              <DataTable>
+                <DataTableHeader>
+                  <Th>Time</Th>
+                  <Th>Domain</Th>
+                  <Th>Page</Th>
+                  <Th>Duration</Th>
+                  <Th>Result</Th>
+                </DataTableHeader>
+                <DataTableBody>
+                  {recentSessions.map((session, index) => (
+                    <Tr key={`${session.createdAt.toISOString()}-${index}`}>
+                      <Td>{formatTimestamp(session.createdAt)}</Td>
+                      <Td mono>{session.domain ?? "—"}</Td>
+                      <Td>{session.page ?? "—"}</Td>
+                      <Td mono>{formatDuration(session.durationSeconds ?? session.seconds)}</Td>
+                      <Td>{formatResult(session.result)}</Td>
+                    </Tr>
+                  ))}
+                </DataTableBody>
+              </DataTable>
+            ) : (
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <CursorGlyph size={36} />
+                <div className="text-sm font-bold text-gray-200">No sessions yet</div>
+                <p className="max-w-xs text-xs text-muted">
+                  Install the script and start a test session to see real interactions here.
+                </p>
+                <ButtonLink href="/dashboard/widget" variant="secondary" analyticsEvent="dashboard_widget_test_clicked" analyticsLabel="Test widget">
+                  Test widget
+                </ButtonLink>
+              </div>
+            )}
           </PanelBody>
         </Panel>
 

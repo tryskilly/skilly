@@ -200,3 +200,79 @@ describe("usage event breakdown", () => {
     expect(kinds).toContain("session_seconds");
   });
 });
+
+describe("v2 usage dimensions + queries", () => {
+  const tenantId = defaultSeed().tenants[0]!.id;
+
+  test("session events carry page/domain/duration/result through recordUsage", async () => {
+    const repo = new MemoryRepo();
+    await repo.recordUsage({
+      tenantId,
+      kind: "session_seconds",
+      seconds: 90,
+      page: "/projects",
+      domain: "app.acme.com",
+      durationSeconds: 90,
+      result: "completed",
+    });
+    await repo.recordUsage({
+      tenantId,
+      kind: "session_seconds",
+      seconds: 12,
+      domain: "staging.acme.com",
+      result: "mic_denied",
+    });
+
+    const sessions = await repo.listRecentSessions(tenantId, 10);
+    expect(sessions).toHaveLength(2);
+    // Newest first.
+    expect(sessions[0]!.result).toBe("mic_denied");
+    expect(sessions[1]!.page).toBe("/projects");
+    expect(sessions[1]!.domain).toBe("app.acme.com");
+  });
+
+  test("getUsageMetrics aggregates count, avg, and error rate", async () => {
+    const repo = new MemoryRepo();
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 60, result: "completed" });
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 120, result: "completed" });
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 0, result: "error" });
+
+    const metrics = await repo.getUsageMetrics(tenantId);
+    expect(metrics.sessionCount).toBe(3);
+    expect(metrics.avgSessionSeconds).toBe(60); // (60+120+0)/3
+    // 1 of 3 errored
+    expect(Math.round(metrics.errorRate * 100)).toBe(33);
+  });
+
+  test("getUsageMetrics is zero-safe with no sessions", async () => {
+    const repo = new MemoryRepo();
+    const metrics = await repo.getUsageMetrics(tenantId);
+    expect(metrics.sessionCount).toBe(0);
+    expect(metrics.avgSessionSeconds).toBe(0);
+    expect(metrics.errorRate).toBe(0);
+  });
+
+  test("getTopPages and getTopDomains group + rank by count", async () => {
+    const repo = new MemoryRepo();
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 1, page: "/a", domain: "x.com" });
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 1, page: "/a", domain: "x.com" });
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 1, page: "/b", domain: "y.com" });
+
+    const pages = await repo.getTopPages(tenantId, 5);
+    expect(pages[0]).toEqual({ page: "/a", count: 2 });
+    expect(pages[1]).toEqual({ page: "/b", count: 1 });
+
+    const domains = await repo.getTopDomains(tenantId, 5);
+    expect(domains[0]).toEqual({ domain: "x.com", count: 2 });
+    expect(domains[1]).toEqual({ domain: "y.com", count: 1 });
+  });
+
+  test("token_mint events are excluded from session queries", async () => {
+    const repo = new MemoryRepo();
+    await repo.recordUsage({ tenantId, kind: "token_mint", seconds: 0 });
+    await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 30, result: "completed" });
+
+    expect((await repo.listRecentSessions(tenantId, 10))).toHaveLength(1);
+    expect((await repo.getUsageMetrics(tenantId)).sessionCount).toBe(1);
+  });
+});
