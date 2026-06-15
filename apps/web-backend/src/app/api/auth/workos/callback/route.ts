@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
 import { setDashboardSession } from "@/lib/dashboardAuth";
 import {
+  createSelfServeDashboardMembership,
   exchangeWorkOSCode,
   parseWorkOSStateCookie,
   resolveDashboardMembership,
@@ -37,18 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // membership, then routes to onboarding. An existing member who happens to
     // use the signup entry still just signs in normally (membership resolves).
     if (!membership && storedState.intent === "signup") {
-      const tenant = await repo.createTenant({
-        name: auth.user.email?.split("@")[0]
-          ? `${auth.user.email.split("@")[0]!.charAt(0).toUpperCase()}${auth.user.email.split("@")[0]!.slice(1)} workspace`
-          : "New workspace",
-      });
-      membership = await repo.upsertDashboardMembership({
-        workosUserId: auth.user.id,
-        tenantId: tenant.id,
-        role: "super_admin",
-        email: auth.user.email,
-        workosOrganizationId: auth.workosOrganizationId,
-      });
+      membership = await createSelfServeDashboardMembership(repo, auth);
       await setDashboardSession({
         role: membership.role,
         tenantId: membership.tenantId,

@@ -3,6 +3,15 @@ import { CursorGlyph, LogoMark } from "../dashboard/v2";
 
 export const dynamic = "force-dynamic";
 
+const signupErrorMessages: Record<string, string> = {
+  magic_email: "Enter a valid email address.",
+  magic_start: "We could not send an email code. Try again.",
+  magic_expired: "The email code expired. Start again with your email.",
+  no_membership: "We could not create your workspace. Try again.",
+  workos: "WorkOS signup failed. Try again.",
+  workos_unconfigured: "WorkOS signup is not configured yet.",
+};
+
 export default async function SignupPage({
   searchParams,
 }: {
@@ -14,6 +23,7 @@ export default async function SignupPage({
   // intent=signup makes the WorkOS callback create a fresh tenant + super_admin
   // membership for brand-new users, then route to onboarding.
   const googleUrl = `/api/auth/workos/start?method=google&intent=signup&next=${encodeURIComponent(nextPath)}`;
+  const errorMessage = params.error ? signupErrorMessages[params.error] : null;
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[460px_1fr] lg:items-center lg:gap-6 lg:px-6">
@@ -35,10 +45,16 @@ export default async function SignupPage({
             </div>
           )}
 
+          {errorMessage && (
+            <div className="mb-4 rounded-[12px] border border-amber-500/30 bg-amber-500/15 p-3 text-sm text-amber-200">
+              {errorMessage}
+            </div>
+          )}
+
           {workosConfigured && (
             <div className="grid gap-3">
               <p className="text-sm text-muted">
-                Continue with Google to create a new Skilly workspace. We&apos;ll set up your tenant and walk you through
+                Continue with Google or email to create a new Skilly workspace. We&apos;ll set up your tenant and walk you through
                 installing the widget and teaching your first skill.
               </p>
               <a
@@ -53,6 +69,26 @@ export default async function SignupPage({
                 </svg>
                 Continue with Google
               </a>
+              <form action="/api/auth/workos/magic/start" method="post" className="grid gap-3">
+                <input type="hidden" name="next" value={nextPath} />
+                <input type="hidden" name="intent" value="signup" />
+                <label className="grid gap-[7px]">
+                  <span className="text-xs font-bold text-gray-300">Email</span>
+                  <input
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    className="w-full rounded-[10px] border border-line bg-white/[0.045] px-[11px] py-[10px] text-sm text-gray-200 outline-none transition placeholder:text-gray-500 focus:border-amber-500/55 focus:ring-[3px] focus:ring-amber-500/12"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="inline-flex h-[42px] items-center justify-center gap-2 rounded-[9px] border border-white/[0.11] bg-white/[0.055] px-[13px] text-sm font-bold text-gray-200 transition hover:bg-white/[0.085] active:scale-[0.98]"
+                >
+                  Continue with email
+                </button>
+              </form>
               <p className="text-center text-xs text-muted">
                 Already have a workspace?{" "}
                 <a href="/login" className="font-bold text-amber-300 underline underline-offset-2 hover:text-amber-200">

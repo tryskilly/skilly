@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { MemoryRepo } from "../src/db/memoryRepo";
 import {
   buildWorkOSAuthorizeUrl,
+  createSelfServeDashboardMembership,
   createWorkOSMagicEmailCookie,
   createWorkOSState,
   normalizeWorkOSEmail,
@@ -76,17 +77,19 @@ describe("WorkOS dashboard auth", () => {
   test("roundtrips the signed Magic Auth pending email cookie", () => {
     configureWorkOS();
 
-    const cookie = createWorkOSMagicEmailCookie("Admin@TrySkilly.App", "/dashboard/keys");
+    const cookie = createWorkOSMagicEmailCookie("Admin@TrySkilly.App", "/dashboard/keys", "signup");
     const parsed = parseWorkOSMagicEmailCookie(cookie.cookieValue);
 
     expect(parsed?.email).toBe("admin@tryskilly.app");
     expect(parsed?.nextPath).toBe("/dashboard/keys");
+    expect(parsed?.intent).toBe("signup");
     expect(cookie.maxAge).toBeGreaterThan(0);
     expect(parseWorkOSMagicEmailCookie(`${cookie.cookieValue}tampered`)).toBeNull();
   });
 
   test("allows only dashboard-relative redirect targets", () => {
     expect(safeDashboardNextPath("/dashboard/billing")).toBe("/dashboard/billing");
+    expect(safeDashboardNextPath("/onboarding/company")).toBe("/onboarding/company");
     expect(safeDashboardNextPath("https://evil.example/dashboard")).toBe("/dashboard");
     expect(safeDashboardNextPath("/admin")).toBe("/dashboard");
   });
@@ -137,5 +140,26 @@ describe("WorkOS dashboard auth", () => {
     expect(membership?.tenantId).toBe("11111111-1111-1111-1111-111111111111");
     expect(membership?.role).toBe("super_admin");
     expect(await repo.findDashboardMembership({ workosUserId: "user_new" })).toEqual(membership);
+  });
+
+  test("creates a fresh self-serve tenant membership for signup", async () => {
+    const repo = new MemoryRepo();
+
+    const membership = await createSelfServeDashboardMembership(repo, {
+      user: {
+        id: "user_signup",
+        email: "founder@example.com",
+        firstName: null,
+        lastName: null,
+      },
+      workosOrganizationId: "org_signup",
+    });
+
+    const tenant = await repo.getTenant(membership.tenantId);
+    expect(membership.role).toBe("super_admin");
+    expect(membership.email).toBe("founder@example.com");
+    expect(membership.workosOrganizationId).toBe("org_signup");
+    expect(tenant?.name).toBe("Founder workspace");
+    expect(membership.tenantId).not.toBe("11111111-1111-1111-1111-111111111111");
   });
 });

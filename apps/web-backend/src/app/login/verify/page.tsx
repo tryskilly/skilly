@@ -5,10 +5,17 @@ export const dynamic = "force-dynamic";
 export default async function VerifyLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; next?: string }>;
+  searchParams: Promise<{ error?: string; intent?: string; next?: string }>;
 }) {
   const params = await searchParams;
-  const nextPath = params.next?.startsWith("/dashboard") ? params.next : "/dashboard";
+  const isSignup = params.intent === "signup";
+  const nextPath = isSignup
+    ? params.next?.startsWith("/onboarding")
+      ? params.next
+      : "/onboarding/company"
+    : params.next?.startsWith("/dashboard")
+      ? params.next
+      : "/dashboard";
   const error = params.error;
   const errorMessage =
     error === "magic_code"
@@ -38,6 +45,7 @@ export default async function VerifyLoginPage({
 
         <form action="/api/auth/workos/magic/verify" method="post" className="grid gap-4">
           <input type="hidden" name="next" value={nextPath} />
+          {isSignup && <input type="hidden" name="intent" value="signup" />}
           <label className="grid gap-1.5">
             <span className="text-sm font-bold text-neutral-300">Code</span>
             <input
@@ -57,7 +65,7 @@ export default async function VerifyLoginPage({
         </form>
 
         <a
-          href={`/login?next=${encodeURIComponent(nextPath)}`}
+          href={`${isSignup ? "/signup" : "/login"}?next=${encodeURIComponent(nextPath)}`}
           className="mt-5 block text-center text-sm font-bold text-neutral-400 transition hover:text-neutral-100"
         >
           Use a different email

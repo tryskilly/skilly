@@ -24,6 +24,7 @@ export interface WorkOSMagicEmailPayload {
   email: string;
   nextPath: string;
   issuedAt: number;
+  intent: "signin" | "signup";
 }
 
 export interface WorkOSUser {
@@ -151,6 +152,7 @@ export function normalizeWorkOSEmail(value: string | null | undefined): string |
 export function createWorkOSMagicEmailCookie(
   email: string,
   nextPath: string,
+  intent: "signin" | "signup" = "signin",
 ): { cookieValue: string; maxAge: number } {
   const normalizedEmail = normalizeWorkOSEmail(email);
   if (!normalizedEmail) {
@@ -161,6 +163,7 @@ export function createWorkOSMagicEmailCookie(
       email: normalizedEmail,
       nextPath: safeDashboardNextPath(nextPath),
       issuedAt: Date.now(),
+      intent,
     } satisfies WorkOSMagicEmailPayload),
     maxAge: MAGIC_EMAIL_TTL_SECONDS,
   };
@@ -184,7 +187,27 @@ export function parseWorkOSMagicEmailCookie(rawValue: string | undefined): WorkO
     email,
     nextPath: safeDashboardNextPath(payload.nextPath),
     issuedAt: payload.issuedAt,
+    intent: payload.intent === "signup" ? "signup" : "signin",
   };
+}
+
+export async function createSelfServeDashboardMembership(
+  repo: WebBackendRepo,
+  auth: WorkOSAuthResult,
+): Promise<DashboardMembership> {
+  const emailName = auth.user.email?.split("@")[0];
+  const tenant = await repo.createTenant({
+    name: emailName
+      ? `${emailName.charAt(0).toUpperCase()}${emailName.slice(1)} workspace`
+      : "New workspace",
+  });
+  return repo.upsertDashboardMembership({
+    workosUserId: auth.user.id,
+    tenantId: tenant.id,
+    role: "super_admin",
+    email: auth.user.email,
+    workosOrganizationId: auth.workosOrganizationId,
+  });
 }
 
 export function buildWorkOSAuthorizeUrl(state: string, method: WorkOSAuthMethod = "email"): string {
