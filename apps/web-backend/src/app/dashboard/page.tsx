@@ -96,7 +96,7 @@ export default async function DashboardPage() {
   const capMinutes = usage.capSeconds > 0 ? Math.round(usage.capSeconds / 60) : 0;
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Overview"
         title="Is Skilly ready?"
@@ -114,7 +114,7 @@ export default async function DashboardPage() {
       />
 
       {/* Readiness hero panel */}
-      <Panel className="mb-4 overflow-hidden">
+      <Panel className="overflow-hidden">
         <div className="relative grid gap-[22px] p-[22px] lg:grid-cols-[1fr_320px]">
           {/* Ambient amber glow behind the preview area */}
           <div className="relative z-10">
@@ -172,7 +172,7 @@ export default async function DashboardPage() {
       </Panel>
 
       {/* Usage metric strip */}
-      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Metric
           label="Minutes used"
           value={usedMinutes}
@@ -254,6 +254,6 @@ export default async function DashboardPage() {
           </PanelBody>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }

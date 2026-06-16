@@ -36,7 +36,7 @@ export default async function InstallPage() {
   ];
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Install"
         title="Add Skilly to your product."
@@ -104,6 +104,6 @@ export default async function InstallPage() {
           </PanelBody>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }
