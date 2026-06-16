@@ -93,7 +93,8 @@ Env: `OPENAI_API_KEY` (required to mint), `POSTGRES_URL` or `DATABASE_URL`
 (optional — in-memory demo tenant without it). `POSTGRES_URL` takes precedence
 when both are present, which is useful when a platform has a stale managed
 `DATABASE_URL`. The seeded demo publishable key + allowed origins let the local
-`@skilly/web` demo connect. `node_modules/`, `.next/`, `.env*` are gitignored.
+`@skilly/web` demo connect. `node_modules/`, `.next/`, and local `.env*` files
+are gitignored; `.env.example` is intentionally tracked as the deploy reference.
 
 Local dashboard auth:
 
