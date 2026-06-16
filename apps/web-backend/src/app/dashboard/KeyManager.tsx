@@ -1,14 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef } from "react";
 import type { ApiKeyInfo } from "@/db/repo";
 import { createKeyAction, revokeKeyAction, type CreateKeyState } from "./actions";
-import { Button, Select, StatusPill } from "./v2";
+import { Button, ConfirmModal, Select, StatusPill } from "./v2";
 
 /**
  * Key management (v2). Publishable + secret keys in one list with a one-time
- * reveal banner when a key is freshly created. Revoke is danger-styled.
- * Preserves the createKeyAction/revokeKeyAction contracts from v1.
+ * reveal banner when a key is freshly created. Revoke is gated by a
+ * confirmation modal (spec §11 #12). Preserves the createKeyAction/revokeKeyAction
+ * contracts from v1.
  */
 export function KeyManager({ keys }: { keys: ApiKeyInfo[] }) {
   const [createState, createKey, creating] = useActionState<CreateKeyState, FormData>(createKeyAction, {});
@@ -29,14 +30,7 @@ export function KeyManager({ keys }: { keys: ApiKeyInfo[] }) {
                 <StatusPill tone={apiKey.keyType === "secret" ? "amber" : "neutral"} label={apiKey.keyType} />
                 {apiKey.revoked && <StatusPill tone="red" label="revoked" />}
               </span>
-              {!apiKey.revoked && (
-                <form action={revokeKeyAction}>
-                  <input type="hidden" name="keyId" value={apiKey.id} />
-                  <Button variant="danger" analyticsEvent="dashboard_key_revoke_clicked" analyticsLabel={apiKey.keyType}>
-                    Revoke
-                  </Button>
-                </form>
-              )}
+              {!apiKey.revoked && <RevokeKeyButton apiKey={apiKey} />}
             </li>
           ))}
         </ul>
@@ -68,5 +62,30 @@ export function KeyManager({ keys }: { keys: ApiKeyInfo[] }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** Per-row revoke button that owns its form ref so the confirm modal can submit it. */
+function RevokeKeyButton({ apiKey }: { apiKey: ApiKeyInfo }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  return (
+    <form action={revokeKeyAction} ref={formRef} className="contents">
+      <input type="hidden" name="keyId" value={apiKey.id} />
+      <ConfirmModal
+        trigger={
+          <Button variant="danger" type="button" analyticsEvent="dashboard_key_revoke_clicked" analyticsLabel={apiKey.keyType}>
+            Revoke
+          </Button>
+        }
+        title="Revoke this key?"
+        body={
+          <>
+            Apps using <span className="font-mono text-gray-200">{apiKey.prefix}_…{apiKey.last4}</span> will stop working immediately. This can&apos;t be undone.
+          </>
+        }
+        confirmLabel="Revoke key"
+        onConfirm={() => formRef.current?.requestSubmit()}
+      />
+    </form>
   );
 }

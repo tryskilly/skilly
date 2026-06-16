@@ -21,4 +21,9 @@ export async function getCurrentDashboardTenantId(): Promise<string> {
   return (await requireDashboardSession()).tenantId;
 }
 
-export const DEFAULT_SKILL_ID = "acme-onboarding";
+/**
+ * The default skill id every tenant's teaching SKILL.md is stored under. Neutral
+ * (not named after a demo tenant) so the data-skilly-skill snippet attribute and
+ * DB rows read cleanly in production.
+ */
+export const DEFAULT_SKILL_ID = "default";

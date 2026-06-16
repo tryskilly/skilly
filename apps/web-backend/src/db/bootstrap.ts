@@ -55,7 +55,7 @@ INSERT INTO tenant_skills (
   content
 ) VALUES (
   '11111111-1111-1111-1111-111111111111',
-  'acme-onboarding',
+  'default',
   '# Acme Onboarding
 
 Guide the user through setting up their first project.'

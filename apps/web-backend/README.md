@@ -93,7 +93,8 @@ Env: `OPENAI_API_KEY` (required to mint), `POSTGRES_URL` or `DATABASE_URL`
 (optional — in-memory demo tenant without it). `POSTGRES_URL` takes precedence
 when both are present, which is useful when a platform has a stale managed
 `DATABASE_URL`. The seeded demo publishable key + allowed origins let the local
-`@skilly/web` demo connect. `node_modules/`, `.next/`, `.env*` are gitignored.
+`@skilly/web` demo connect. `node_modules/`, `.next/`, and local `.env*` files
+are gitignored; `.env.example` is intentionally tracked as the deploy reference.
 
 Local dashboard auth:
 
@@ -201,3 +202,12 @@ Production smoke checks:
   sessions cannot access `/dashboard/admin/tenants`.
 - Verify the emergency password fallback only if `SKILLY_DASHBOARD_PASSWORD` is
   intentionally configured.
+
+## Known follow-ups
+
+- **Usage dimensions from the SDK.** The backend stores `page`/`domain`/`duration_seconds`/`result`
+  on `usage_events` and the dashboard renders them (overview recent-sessions table, usage metrics,
+  top pages/domains), but `@skilly/web` does not yet send them. Until it does, Sessions / Avg session /
+  Error rate / Top pages show real zeros on launch. Fix is in `sdk/web` (`realtime.ts` reporting), not here.
+- **`POLAR_API_BASE` sandbox.** Polar sandbox testing needs `POLAR_API_BASE=https://api.sandbox.polar.sh`
+  + sandbox tokens; the production default is `https://api.polar.sh`.
