@@ -3,6 +3,7 @@ import { getCurrentDashboardTenantId } from "@/lib/session";
 import { addAppIdAction, addOriginAction, removeAppIdAction, removeOriginAction } from "../actions";
 import {
   Button,
+  ConfirmRemoveButton,
   Field,
   PageHeader,
   Panel,
@@ -36,12 +37,17 @@ export default async function OriginsPage() {
                 {tenant.allowedOrigins.map((origin) => (
                   <li key={origin} className="flex items-center justify-between gap-4 py-3">
                     <span className="font-mono text-[13px] text-gray-300">{origin}</span>
-                    <form action={removeOriginAction}>
-                      <input type="hidden" name="origin" value={origin} />
-                      <Button variant="danger" analyticsEvent="dashboard_origin_removed" analyticsLabel={origin}>
-                        Remove
-                      </Button>
-                    </form>
+                    <ConfirmRemoveButton
+                      action={removeOriginAction}
+                      hiddenFieldName="origin"
+                      hiddenFieldValue={origin}
+                      triggerLabel="Remove"
+                      title="Remove this origin?"
+                      body={`Widget sessions from ${origin} will be rejected once it's removed.`}
+                      confirmLabel="Remove origin"
+                      analyticsEvent="dashboard_origin_removed"
+                      analyticsLabel={origin}
+                    />
                   </li>
                 ))}
               </ul>
@@ -70,12 +76,17 @@ export default async function OriginsPage() {
                 {tenant.allowedAppIds.map((appId) => (
                   <li key={appId} className="flex items-center justify-between gap-4 py-3">
                     <span className="font-mono text-[13px] text-gray-300">{appId}</span>
-                    <form action={removeAppIdAction}>
-                      <input type="hidden" name="appId" value={appId} />
-                      <Button variant="danger" analyticsEvent="dashboard_app_id_removed" analyticsLabel={appId}>
-                        Remove
-                      </Button>
-                    </form>
+                    <ConfirmRemoveButton
+                      action={removeAppIdAction}
+                      hiddenFieldName="appId"
+                      hiddenFieldValue={appId}
+                      triggerLabel="Remove"
+                      title="Remove this app ID?"
+                      body={`Native SDK requests from ${appId} will be rejected once it's removed.`}
+                      confirmLabel="Remove app ID"
+                      analyticsEvent="dashboard_app_id_removed"
+                      analyticsLabel={appId}
+                    />
                   </li>
                 ))}
               </ul>

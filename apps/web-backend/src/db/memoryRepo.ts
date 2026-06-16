@@ -67,7 +67,7 @@ export function defaultSeed(): MemorySeed {
     skills: [
       {
         tenantId,
-        skillId: "acme-onboarding",
+        skillId: "default",
         content: "# Acme Onboarding\n\nGuide the user through setting up their first project.",
       },
     ],

@@ -3,6 +3,11 @@ import { AuthShowcase, Footer, LogoMark, type ShowcaseSlide } from "../dashboard
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Create a workspace · Skilly",
+  description: "Create your Skilly workspace and teach your users directly inside your product.",
+};
+
 const signupErrorMessages: Record<string, string> = {
   magic_email: "Enter a valid email address.",
   magic_start: "We could not send an email code. Try again.",

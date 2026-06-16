@@ -3,6 +3,11 @@ import { AuthShowcase, Footer, LogoMark, type ShowcaseSlide } from "../dashboard
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Sign in · Skilly",
+  description: "Sign in to your Skilly workspace to manage tenants, keys, skills, and usage.",
+};
+
 const loginErrorMessages: Record<string, string> = {
   invalid: "The password did not match.",
   magic_email: "Enter a valid email address.",

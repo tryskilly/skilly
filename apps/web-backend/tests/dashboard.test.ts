@@ -53,8 +53,8 @@ describe("dashboard repo operations", () => {
 
   test("saveTenantSkill is readable back, and usage summary carries the cap", async () => {
     const repo = new MemoryRepo();
-    await repo.saveTenantSkill(tenantId, "acme-onboarding", "# Updated\n\nNew teaching content here.");
-    const skill = await repo.getTenantSkill(tenantId, "acme-onboarding");
+    await repo.saveTenantSkill(tenantId, "default", "# Updated\n\nNew teaching content here.");
+    const skill = await repo.getTenantSkill(tenantId, "default");
     expect(skill?.content).toContain("Updated");
 
     const summary = await repo.getUsageSummary(tenantId);

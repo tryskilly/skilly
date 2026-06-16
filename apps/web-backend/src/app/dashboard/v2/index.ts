@@ -25,3 +25,5 @@ export { AppShell } from "./AppShell";
 export { AccountChip } from "./AccountChip";
 export { Footer } from "./Footer";
 export { AuthShowcase, type ShowcaseSlide } from "./AuthShowcase";
+export { ConfirmModal } from "./ConfirmModal";
+export { ConfirmRemoveButton } from "./ConfirmRemoveButton";

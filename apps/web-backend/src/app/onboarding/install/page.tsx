@@ -1,5 +1,5 @@
 import { getRepo } from "@/db";
-import { getCurrentDashboardTenantId } from "@/lib/session";
+import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
 import { CodeBlock, Panel, PanelBody, PanelHeader } from "@/app/dashboard/v2";
 import { OnboardingStepFooter } from "../shared";
 
@@ -32,7 +32,7 @@ export default async function OnboardingInstallPage() {
             highlight={["data-skilly-key", "data-skilly-skill"]}
             code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
-        data-skilly-skill="acme-onboarding"
+        data-skilly-skill="${DEFAULT_SKILL_ID}"
         defer></script>`}
           />
         </PanelBody>

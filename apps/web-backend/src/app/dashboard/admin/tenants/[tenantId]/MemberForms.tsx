@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef } from "react";
 import { addMemberAction, removeMemberAction, type AddMemberState, type RemoveMemberState } from "../../../actions";
-import { Button, Field, Select } from "../../../v2";
+import { Button, ConfirmModal, Field, Select } from "../../../v2";
 
 /** Add a WorkOS user as a member of this tenant (super-admin invite). */
 export function AddMemberForm({ tenantId }: { tenantId: string }) {
@@ -37,19 +37,29 @@ export function AddMemberForm({ tenantId }: { tenantId: string }) {
 /** Remove a single member (renders per row). Refuses the last super_admin server-side. */
 export function RemoveMemberButton({ tenantId, workosUserId }: { tenantId: string; workosUserId: string }) {
   const [_state, remove, pending] = useActionState<RemoveMemberState, FormData>(removeMemberAction, {});
+  const formRef = useRef<HTMLFormElement>(null);
 
   return (
-    <form action={remove}>
+    <form action={remove} ref={formRef}>
       <input type="hidden" name="tenantId" value={tenantId} />
       <input type="hidden" name="workosUserId" value={workosUserId} />
-      <Button
-        variant="danger"
-        disabled={pending}
-        analyticsEvent="dashboard_member_remove_clicked"
-        analyticsLabel={workosUserId}
-      >
-        {pending ? "Removing…" : "Remove"}
-      </Button>
+      <ConfirmModal
+        trigger={
+          <Button
+            variant="danger"
+            type="button"
+            disabled={pending}
+            analyticsEvent="dashboard_member_remove_clicked"
+            analyticsLabel={workosUserId}
+          >
+            {pending ? "Removing…" : "Remove"}
+          </Button>
+        }
+        title="Remove this member?"
+        body="They will lose access to this workspace immediately. You can re-add them later."
+        confirmLabel="Remove member"
+        onConfirm={() => formRef.current?.requestSubmit()}
+      />
     </form>
   );
 }
