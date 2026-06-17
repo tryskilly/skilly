@@ -18,7 +18,7 @@ export default async function OriginsPage() {
   const tenant = await getRepo().getTenant(await getCurrentDashboardTenantId());
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Domains"
         title="Where can Skilly run?"
@@ -107,6 +107,6 @@ export default async function OriginsPage() {
           </PanelBody>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }

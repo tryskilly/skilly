@@ -56,7 +56,7 @@ export default async function WidgetPage() {
   const accentGlow = hexToRgba(config.accentColor, 0.14);
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Widget"
         title="Shape the embedded companion."
@@ -64,7 +64,7 @@ export default async function WidgetPage() {
       />
 
       {/* Live preview + state showcase */}
-      <div className="mb-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
         <Panel>
           <PanelHeader title="Live preview" description="The launcher uses your configured accent color. Same cursor family as the macOS app." />
           <PanelBody>
@@ -159,6 +159,6 @@ export default async function WidgetPage() {
           </PanelBody>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }

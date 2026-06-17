@@ -200,7 +200,6 @@ export function AppShell({
         <header className="sticky top-0 z-10 flex h-[var(--spacing-topbar)] items-center justify-between gap-4 border-b border-line-soft bg-[rgba(15,15,16,0.78)] px-4 backdrop-blur-[18px] md:px-7">
           <div className="flex items-center gap-2.5 text-sm text-gray-300">
             <strong className="font-bold text-gray-100">{current?.label ?? "Overview"}</strong>
-            <StatusPill tone="green" label="Live" showDot />
           </div>
 
           <div className="flex items-center gap-2.5">

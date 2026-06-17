@@ -10,7 +10,7 @@ export default async function BillingPage() {
   const hasPlan = usage.capSeconds > 0;
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Billing"
         title="Manage plan and quota."
@@ -40,6 +40,6 @@ export default async function BillingPage() {
           </PanelBody>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }

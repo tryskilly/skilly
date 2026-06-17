@@ -73,7 +73,7 @@ export default async function UsagePage() {
           : "Within healthy range.";
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Usage"
         title="Track voice minutes and sessions."
@@ -81,7 +81,7 @@ export default async function UsagePage() {
       />
 
       {/* Metric strip */}
-      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Metric
           label="Minutes used"
           value={usedMinutes}
@@ -94,7 +94,7 @@ export default async function UsagePage() {
       </div>
 
       {/* Quota state banner */}
-      <Panel className="mb-4">
+      <Panel>
         <PanelBody>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
@@ -156,7 +156,7 @@ export default async function UsagePage() {
       </Panel>
 
       {/* Top pages + domains (v2 dimensions) */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Panel>
           <PanelHeader title="Top pages" description="Most-visited pages by session count this month." />
           <PanelBody>
@@ -193,6 +193,6 @@ export default async function UsagePage() {
           </PanelBody>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }
