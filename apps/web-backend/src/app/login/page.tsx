@@ -1,6 +1,5 @@
 import { isDashboardAuthConfigured, isWorkOSDashboardAuthConfigured } from "@/lib/dashboardAuth";
 import { AuthMarketingPanel, Footer, LogoMark, type AuthFeatureSlide } from "../dashboard/v2";
-import { Eye, MousePointerClick, MessageSquareText, BookOpen } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +28,10 @@ const loginSlides: AuthFeatureSlide[] = [
     headline: ["Teach users directly", "inside your product."],
     body: "Skilly sees the page, points at the next action, and explains it out loud — installed with one script, no build step.",
     features: [
-      { icon: Eye, label: "Sees the screen", description: "Reads the live page, not a static screenshot." },
-      { icon: MousePointerClick, label: "Points at clicks", description: "A cursor flies to the exact next action." },
-      { icon: MessageSquareText, label: "Speaks aloud", description: "Voice guidance, step by step, in context." },
-      { icon: BookOpen, label: "Knows your product", description: "Authored once from a single SKILL.md." },
+      { icon: "eye", label: "Sees the screen", description: "Reads the live page, not a static screenshot." },
+      { icon: "mouse-pointer-click", label: "Points at clicks", description: "A cursor flies to the exact next action." },
+      { icon: "message-square-text", label: "Speaks aloud", description: "Voice guidance, step by step, in context." },
+      { icon: "book-open", label: "Knows your product", description: "Authored once from a single SKILL.md." },
     ],
   },
   {
@@ -41,10 +40,10 @@ const loginSlides: AuthFeatureSlide[] = [
     headline: ["Point. Explain.", "Done."],
     body: "A companion cursor that flies to the right UI element and talks the user through it — on any page, in any flow.",
     features: [
-      { icon: MousePointerClick, label: "Bezier flight", description: "Smooth arc to the target element." },
-      { icon: MessageSquareText, label: "Natural voice", description: "Realtime narration, not canned tooltips." },
-      { icon: Eye, label: "Context-aware", description: "Answers about what's actually on screen." },
-      { icon: BookOpen, label: "On-brand", description: "Speaks with your product's vocabulary." },
+      { icon: "mouse-pointer-click", label: "Bezier flight", description: "Smooth arc to the target element." },
+      { icon: "message-square-text", label: "Natural voice", description: "Realtime narration, not canned tooltips." },
+      { icon: "eye", label: "Context-aware", description: "Answers about what's actually on screen." },
+      { icon: "book-open", label: "On-brand", description: "Speaks with your product's vocabulary." },
     ],
   },
   {
@@ -53,10 +52,10 @@ const loginSlides: AuthFeatureSlide[] = [
     headline: ["Your product,", "taught your way."],
     body: "Author one SKILL.md about your product and Skilly becomes an expert tutor for every visitor — onboarding, support, and walkthroughs handled.",
     features: [
-      { icon: BookOpen, label: "One SKILL.md", description: "Plain-language teaching instructions." },
-      { icon: Eye, label: "UI vocabulary", description: "Knows the names of your buttons & panels." },
-      { icon: MessageSquareText, label: "Curriculum", description: "Guides users stage by stage." },
-      { icon: MousePointerClick, label: "Installs anywhere", description: "One script tag, any web app." },
+      { icon: "book-open", label: "One SKILL.md", description: "Plain-language teaching instructions." },
+      { icon: "eye", label: "UI vocabulary", description: "Knows the names of your buttons & panels." },
+      { icon: "message-square-text", label: "Curriculum", description: "Guides users stage by stage." },
+      { icon: "mouse-pointer-click", label: "Installs anywhere", description: "One script tag, any web app." },
     ],
   },
 ];

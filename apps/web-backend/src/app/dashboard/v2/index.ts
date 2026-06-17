@@ -28,6 +28,7 @@ export {
   AuthMarketingPanel,
   type AuthSlide,
   type AuthFeatureSlide,
+  type AuthFeatureIcon,
   type AuthStepsSlide,
 } from "./AuthMarketingPanel";
 export { ConfirmModal } from "./ConfirmModal";

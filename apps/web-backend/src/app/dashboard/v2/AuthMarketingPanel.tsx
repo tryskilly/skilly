@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import {
+  BookOpen,
+  Eye,
+  MessageSquareText,
+  MousePointerClick,
+  type LucideIcon,
+} from "lucide-react";
 import { CursorGlyph } from "./LogoMark";
 
 /*
@@ -31,7 +37,7 @@ export interface AuthFeatureSlide {
   /** One supporting sentence (max ~22 words). */
   body: string;
   /** Up to 4 feature tiles with a Lucide icon + short label + one-line description. */
-  features: Array<{ icon: LucideIcon; label: string; description: string }>;
+  features: Array<{ icon: AuthFeatureIcon; label: string; description: string }>;
 }
 
 export interface AuthStepsSlide {
@@ -45,6 +51,19 @@ export interface AuthStepsSlide {
 }
 
 export type AuthSlide = AuthFeatureSlide | AuthStepsSlide;
+
+export type AuthFeatureIcon =
+  | "eye"
+  | "mouse-pointer-click"
+  | "message-square-text"
+  | "book-open";
+
+const featureIcons: Record<AuthFeatureIcon, LucideIcon> = {
+  eye: Eye,
+  "mouse-pointer-click": MousePointerClick,
+  "message-square-text": MessageSquareText,
+  "book-open": BookOpen,
+};
 
 const ROTATION_MS = 6500;
 
@@ -162,12 +181,12 @@ export function AuthMarketingPanel({ slides }: { slides: AuthSlide[] }) {
 function FeatureGrid({
   features,
 }: {
-  features: Array<{ icon: LucideIcon; label: string; description: string }>;
+  features: Array<{ icon: AuthFeatureIcon; label: string; description: string }>;
 }) {
   return (
     <div className="grid grid-cols-2 gap-2.5">
       {features.map((feature) => {
-        const Icon = feature.icon;
+        const Icon = featureIcons[feature.icon];
         return (
           <div
             key={feature.label}
