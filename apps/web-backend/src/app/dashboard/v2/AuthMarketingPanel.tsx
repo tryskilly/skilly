@@ -11,21 +11,22 @@ import {
 import { CursorGlyph } from "./LogoMark";
 
 /*
- * Auth marketing panel — the LEFT-side panel of the login/signup split-screen.
+ * Auth marketing panel — one full-bleed half of the login/signup split-screen.
  *
- * A rotating slideshow that earns the half-screen. Each slide is a rich marketing
- * beat (eyebrow → big 2-line headline with an amber-highlighted word → supporting
- * body → a content block) rather than a flat quote. Two slide "kinds" are supported:
+ * A rotating slideshow that earns its half of the screen. Each slide is a rich
+ * marketing beat (eyebrow → big 2-line headline → supporting body → a content
+ * block) rather than a flat quote. Two slide "kinds" are supported:
  *
  *   - "features": a 2x2 feature grid with Lucide icons (used on login).
  *   - "steps":    a numbered onboarding journey preview (used on signup).
  *
+ * Full-bleed: no rounded card, no border — the panel fills its half edge-to-edge
+ * with a branded gradient backdrop, so the split reads as two clean halves
+ * (form half · marketing half) rather than two cards floating on a canvas.
+ *
  * Auto-rotates with a slow cross-fade, respects prefers-reduced-motion (pauses
  * auto-rotation + drops the fade), and lets users jump slides via clickable dots.
  * Pure presentation — no forms, no provider state.
- *
- * Layout note: this panel is designed to sit on the LEFT of the split-screen,
- * with the auth form on the RIGHT.
  */
 
 export interface AuthFeatureSlide {
@@ -90,10 +91,10 @@ export function AuthMarketingPanel({ slides }: { slides: AuthSlide[] }) {
   const active = slides[index] ?? slides[0]!;
 
   return (
-    <aside className="relative hidden min-h-[560px] items-stretch overflow-hidden rounded-[24px] border border-line bg-[radial-gradient(circle_at_28%_12%,rgba(245,158,11,0.18),transparent_30rem),radial-gradient(circle_at_88%_96%,rgba(255,255,255,0.05),transparent_26rem),rgba(255,255,255,0.035)] p-8 lg:flex lg:flex-col lg:justify-between">
+    <aside className="relative hidden min-h-dvh items-stretch overflow-hidden bg-[radial-gradient(circle_at_28%_14%,rgba(245,158,11,0.22),transparent_32rem),radial-gradient(circle_at_86%_92%,rgba(255,255,255,0.06),transparent_28rem),linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] lg:flex lg:flex-col lg:justify-between lg:px-16 lg:py-14 lg:border-r lg:border-line">
       {/* Ambient cursor watermark, top-right. */}
-      <div className="pointer-events-none absolute -right-12 -top-6 opacity-[0.06]">
-        <CursorGlyph size={240} />
+      <div className="pointer-events-none absolute -right-16 -top-10 opacity-[0.07]">
+        <CursorGlyph size={300} />
       </div>
 
       {/* Top: brand + eyebrow.

@@ -75,14 +75,11 @@ export default async function LoginPage({
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <div className="grid flex-1 lg:grid-cols-[1fr_460px] lg:items-center lg:gap-6 lg:px-6">
-        {/* Left — rotating marketing slideshow */}
-        <AuthMarketingPanel slides={loginSlides} />
-
-        {/* Right — auth card */}
-        <main className="mx-auto flex w-full max-w-md flex-col px-4 py-10 lg:mx-0 lg:max-w-none lg:px-0">
-          <section className="rounded-[20px] border border-line bg-[linear-gradient(180deg,rgba(255,255,255,0.065),rgba(255,255,255,0.035))] p-7 shadow-[0_30px_80px_rgba(0,0,0,0.48)]">
-            <div className="mb-7 flex items-center gap-3">
+      <div className="grid flex-1 lg:grid-cols-2">
+        {/* Left — auth form (full-bleed half, no card) */}
+        <main className="flex w-full flex-col justify-center px-6 py-12 sm:px-10 lg:px-16">
+          <div className="mx-auto w-full max-w-md">
+            <div className="mb-8 flex items-center gap-3">
               <LogoMark size={40} />
               <div>
                 <h1 className="text-2xl font-bold tracking-[-0.035em] text-gray-100">Sign in to Skilly</h1>
@@ -187,8 +184,11 @@ export default async function LoginPage({
                 Create a workspace
               </a>
             </p>
-          </section>
+          </div>
         </main>
+
+        {/* Right — rotating marketing slideshow (full-bleed half) */}
+        <AuthMarketingPanel slides={loginSlides} />
       </div>
       <Footer variant="auth" />
     </div>
