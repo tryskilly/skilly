@@ -24,6 +24,11 @@ export { LogoMark, CursorGlyph } from "./LogoMark";
 export { AppShell } from "./AppShell";
 export { AccountChip } from "./AccountChip";
 export { Footer } from "./Footer";
-export { AuthShowcase, type ShowcaseSlide } from "./AuthShowcase";
+export {
+  AuthMarketingPanel,
+  type AuthSlide,
+  type AuthFeatureSlide,
+  type AuthStepsSlide,
+} from "./AuthMarketingPanel";
 export { ConfirmModal } from "./ConfirmModal";
 export { ConfirmRemoveButton } from "./ConfirmRemoveButton";

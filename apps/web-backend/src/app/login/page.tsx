@@ -1,5 +1,6 @@
 import { isDashboardAuthConfigured, isWorkOSDashboardAuthConfigured } from "@/lib/dashboardAuth";
-import { AuthShowcase, Footer, LogoMark, type ShowcaseSlide } from "../dashboard/v2";
+import { AuthMarketingPanel, Footer, LogoMark, type AuthFeatureSlide } from "../dashboard/v2";
+import { Eye, MousePointerClick, MessageSquareText, BookOpen } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -19,22 +20,44 @@ const loginErrorMessages: Record<string, string> = {
   workos_unconfigured: "WorkOS sign-in is not configured yet. Use the fallback password.",
 };
 
-// Right-panel carousel: real value props that earn the half-screen.
-const loginSlides: ShowcaseSlide[] = [
+// Left-panel slideshow: rich marketing beats that earn the half-screen.
+// Each slide = eyebrow → 2-line headline (amber-highlighted word) → body → 2x2 feature grid.
+const loginSlides: AuthFeatureSlide[] = [
   {
-    headline: "Teach users directly inside your product.",
-    body: "Skilly sees the page, points at the next action, and explains it out loud — installed with one script.",
-    attribution: "The in-product tutor",
+    kind: "features",
+    eyebrow: "The in-product tutor",
+    headline: ["Teach users directly", "inside your product."],
+    body: "Skilly sees the page, points at the next action, and explains it out loud — installed with one script, no build step.",
+    features: [
+      { icon: Eye, label: "Sees the screen", description: "Reads the live page, not a static screenshot." },
+      { icon: MousePointerClick, label: "Points at clicks", description: "A cursor flies to the exact next action." },
+      { icon: MessageSquareText, label: "Speaks aloud", description: "Voice guidance, step by step, in context." },
+      { icon: BookOpen, label: "Knows your product", description: "Authored once from a single SKILL.md." },
+    ],
   },
   {
-    headline: "Point. Explain. Done.",
-    body: "A companion cursor that flies to the right UI element and talks the user through it, on any page.",
-    attribution: "Voice + visual guidance",
+    kind: "features",
+    eyebrow: "Voice + visual guidance",
+    headline: ["Point. Explain.", "Done."],
+    body: "A companion cursor that flies to the right UI element and talks the user through it — on any page, in any flow.",
+    features: [
+      { icon: MousePointerClick, label: "Bezier flight", description: "Smooth arc to the target element." },
+      { icon: MessageSquareText, label: "Natural voice", description: "Realtime narration, not canned tooltips." },
+      { icon: Eye, label: "Context-aware", description: "Answers about what's actually on screen." },
+      { icon: BookOpen, label: "On-brand", description: "Speaks with your product's vocabulary." },
+    ],
   },
   {
-    headline: "Your product, taught your way.",
-    body: "Author one SKILL.md about your product and Skilly becomes an expert tutor for your visitors.",
-    attribution: "One file, full expertise",
+    kind: "features",
+    eyebrow: "One file, full expertise",
+    headline: ["Your product,", "taught your way."],
+    body: "Author one SKILL.md about your product and Skilly becomes an expert tutor for every visitor — onboarding, support, and walkthroughs handled.",
+    features: [
+      { icon: BookOpen, label: "One SKILL.md", description: "Plain-language teaching instructions." },
+      { icon: Eye, label: "UI vocabulary", description: "Knows the names of your buttons & panels." },
+      { icon: MessageSquareText, label: "Curriculum", description: "Guides users stage by stage." },
+      { icon: MousePointerClick, label: "Installs anywhere", description: "One script tag, any web app." },
+    ],
   },
 ];
 
@@ -53,8 +76,11 @@ export default async function LoginPage({
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <div className="grid flex-1 lg:grid-cols-[460px_1fr] lg:items-center lg:gap-6 lg:px-6">
-        {/* Left — auth card */}
+      <div className="grid flex-1 lg:grid-cols-[1fr_460px] lg:items-center lg:gap-6 lg:px-6">
+        {/* Left — rotating marketing slideshow */}
+        <AuthMarketingPanel slides={loginSlides} />
+
+        {/* Right — auth card */}
         <main className="mx-auto flex w-full max-w-md flex-col px-4 py-10 lg:mx-0 lg:max-w-none lg:px-0">
           <section className="rounded-[20px] border border-line bg-[linear-gradient(180deg,rgba(255,255,255,0.065),rgba(255,255,255,0.035))] p-7 shadow-[0_30px_80px_rgba(0,0,0,0.48)]">
             <div className="mb-7 flex items-center gap-3">
@@ -164,9 +190,6 @@ export default async function LoginPage({
             </p>
           </section>
         </main>
-
-        {/* Right — rotating showcase */}
-        <AuthShowcase slides={loginSlides} />
       </div>
       <Footer variant="auth" />
     </div>

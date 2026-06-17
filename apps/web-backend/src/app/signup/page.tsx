@@ -1,5 +1,5 @@
 import { isWorkOSDashboardAuthConfigured } from "@/lib/dashboardAuth";
-import { AuthShowcase, Footer, LogoMark, type ShowcaseSlide } from "../dashboard/v2";
+import { AuthMarketingPanel, Footer, LogoMark, type AuthSlide } from "../dashboard/v2";
 
 export const dynamic = "force-dynamic";
 
@@ -17,22 +17,45 @@ const signupErrorMessages: Record<string, string> = {
   workos_unconfigured: "WorkOS signup is not configured yet.",
 };
 
-// Signup-specific carousel: benefit-led ("what you get"), not feature copy.
-const signupSlides: ShowcaseSlide[] = [
+// Left-panel slideshow: signup-specific beats. The first slide previews the real
+// 4-step onboarding journey (company → install → skill → test); the others are
+// benefit-led ("what you get once you're live"). Each rotates as a slideshow.
+const signupSlides: AuthSlide[] = [
   {
-    headline: "From signup to live in minutes.",
-    body: "Create a workspace, install one script, teach your skill, and test — all before going live.",
-    attribution: "Setup in four steps",
+    kind: "steps",
+    eyebrow: "Setup in four steps",
+    headline: ["From signup to live", "in minutes."],
+    body: "Create a workspace, install one script, teach your skill, and test — all before going live. Here's the journey you're about to start:",
+    steps: [
+      { label: "Create your workspace", description: "Name your team and you're in." },
+      { label: "Install the widget", description: "One script tag on any web app." },
+      { label: "Author your SKILL.md", description: "Teach Skilly your product." },
+      { label: "Test it live", description: "See the cursor point and explain." },
+    ],
   },
   {
-    headline: "Your users never get stuck again.",
-    body: "Skilly watches the page, points at the next click, and explains it out loud — like a patient expert beside them.",
-    attribution: "Onboarding that teaches itself",
+    kind: "steps",
+    eyebrow: "Onboarding that teaches itself",
+    headline: ["Your users never", "get stuck again."],
+    body: "Once you're live, Skilly watches the page, points at the next click, and explains it out loud — like a patient expert beside every visitor.",
+    steps: [
+      { label: "Sees the page", description: "Reads the live UI in real time." },
+      { label: "Points at clicks", description: "Cursor flies to the next action." },
+      { label: "Speaks aloud", description: "Voice guidance, step by step." },
+      { label: "Answers questions", description: "Context-aware, on-brand help." },
+    ],
   },
   {
-    headline: "One script. Every page guided.",
-    body: "Drop the widget into any site and Skilly handles onboarding, support, and feature walkthroughs across your product.",
-    attribution: "Install once",
+    kind: "steps",
+    eyebrow: "Install once",
+    headline: ["One script.", "Every page guided."],
+    body: "Drop the widget into any site and Skilly handles onboarding, support, and feature walkthroughs across your entire product — not just one flow.",
+    steps: [
+      { label: "Drop in the script", description: "No framework, no build step." },
+      { label: "Allowed origins", description: "Lock it to your domains." },
+      { label: "Per-page skills", description: "Different teaching per route." },
+      { label: "Usage & health", description: "Track sessions in the dashboard." },
+    ],
   },
 ];
 
@@ -51,8 +74,11 @@ export default async function SignupPage({
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <div className="grid flex-1 lg:grid-cols-[460px_1fr] lg:items-center lg:gap-6 lg:px-6">
-        {/* Left — signup card */}
+      <div className="grid flex-1 lg:grid-cols-[1fr_460px] lg:items-center lg:gap-6 lg:px-6">
+        {/* Left — rotating marketing slideshow (onboarding journey preview) */}
+        <AuthMarketingPanel slides={signupSlides} />
+
+        {/* Right — signup card */}
         <main className="mx-auto flex w-full max-w-md flex-col px-4 py-10 lg:mx-0 lg:max-w-none lg:px-0">
           <section className="rounded-[20px] border border-line bg-[linear-gradient(180deg,rgba(255,255,255,0.065),rgba(255,255,255,0.035))] p-7 shadow-[0_30px_80px_rgba(0,0,0,0.48)]">
             <div className="mb-7 flex items-center gap-3">
@@ -132,9 +158,6 @@ export default async function SignupPage({
             )}
           </section>
         </main>
-
-        {/* Right — rotating showcase (signup-specific benefits) */}
-        <AuthShowcase slides={signupSlides} />
       </div>
       <Footer variant="auth" />
     </div>
