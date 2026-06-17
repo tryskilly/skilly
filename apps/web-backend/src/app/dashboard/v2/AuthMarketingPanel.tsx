@@ -91,7 +91,7 @@ export function AuthMarketingPanel({ slides }: { slides: AuthSlide[] }) {
   const active = slides[index] ?? slides[0]!;
 
   return (
-    <aside className="relative hidden min-h-dvh items-stretch overflow-hidden bg-[radial-gradient(circle_at_28%_14%,rgba(245,158,11,0.22),transparent_32rem),radial-gradient(circle_at_86%_92%,rgba(255,255,255,0.06),transparent_28rem),linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] lg:flex lg:flex-col lg:justify-between lg:px-16 lg:py-14 lg:border-r lg:border-line">
+    <aside className="relative hidden min-h-dvh items-stretch overflow-hidden bg-[radial-gradient(circle_at_28%_14%,rgba(245,158,11,0.22),transparent_32rem),radial-gradient(circle_at_86%_92%,rgba(255,255,255,0.06),transparent_28rem),linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] lg:flex lg:flex-col lg:justify-between lg:border-l lg:border-line lg:px-16 lg:py-14">
       {/* Ambient cursor watermark, top-right. */}
       <div className="pointer-events-none absolute -right-16 -top-10 opacity-[0.07]">
         <CursorGlyph size={300} />
