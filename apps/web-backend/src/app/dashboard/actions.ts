@@ -27,7 +27,7 @@ export async function createKeyAction(
       key_type: keyType,
       source_surface: "web_dashboard",
     });
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return { rawKey };
   } catch (error) {
     await captureServerEvent("dashboard_key_create_failed", {
@@ -50,7 +50,7 @@ export async function revokeKeyAction(formData: FormData): Promise<void> {
       tenant_id: tenantId,
       source_surface: "web_dashboard",
     });
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
   }
 }
 
@@ -170,7 +170,7 @@ export async function saveSkillAction(
     content_length: content.length,
     source_surface: "web_dashboard",
   });
-  revalidatePath("/dashboard/skill");
+  revalidatePath("/dashboard", "layout");
   return { ok: true, issues: [], savedAt: 0 };
 }
 
@@ -211,8 +211,7 @@ export async function saveWidgetConfigAction(
       locale,
       source_surface: "web_dashboard",
     });
-    revalidatePath("/dashboard/widget");
-    revalidatePath("/dashboard/install");
+    revalidatePath("/dashboard", "layout");
     return { ok: true, accentColor, locale, launcherLabel: launcherLabel ?? "" };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "failed to save widget config" };
@@ -287,7 +286,8 @@ export async function createTenantAction(
       cap_seconds: capSeconds,
       source_surface: "web_dashboard",
     });
-    revalidatePath("/dashboard/admin/tenants");
+    revalidatePath("/dashboard", "layout");
+    revalidatePath("/dashboard/admin/tenants", "layout");
     return { tenantId: tenant.id };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "failed to create tenant" };
@@ -330,10 +330,8 @@ export async function renameTenantAction(formData: FormData): Promise<void> {
     tenant_id: tenantId,
     source_surface: "web_dashboard",
   });
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/settings");
-  revalidatePath("/dashboard/admin/tenants");
-  revalidatePath(`/dashboard/admin/tenants/${tenantId}`);
+  revalidatePath("/dashboard", "layout");
+  revalidatePath("/dashboard/admin/tenants", "layout");
 }
 
 export interface AddMemberState {

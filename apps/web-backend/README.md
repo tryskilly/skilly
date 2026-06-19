@@ -81,9 +81,11 @@ Env (analytics): `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`,
 ```bash
 cd apps/web-backend
 bun install
+bunx playwright install chromium  # first time only
 bun run db:migrate
 psql "$DATABASE_URL" -f db/seed-demo.sql  # local/demo only
 bun run test        # bun test — domain + service flow (no DB/network needed)
+bun run test:e2e    # Playwright browser tests (starts dev server automatically)
 bun run typecheck   # tsc --noEmit (src)
 bun run build       # next build
 bun run dev         # next dev on :4310 (in-memory demo tenant if no DATABASE_URL)

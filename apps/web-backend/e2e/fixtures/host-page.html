@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Skilly Widget Host — E2E</title>
+    <style>
+      body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #faf9f6; color: #1c1c1e; }
+      main { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
+      .card { background: #fff; border: 1px solid #e8e6e0; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card" data-skilly="hero" data-skilly-label="the hero section">
+        <h1>Acme App</h1>
+        <p>This is a host page for the Skilly widget E2E test.</p>
+      </div>
+    </main>
+
+    <script src="/sdk/web/dist/skilly-web.global.js"
+            data-skilly-key="pk_test_demolocaldemolocaldemolocal01"
+            data-skilly-skill="default"
+            data-skilly-backend-url="http://localhost:4310"
+            defer></script>
+  </body>
+</html>

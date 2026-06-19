@@ -47,6 +47,10 @@ apps/windows-shell-gui/gen/
 # Agent run-continuation tooling state
 .sisyphus/
 
+# Playwright MCP server artifacts
+.playwright-mcp/
+dashboard-skill-page.png
+
 # wasm-pack output for core/web-sdk (regenerate via scripts/build-web-sdk.sh / CI)
 sdk/web/generated/
 

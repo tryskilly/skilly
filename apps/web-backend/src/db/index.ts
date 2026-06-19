@@ -6,21 +6,25 @@ import { MemoryRepo } from "./memoryRepo";
 import { PostgresRepo } from "./postgresRepo";
 import type { WebBackendRepo } from "./repo";
 
-let cachedRepo: WebBackendRepo | null = null;
+declare global {
+  // eslint-disable-next-line no-var
+  var __skillyRepo: WebBackendRepo | undefined;
+}
 
 export function getRepoMode(): "memory" | "postgres" {
   return getDatabaseUrl() ? "postgres" : "memory";
 }
 
 export function getRepo(): WebBackendRepo {
-  if (cachedRepo) {
-    return cachedRepo;
+  const existing = globalThis.__skillyRepo;
+  if (existing) {
+    return existing;
   }
   const databaseUrl = getDatabaseUrl();
-  cachedRepo = databaseUrl
+  globalThis.__skillyRepo = databaseUrl
     ? new PostgresRepo(new Pool({ connectionString: databaseUrl }))
     : new MemoryRepo();
-  return cachedRepo;
+  return globalThis.__skillyRepo;
 }
 
 export function getDatabaseUrl(): string | undefined {
