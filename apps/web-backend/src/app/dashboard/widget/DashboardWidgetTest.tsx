@@ -296,12 +296,16 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         </label>
         <input
           id="customer-preview-url"
-          type="url"
+          type="text"
+          inputMode="url"
           value={siteUrl}
           onChange={(event) => setSiteUrl(event.target.value)}
-          placeholder="yourcompany.com"
+          placeholder="yourcompany.com or https://app.yourcompany.com"
           className="mt-2 h-10 w-full rounded-[10px] border border-line bg-black/20 px-3 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 focus:border-amber-500/45"
         />
+        <p className="mt-1.5 text-xs text-muted">
+          Plain domains are fine. Studio will preview the flow without requiring the domain to be reachable yet.
+        </p>
 
         <label className="mt-4 block text-sm font-bold text-gray-100" htmlFor="customer-preview-context">
           What should Skilly help users do?
