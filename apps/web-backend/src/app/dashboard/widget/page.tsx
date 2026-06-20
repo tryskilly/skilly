@@ -94,15 +94,17 @@ export default async function WidgetPage() {
         </Panel>
       </div>
 
-      <Panel>
-        <PanelHeader
-          title="Studio setup assistant"
-          description="Optional internal guide for this dashboard. It is separate from the customer-facing website preview and public teaching skill."
-        />
-        <PanelBody>
+      <details className="rounded-[16px] border border-line bg-white/[0.035]">
+        <summary className="cursor-pointer px-[18px] py-[17px] text-[15px] font-bold tracking-[-0.01em] text-gray-100">
+          Studio setup assistant
+          <span className="ml-2 text-[13px] font-normal text-muted">
+            Optional internal guide for this dashboard.
+          </span>
+        </summary>
+        <div className="border-t border-line-soft p-[18px]">
           <StudioAssistantPreview accentColor={config.accentColor} />
-        </PanelBody>
-      </Panel>
+        </div>
+      </details>
     </div>
   );
 }

@@ -318,17 +318,21 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       setGeneratedPreview(body.preview);
       setImportStatus("success");
     } catch (error) {
+      const fallbackHost = hostFromUrl(nextPreviewUrl);
+      const fallbackGoal = context.trim();
       setGeneratedPreview({
         url: nextPreviewUrl,
         finalUrl: nextPreviewUrl,
-        host: hostFromUrl(nextPreviewUrl),
-        title: hostFromUrl(nextPreviewUrl),
-        description: "Studio could not import this page automatically, but you can still preview Skilly with the URL, notes, and uploaded docs.",
-        headings: ["Welcome", "Getting started", "Common questions"],
-        navigation: ["Home", "Product", "Pricing", "Support"],
-        callsToAction: ["Get started", "Contact us"],
-        questions: ["What can Skilly help users do here?"],
-        bodySummary: context.trim() || "Add context so Skilly can answer and guide users on this site.",
+        host: fallbackHost,
+        title: fallbackHost,
+        description: fallbackGoal
+          ? `Manual preview using your goal: ${fallbackGoal}`
+          : "Add a short goal or upload docs so Skilly can generate a useful first preview for this site.",
+        headings: fallbackGoal ? [fallbackGoal] : ["Add context to preview this site"],
+        navigation: [],
+        callsToAction: [],
+        questions: [],
+        bodySummary: fallbackGoal || "The public page could not be imported automatically.",
       });
       setImportStatus("error");
       setImportError(error instanceof Error ? error.message : "Unable to import this site.");
@@ -368,7 +372,9 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           <strong>{generatedPreview ? generatedPreview.host : "Generated customer preview"}</strong>
           <p className="mt-0.5 text-xs text-neutral-500">
             {generatedPreview
-              ? "Preview generated from website content, notes, and uploaded context."
+              ? importStatus === "error"
+                ? "Manual preview from URL, notes, and uploaded context."
+                : "Preview generated from website content, notes, and uploaded context."
               : "Enter a URL and generate a realistic Skilly preview before installation."}
           </p>
         </div>
@@ -393,7 +399,11 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ece7df] px-5 py-3">
               <div className="font-semibold">{generatedPreview.title}</div>
               <div className="flex flex-wrap gap-2 text-xs font-semibold text-neutral-500">
-                {(generatedPreview.navigation.length ? generatedPreview.navigation : ["Home", "Product", "Support"])
+                {(generatedPreview.navigation.length
+                  ? generatedPreview.navigation
+                  : importStatus === "error"
+                    ? ["Manual preview", "Add context", "Install snippet"]
+                    : ["Home", "Product", "Support"])
                   .slice(0, 5)
                   .map((item) => (
                     <span key={item}>{item}</span>
@@ -410,7 +420,11 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
                   {generatedPreview.description || generatedPreview.bodySummary}
                 </p>
                 <div className="mt-5 flex flex-wrap gap-2">
-                  {(generatedPreview.callsToAction.length ? generatedPreview.callsToAction : ["Get started", "Contact us"])
+                  {(generatedPreview.callsToAction.length
+                    ? generatedPreview.callsToAction
+                    : importStatus === "error"
+                      ? ["Add context", "Upload docs"]
+                      : ["Get started", "Contact us"])
                     .slice(0, 3)
                     .map((cta, index) => (
                       <button
@@ -439,7 +453,11 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
               <aside className="rounded-[12px] border border-[#ece7df] bg-[#faf8f4] p-4">
                 <div className="text-sm font-bold">Skilly will learn from</div>
                 <ul className="mt-3 space-y-2 text-sm text-neutral-600">
-                  <li>Website copy from {generatedPreview.host}</li>
+                  <li>
+                    {importStatus === "error"
+                      ? `Manual URL context for ${generatedPreview.host}`
+                      : `Website copy from ${generatedPreview.host}`}
+                  </li>
                   {context.trim() && <li>Your goal: {context.trim()}</li>}
                   {uploadedFiles.length > 0 && <li>{uploadedFiles.length} uploaded context file{uploadedFiles.length === 1 ? "" : "s"}</li>}
                   <li>Tenant skill: <code className="font-mono">{skillId}</code></li>
@@ -475,7 +493,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
 
       {importError && (
         <div className="absolute left-5 top-[68px] z-10 max-w-xl rounded-[10px] border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow">
-          {importError} Generated preview is using the URL and manual context instead.
+          {importError} Using manual URL/context preview instead.
         </div>
       )}
 

@@ -16,7 +16,7 @@ export interface SiteImportPreview {
 
 export type ResolveHost = (host: string) => Promise<string[]>;
 
-const MAX_HTML_BYTES = 350_000;
+const MAX_HTML_BYTES = 2_000_000;
 const MAX_REDIRECTS = 3;
 const REQUEST_TIMEOUT_MS = 8_000;
 
@@ -128,13 +128,22 @@ function matchAll(html: string, pattern: RegExp, group = 1): string[] {
   return Array.from(html.matchAll(globalPattern), (match) => match[group] ?? "");
 }
 
+function tagAttribute(tag: string, attribute: string): string {
+  const escaped = attribute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = tag.match(new RegExp(`\\b${escaped}=["']([^"']*)["']`, "i"));
+  return compactText(match?.[1] ?? "");
+}
+
 function metaContent(html: string, name: string): string {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    `<meta\\b(?=[^>]*(?:name|property)=["']${escaped}["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>`,
-    "i",
-  );
-  return compactText(html.match(pattern)?.[1] ?? "");
+  const normalizedName = name.toLowerCase();
+  for (const tag of matchAll(html, /<meta\b[^>]*>/gi, 0)) {
+    const tagName = tagAttribute(tag, "name").toLowerCase();
+    const propertyName = tagAttribute(tag, "property").toLowerCase();
+    if (tagName === normalizedName || propertyName === normalizedName) {
+      return tagAttribute(tag, "content");
+    }
+  }
+  return "";
 }
 
 function stripNoise(html: string): string {
@@ -148,6 +157,7 @@ function stripNoise(html: string): string {
 export function extractSiteImportPreview(rawUrl: string, finalUrl: string, html: string): SiteImportPreview {
   const cleanHtml = stripNoise(html);
   const title = compactText(matchAll(cleanHtml, /<title\b[^>]*>([\s\S]*?)<\/title>/i)[0] ?? "");
+  const socialTitle = metaContent(cleanHtml, "og:title") || metaContent(cleanHtml, "twitter:title");
   const description = metaContent(cleanHtml, "description") || metaContent(cleanHtml, "og:description");
   const headings = unique(matchAll(cleanHtml, /<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/gi), 10);
   const navigation = unique(matchAll(cleanHtml, /<a\b[^>]*>([\s\S]*?)<\/a>/gi), 8);
@@ -175,7 +185,7 @@ export function extractSiteImportPreview(rawUrl: string, finalUrl: string, html:
     url: normalizeUrl(rawUrl).toString(),
     finalUrl: parsedFinalUrl.toString(),
     host: parsedFinalUrl.host,
-    title: title || headings[0] || parsedFinalUrl.host,
+    title: title || socialTitle || headings[0] || parsedFinalUrl.host,
     description,
     headings,
     navigation,
@@ -205,7 +215,9 @@ async function fetchTextWithLimit(response: Response): Promise<string> {
     }
     total += value.byteLength;
     if (total > MAX_HTML_BYTES) {
-      throw new Error("Imported page is too large.");
+      chunks.push(value.slice(0, Math.max(0, value.byteLength - (total - MAX_HTML_BYTES))));
+      await reader.cancel();
+      break;
     }
     chunks.push(value);
   }

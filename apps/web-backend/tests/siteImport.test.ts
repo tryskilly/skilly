@@ -35,6 +35,20 @@ describe("site import", () => {
     expect(preview.bodySummary).not.toContain("window.secret");
   });
 
+  test("reads title metadata regardless of attribute order", () => {
+    const preview = extractSiteImportPreview(
+      "https://acme.com",
+      "https://acme.com",
+      `
+        <meta content="Ship faster with Acme" property="og:title">
+        <meta content="A product operating system for modern teams." name="description">
+      `,
+    );
+
+    expect(preview.title).toBe("Ship faster with Acme");
+    expect(preview.description).toBe("A product operating system for modern teams.");
+  });
+
   test("rejects private network targets before fetching", async () => {
     await expect(assertImportableUrl("http://127.0.0.1:3000")).rejects.toThrow("Private network");
     await expect(assertImportableUrl("http://localhost:3000")).rejects.toThrow("cannot be imported");
