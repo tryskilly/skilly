@@ -262,16 +262,30 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   const [previewUrl, setPreviewUrl] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [pointing, setPointing] = useState(false);
+  const [frameLoaded, setFrameLoaded] = useState(false);
+  const [frameLikelyBlocked, setFrameLikelyBlocked] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const host = previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl);
   const label = launcherLabel || "Ask Skilly";
 
   function runPreview() {
-    setPreviewUrl(normalizePreviewUrl(siteUrl));
+    const nextPreviewUrl = normalizePreviewUrl(siteUrl);
+    setPreviewUrl(nextPreviewUrl);
+    setFrameLoaded(false);
+    setFrameLikelyBlocked(false);
     setPointing(true);
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
+    if (frameTimerRef.current) {
+      clearTimeout(frameTimerRef.current);
+    }
+    frameTimerRef.current = setTimeout(() => {
+      setFrameLikelyBlocked((isBlocked) => isBlocked || !frameLoaded);
+      frameTimerRef.current = null;
+    }, 3500);
     timerRef.current = setTimeout(() => {
       setPointing(false);
       timerRef.current = null;
@@ -283,8 +297,137 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
+      if (frameTimerRef.current) {
+        clearTimeout(frameTimerRef.current);
+      }
     };
-  }, []);
+  }, [frameLoaded]);
+
+  const previewFrame = (
+    <div
+      className={
+        fullScreen
+          ? "fixed inset-0 z-50 grid bg-[#0f0f10] text-gray-950"
+          : "relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#111113] text-gray-950"
+      }
+    >
+      <div className="flex h-12 items-center justify-between border-b border-white/10 bg-[#18181a] px-4 text-gray-200">
+        <div>
+          <strong>{previewUrl ? host : "Live website preview"}</strong>
+          <p className="mt-0.5 text-xs text-muted">
+            {previewUrl ? previewUrl : "Enter a URL to open the customer's site in this frame."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {previewUrl && (
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-[8px] border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-300 transition hover:bg-white/[0.1]"
+            >
+              Open site
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => setFullScreen((value) => !value)}
+            className="rounded-[8px] border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-300 transition hover:bg-white/[0.1]"
+          >
+            {fullScreen ? "Exit full screen" : "Full screen"}
+          </button>
+        </div>
+      </div>
+
+      {previewUrl && !frameLikelyBlocked ? (
+        <iframe
+          key={previewUrl}
+          src={previewUrl}
+          title={`Live preview of ${host}`}
+          className={fullScreen ? "h-[calc(100dvh-48px)] w-full border-0 bg-white" : "h-[568px] w-full border-0 bg-white"}
+          referrerPolicy="no-referrer"
+          sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+          onLoad={() => {
+            setFrameLoaded(true);
+            if (frameTimerRef.current) {
+              clearTimeout(frameTimerRef.current);
+              frameTimerRef.current = null;
+            }
+          }}
+        />
+      ) : previewUrl ? (
+        <div className={fullScreen ? "grid h-[calc(100dvh-48px)] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950" : "grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950"}>
+          <div className="max-w-xl">
+            <CursorGlyph size={42} />
+            <h3 className="mt-4 text-2xl font-bold tracking-normal">This site blocks embedded previews</h3>
+            <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+              Many production websites block iframes for security. Studio can still use the URL, notes, and docs to
+              draft the skill; for the true live overlay, install the snippet on the site or test on a staging page that
+              allows embedding.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
+              >
+                Open site in new tab
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setFrameLikelyBlocked(false);
+                  setFrameLoaded(false);
+                }}
+                className="rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
+              >
+                Try iframe again
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className={fullScreen ? "grid h-[calc(100dvh-48px)] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950" : "grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950"}>
+          <div className="max-w-md">
+            <CursorGlyph size={42} />
+            <h3 className="mt-4 text-2xl font-bold tracking-normal">Preview Skilly on the customer's site</h3>
+            <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+              Add the site URL, what Skilly should help users do, and any docs. Studio will open a live frame and place
+              the widget preview over it.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        aria-label={label}
+        onClick={runPreview}
+        className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
+        style={{ backgroundColor: accentColor }}
+      >
+        <CursorGlyph size={28} />
+      </button>
+
+      {pointing && (
+        <>
+          <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
+            On {host}, Skilly would use this page plus your notes
+            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
+            {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
+          </div>
+          <div
+            aria-hidden="true"
+            className="absolute left-[52%] top-[44%] z-20 -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
+            style={{ color: accentColor }}
+          >
+            <CursorGlyph size={34} />
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
@@ -346,68 +489,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         </div>
       </div>
 
-      <div className="relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#111113] text-gray-950">
-        <div className="flex h-12 items-center justify-between border-b border-white/10 bg-[#18181a] px-4 text-gray-200">
-          <div>
-            <strong>{previewUrl ? host : "Live website preview"}</strong>
-            <p className="mt-0.5 text-xs text-muted">
-              {previewUrl ? previewUrl : "Enter a URL to open the customer's site in this frame."}
-            </p>
-          </div>
-          <span className="rounded-[8px] border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-300">
-            iframe preview
-          </span>
-        </div>
-
-        {previewUrl ? (
-          <iframe
-            key={previewUrl}
-            src={previewUrl}
-            title={`Live preview of ${host}`}
-            className="h-[568px] w-full border-0 bg-white"
-            referrerPolicy="no-referrer"
-            sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
-          />
-        ) : (
-          <div className="grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950">
-            <div className="max-w-md">
-              <CursorGlyph size={42} />
-              <h3 className="mt-4 text-2xl font-bold tracking-normal">Preview Skilly on the customer's site</h3>
-              <p className="mt-3 text-sm leading-relaxed text-neutral-600">
-                Add the site URL, what Skilly should help users do, and any docs. Studio will open a live frame and
-                place the widget preview over it.
-              </p>
-            </div>
-          </div>
-        )}
-
-        <button
-          type="button"
-          aria-label={label}
-          onClick={runPreview}
-          className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
-          style={{ backgroundColor: accentColor }}
-        >
-          <CursorGlyph size={28} />
-        </button>
-
-        {pointing && (
-          <>
-            <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
-              On {host}, Skilly would use this page plus your notes
-              {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
-              {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
-            </div>
-            <div
-              aria-hidden="true"
-              className="absolute left-[52%] top-[44%] z-20 -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
-              style={{ color: accentColor }}
-            >
-              <CursorGlyph size={34} />
-            </div>
-          </>
-        )}
-      </div>
+      {previewFrame}
     </div>
   );
 }
