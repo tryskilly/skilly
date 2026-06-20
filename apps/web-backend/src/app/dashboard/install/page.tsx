@@ -71,6 +71,8 @@ export default async function InstallPage() {
               code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
         data-skilly-skill="${DEFAULT_SKILL_ID}"
+        data-skilly-backend-url="https://studio.tryskilly.app"
+        data-skilly-core-url="https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js"
         defer></script>`}
             />
             <p className="mt-4 text-xs text-muted">

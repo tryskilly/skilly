@@ -142,10 +142,12 @@ export default async function WidgetPage() {
             <CodeBlock
               language="html"
               label="HTML"
-              highlight={["data-skilly-key", "data-skilly-skill", "data-skilly-accent", "data-skilly-locale"]}
+              highlight={["data-skilly-key", "data-skilly-skill", "data-skilly-backend-url", "data-skilly-core-url", "data-skilly-accent", "data-skilly-locale"]}
               code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
         data-skilly-skill="${DEFAULT_SKILL_ID}"
+        data-skilly-backend-url="https://studio.tryskilly.app"
+        data-skilly-core-url="https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js"
         data-skilly-accent="${config.accentColor}"
         data-skilly-locale="${config.locale}"${launcherAttr}
         defer></script>`}
