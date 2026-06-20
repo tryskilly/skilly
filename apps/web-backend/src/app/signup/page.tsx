@@ -17,20 +17,20 @@ const signupErrorMessages: Record<string, string> = {
   workos_unconfigured: "WorkOS signup is not configured yet.",
 };
 
-// Left-panel slideshow: signup-specific beats. The first slide previews the real
-// 4-step onboarding journey (company → install → skill → test); the others are
-// benefit-led ("what you get once you're live"). Each rotates as a slideshow.
+// Left-panel slideshow: signup-specific beats. The first slide previews the
+// dashboard checklist that new users land on; the others are benefit-led
+// ("what you get once you're live"). Each rotates as a slideshow.
 const signupSlides: AuthSlide[] = [
   {
     kind: "steps",
-    eyebrow: "Setup in four steps",
-    headline: ["From signup to live", "in minutes."],
-    body: "Create a workspace, install one script, teach your skill, and test — all before going live. Here's the journey you're about to start:",
+    eyebrow: "Setup from one dashboard",
+    headline: ["From signup to live", "without a maze."],
+    body: "Create your workspace and finish the launch checklist from one place. No separate wizard to keep track of.",
     steps: [
-      { label: "Create your workspace", description: "Name your team and you're in." },
-      { label: "Install the widget", description: "One script tag on any web app." },
-      { label: "Author your SKILL.md", description: "Teach Skilly your product." },
-      { label: "Test it live", description: "See the cursor point and explain." },
+      { label: "Add your domain", description: "Lock the widget to approved origins." },
+      { label: "Copy the install script", description: "One script tag on any web app." },
+      { label: "Confirm the skill", description: "Teach Skilly your product once." },
+      { label: "Run a test session", description: "See the cursor point and explain." },
     ],
   },
   {
@@ -65,7 +65,7 @@ export default async function SignupPage({
   searchParams: Promise<{ error?: string; next?: string }>;
 }) {
   const params = await searchParams;
-  const nextPath = params.next?.startsWith("/onboarding") ? params.next : "/onboarding/company";
+  const nextPath = params.next?.startsWith("/dashboard") ? params.next : "/dashboard";
   const workosConfigured = isWorkOSDashboardAuthConfigured();
   // intent=signup makes the WorkOS callback create a fresh tenant + super_admin
   // membership for brand-new users, then route to onboarding.
@@ -102,7 +102,7 @@ export default async function SignupPage({
             {workosConfigured && (
               <div className="grid gap-3">
                 {/* Email is the primary signup path; carries intent=signup so the
-                    callback provisions the tenant + routes to onboarding. */}
+                    callback provisions the tenant + routes to the dashboard. */}
                 <form action="/api/auth/workos/magic/start" method="post" className="grid gap-3">
                   <input type="hidden" name="next" value={nextPath} />
                   <input type="hidden" name="intent" value="signup" />

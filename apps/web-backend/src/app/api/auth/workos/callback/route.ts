@@ -35,8 +35,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Self-serve signup: a brand-new WorkOS user arriving via the /signup entry
     // (intent === "signup") with no membership gets a fresh tenant + super_admin
-    // membership, then routes to onboarding. An existing member who happens to
-    // use the signup entry still just signs in normally (membership resolves).
+    // membership, then routes to the dashboard checklist. An existing member
+    // who happens to use the signup entry still just signs in normally.
     if (!membership && storedState.intent === "signup") {
       membership = await createSelfServeDashboardMembership(repo, auth);
       await setDashboardSession({
@@ -47,9 +47,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         email: auth.user.email ?? membership.email,
         workosOrganizationId: membership.workosOrganizationId ?? auth.workosOrganizationId,
       });
-      // New tenant → onboarding. Carry the stored nextPath if it was onboarding-scoped.
-      const onboardingPath = storedState.nextPath.startsWith("/onboarding") ? storedState.nextPath : "/onboarding/company";
-      const response = NextResponse.redirect(publicUrl(request, onboardingPath), { status: 303 });
+      const dashboardPath = storedState.nextPath.startsWith("/dashboard") ? storedState.nextPath : "/dashboard";
+      const response = NextResponse.redirect(publicUrl(request, dashboardPath), { status: 303 });
       response.cookies.delete(WORKOS_STATE_COOKIE);
       return response;
     }

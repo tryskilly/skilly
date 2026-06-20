@@ -92,8 +92,7 @@ function parseSignedCookieValue<T>(rawValue: string | undefined): T | null {
 }
 
 export function safeDashboardNextPath(value: string | null | undefined): string {
-  // Allow both /dashboard and /onboarding next-paths (signup routes to onboarding).
-  if (value?.startsWith("/dashboard") || value?.startsWith("/onboarding")) {
+  if (value?.startsWith("/dashboard")) {
     return value;
   }
   return "/dashboard";

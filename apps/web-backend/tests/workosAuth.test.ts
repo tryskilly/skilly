@@ -89,7 +89,7 @@ describe("WorkOS dashboard auth", () => {
 
   test("allows only dashboard-relative redirect targets", () => {
     expect(safeDashboardNextPath("/dashboard/billing")).toBe("/dashboard/billing");
-    expect(safeDashboardNextPath("/onboarding/company")).toBe("/onboarding/company");
+    expect(safeDashboardNextPath("/onboarding/company")).toBe("/dashboard");
     expect(safeDashboardNextPath("https://evil.example/dashboard")).toBe("/dashboard");
     expect(safeDashboardNextPath("/admin")).toBe("/dashboard");
   });

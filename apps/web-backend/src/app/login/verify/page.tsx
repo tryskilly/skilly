@@ -9,13 +9,7 @@ export default async function VerifyLoginPage({
 }) {
   const params = await searchParams;
   const isSignup = params.intent === "signup";
-  const nextPath = isSignup
-    ? params.next?.startsWith("/onboarding")
-      ? params.next
-      : "/onboarding/company"
-    : params.next?.startsWith("/dashboard")
-      ? params.next
-      : "/dashboard";
+  const nextPath = params.next?.startsWith("/dashboard") ? params.next : "/dashboard";
   const error = params.error;
   const errorMessage =
     error === "magic_code"

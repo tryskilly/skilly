@@ -83,8 +83,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     const redirectPath =
-      pending.intent === "signup" && !pending.nextPath.startsWith("/onboarding")
-        ? "/onboarding/company"
+      pending.intent === "signup" && !pending.nextPath.startsWith("/dashboard")
+        ? "/dashboard"
         : pending.nextPath;
     const response = NextResponse.redirect(publicUrl(request, redirectPath), { status: 303 });
     response.cookies.delete(WORKOS_MAGIC_EMAIL_COOKIE);
