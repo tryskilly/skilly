@@ -3,13 +3,13 @@ import { getCurrentDashboardTenantId } from "@/lib/session";
 import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   CodeBlock,
-  CursorGlyph,
   PageHeader,
   Panel,
   PanelBody,
   PanelHeader,
   StatusPill,
 } from "../v2";
+import { DashboardWidgetTest } from "./DashboardWidgetTest";
 import { WidgetConfigForm } from "./WidgetConfigForm";
 
 export const dynamic = "force-dynamic";
@@ -27,19 +27,6 @@ const WIDGET_STATES = [
   { label: "Quota disabled", copy: "Skilly is temporarily unavailable.", tone: "neutral" as const },
 ];
 
-/** Convert a #rrggbb accent into an rgba() with the given alpha (safe for box-shadow). */
-function hexToRgba(hex: string, alpha: number): string {
-  const match = /^#([0-9a-fA-F]{6})$/.exec(hex);
-  if (!match) {
-    return `rgba(245, 158, 11, ${alpha})`;
-  }
-  const value = match[1]!;
-  const red = parseInt(value.slice(0, 2), 16);
-  const green = parseInt(value.slice(2, 4), 16);
-  const blue = parseInt(value.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
 export default async function WidgetPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
@@ -55,7 +42,6 @@ export default async function WidgetPage() {
   const launcherAttr = config.launcherLabel
     ? `\n        data-skilly-launcher="${config.launcherLabel}"`
     : "";
-  const accentGlow = hexToRgba(config.accentColor, 0.14);
 
   return (
     <div className="space-y-6">
@@ -65,43 +51,19 @@ export default async function WidgetPage() {
         description="The web widget is a Shadow DOM surface with launcher, voice bubble, and cursor pointing. Amber is recommended — it behaves like a highlighter over product UIs. Your settings flow into the live embed snippet."
       />
 
-      {/* Live preview + state showcase */}
+      {/* Live test + state showcase */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
         <Panel>
-          <PanelHeader title="Live preview" description="The launcher uses your configured accent color. Same cursor family as the macOS app." />
+          <PanelHeader
+            title="Test widget"
+            description="Run the real embedded widget inside Studio before installing it on your site. It uses your current workspace, skill, and appearance settings."
+          />
           <PanelBody>
-            <div className="relative min-h-[420px] overflow-hidden rounded-[16px] border border-line bg-[linear-gradient(180deg,#242426,#151516)] p-5">
-              {/* Fake product UI */}
-              <div className="min-h-[360px] rounded-[12px] bg-[#f7f4ec] p-5 text-gray-900">
-                <div className="mb-5 flex items-center justify-between border-b border-[#e2ded4] pb-3">
-                  <strong>Acme App</strong>
-                  <span className="rounded-[8px] bg-neutral-900 px-3 py-2 text-sm text-white">Create project</span>
-                </div>
-                <div className="w-full max-w-md rounded-[12px] border border-[#e2ded4] bg-white p-5 shadow-[0_12px_32px_rgba(0,0,0,0.08)]">
-                  <h3 className="text-lg font-bold">Project setup</h3>
-                  <p className="mt-2 text-sm text-neutral-600">
-                    Skilly can guide users through this flow and point at the next action.
-                  </p>
-                  <span className="mt-4 inline-block rounded-[8px] bg-neutral-900 px-3 py-2 text-sm text-white">
-                    Start setup
-                  </span>
-                </div>
-              </div>
-              {/* Response bubble */}
-              <div className="absolute bottom-[92px] right-6 w-80 rounded-[16px] border border-white/15 bg-gray-900 p-4 text-sm text-gray-200 shadow-[0_18px_55px_rgba(0,0,0,0.35)]">
-                I can help your users set up their first project and show them where to click.
-              </div>
-              {/* Real cursor launcher using the configured accent */}
-              <div
-                className="absolute bottom-6 right-6 grid h-14 w-14 place-items-center rounded-full text-gray-950"
-                style={{
-                  backgroundColor: config.accentColor,
-                  boxShadow: `0 0 0 8px ${accentGlow}, 0 16px 34px rgba(0,0,0,0.28)`,
-                }}
-              >
-                <CursorGlyph size={28} />
-              </div>
-            </div>
+            <DashboardWidgetTest
+              skillId={skillSelection.skillId}
+              accentColor={config.accentColor}
+              launcherLabel={config.launcherLabel}
+            />
           </PanelBody>
         </Panel>
 
