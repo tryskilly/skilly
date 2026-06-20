@@ -20,20 +20,25 @@ export const WIDGET_STYLES = /* css */ `
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  border: none;
+  border: 1px solid rgba(245, 158, 11, 0.28);
   cursor: pointer;
-  background: var(--skilly-accent);
-  color: #fff;
+  background: #fff;
+  color: var(--skilly-accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   z-index: 2147483647;
 }
-.skilly-launcher:hover { transform: scale(1.06); box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3); }
+.skilly-launcher:hover {
+  transform: scale(1.06);
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.24);
+}
 .skilly-launcher:active { transform: scale(0.97); }
-.skilly-launcher svg { width: 26px; height: 26px; }
+.skilly-launcher svg { width: 34px; height: 34px; }
+.skilly-launcher-mark { filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12)); }
 
 /* Pulsing ring shown while listening. */
 .skilly-launcher[data-state="listening"]::after {

@@ -9,10 +9,9 @@ import { WIDGET_STYLES } from "./styles.js";
 import type { SkillyState } from "./types.js";
 
 // Inline SVGs so the widget has zero asset dependencies.
-const MIC_ICON = /* html */ `
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+const SKILLY_MARK_ICON = /* html */ `
+<svg class="skilly-launcher-mark" viewBox="0 0 80 80" aria-hidden="true">
+  <path d="M20 8C18 7 16 9 16 11L16 60C16 62 18 64 20 63L34 52C35 51 37 51 38 52L50 66C51 67 53 68 55 67L61 61C63 59 62 57 61 56L49 44C48 43 48 41 49 40L58 38C60 37 61 35 59 34L20 8Z" fill="currentColor"/>
 </svg>`;
 
 const CURSOR_ICON = /* html */ `
@@ -55,8 +54,8 @@ export class SkillyWidget {
     this.launcherButton.className = "skilly-launcher";
     this.launcherButton.setAttribute("aria-label", "Open Skilly companion");
     this.launcherButton.setAttribute("data-state", "idle");
-    this.launcherButton.style.background = accentColor;
-    this.launcherButton.innerHTML = MIC_ICON;
+    this.launcherButton.style.color = accentColor;
+    this.launcherButton.innerHTML = SKILLY_MARK_ICON;
     this.launcherButton.addEventListener("click", () => this.onLauncherActivated?.());
     this.shadowRoot.appendChild(this.launcherButton);
   }
