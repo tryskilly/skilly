@@ -61,8 +61,10 @@ export default async function DashboardPage() {
   const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
   const hasSkill = Boolean(skill.skill?.content.trim());
 
-  // The 7 readiness checks (spec §4) — each maps to a real, computable state.
-  const checks: ReadinessCheck[] = [
+  // Setup readiness is limited to persisted facts. A live test is still a
+  // recommended launch step, but it should not make a configured tenant look
+  // stuck in onboarding.
+  const setupChecks: ReadinessCheck[] = [
     { id: "tenant", label: "Workspace created", status: tenant ? "done" : "blocked" },
     { id: "origin", label: "Allowed origin added", status: hasOrigin ? "done" : "pending", href: "/dashboard/origins" },
     {
@@ -79,20 +81,15 @@ export default async function DashboardPage() {
     },
     { id: "skill", label: "Teaching skill saved", status: hasSkill ? "done" : "pending", href: "/dashboard/skill" },
     {
-      id: "test",
-      label: "Live test session",
-      status: hasOrigin && hasPublishableKey && hasSkill ? "warning" : "pending",
-      href: "/dashboard/widget",
-    },
-    {
       id: "quota",
       label: "Usage cap available",
       status: usage.capSeconds > 0 ? "done" : "warning",
       href: "/dashboard/billing",
     },
   ];
-  const completed = checks.filter((check) => check.status === "done").length;
-  const isReady = completed >= checks.length;
+  const setupCompleted = setupChecks.filter((check) => check.status === "done").length;
+  const setupComplete = hasOrigin && hasPublishableKey && hasSkill;
+  const remainingSetup = setupChecks.length - setupCompleted;
   const usedMinutes = Math.round(usage.usageSecondsThisPeriod / 60);
   const capMinutes = usage.capSeconds > 0 ? Math.round(usage.capSeconds / 60) : 0;
 
@@ -120,27 +117,35 @@ export default async function DashboardPage() {
           {/* Ambient amber glow behind the preview area */}
           <div className="relative z-10">
             <StatusPill
-              tone={isReady ? "green" : "amber"}
-              label={isReady ? "Ready to go live" : `${checks.length - completed} checks left`}
+              tone={setupComplete ? "green" : "amber"}
+              label={setupComplete ? "Configured" : `${remainingSetup} setup checks left`}
               showDot
             />
             <h2 className="mt-4 max-w-[620px] text-[28px] font-extrabold leading-tight tracking-[-0.045em] text-gray-100">
-              Skilly is <span className="text-amber-300">{completed}/{checks.length} ready</span> to teach users on your product.
+              {setupComplete ? (
+                <>
+                  <span className="text-amber-300">{tenant?.name ?? "This workspace"}</span> is configured for Skilly Web.
+                </>
+              ) : (
+                <>
+                  Skilly is <span className="text-amber-300">{setupCompleted}/{setupChecks.length} configured</span> for this workspace.
+                </>
+              )}
             </h2>
             <p className="mt-2 max-w-[690px] text-sm leading-relaxed text-muted">
-              {isReady
-                ? "Everything is configured. Run a live test session, then enable the widget for production traffic."
+              {setupComplete
+                ? "Run or review a live test session before increasing production traffic."
                 : "Finish the remaining setup checks before enabling the widget for production traffic."}
             </p>
             <div className="mt-5">
-              <ProgressSteps completed={completed} total={checks.length} />
+              <ProgressSteps completed={setupCompleted} total={setupChecks.length} />
             </div>
             <div className="mt-[22px] flex flex-wrap gap-2.5">
-              <ButtonLink href="/dashboard/install" variant="primary">
-                Continue setup
-              </ButtonLink>
-              <ButtonLink href="/dashboard/widget" variant="secondary">
+              <ButtonLink href="/dashboard/widget" variant={setupComplete ? "primary" : "secondary"}>
                 Run test session
+              </ButtonLink>
+              <ButtonLink href="/dashboard/install" variant={setupComplete ? "secondary" : "primary"}>
+                {setupComplete ? "View install guide" : "Continue setup"}
               </ButtonLink>
             </div>
           </div>

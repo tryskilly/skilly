@@ -37,17 +37,17 @@ export function TenantSwitcher({
   const current = tenants.find((tenant) => tenant.id === currentTenantId);
 
   return (
-    <div className="min-w-[240px] rounded-[12px] border border-amber-500/20 bg-amber-500/[0.08] px-3 py-2">
-      <label className="grid gap-1">
-        <span className="text-[11px] font-extrabold uppercase tracking-[0.08em] text-amber-300">
-          Active workspace
+    <div className="flex h-[38px] min-w-[250px] items-center gap-2 rounded-[10px] border border-amber-500/22 bg-amber-500/[0.08] px-2.5">
+      <label className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="shrink-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-amber-300">
+          Workspace
         </span>
         <select
           value={current?.id ?? currentTenantId}
           onChange={onChange}
           disabled={pending}
           aria-label="Active workspace"
-          className="w-full rounded-[8px] border border-white/10 bg-gray-950/75 px-2.5 py-1.5 text-sm font-bold text-gray-100 outline-none transition focus:border-amber-500/55 focus:ring-[3px] focus:ring-amber-500/12 disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-[7px] border border-white/10 bg-gray-950/75 px-2 py-1 text-sm font-bold text-gray-100 outline-none transition focus:border-amber-500/55 focus:ring-[3px] focus:ring-amber-500/12 disabled:opacity-50"
         >
           {tenants.map((tenant) => (
             <option key={tenant.id} value={tenant.id}>
@@ -56,9 +56,7 @@ export function TenantSwitcher({
           ))}
         </select>
       </label>
-      <div className="mt-1 text-[11px] text-gray-500">
-        {pending ? "Switching workspace…" : "All pages use this workspace."}
-      </div>
+      {pending && <span className="shrink-0 text-[11px] text-gray-500">Switching...</span>}
     </div>
   );
 }

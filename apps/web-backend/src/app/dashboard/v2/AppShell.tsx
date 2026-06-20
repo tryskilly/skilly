@@ -199,9 +199,11 @@ export function AppShell({
         <header className="sticky top-0 z-10 flex h-[var(--spacing-topbar)] items-center justify-between gap-4 border-b border-line-soft bg-[rgba(15,15,16,0.78)] px-4 backdrop-blur-[18px] md:px-7">
           <div className="flex min-w-0 items-center gap-3 text-sm text-gray-300">
             <strong className="font-bold text-gray-100">{current?.label ?? "Overview"}</strong>
-            <span className="hidden max-w-[240px] truncate rounded-full border border-line bg-white/[0.04] px-2.5 py-1 text-xs font-bold text-gray-300 md:inline-flex">
-              {tenantName}
-            </span>
+            {!canSwitchTenants && (
+              <span className="hidden max-w-[240px] truncate rounded-full border border-line bg-white/[0.04] px-2.5 py-1 text-xs font-bold text-gray-300 md:inline-flex">
+                {tenantName}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5">
