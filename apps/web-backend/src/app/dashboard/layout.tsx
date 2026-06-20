@@ -7,9 +7,10 @@ import { AppShell } from "./v2";
 
 export const dynamic = "force-dynamic";
 
-// The 7 readiness checks (spec §4). Computed from the tenant's current state so
-// the sidebar mini-panel + overview hero read the same score.
-const READINESS_TOTAL = 7;
+// Shell readiness is intentionally limited to persisted setup facts. The full
+// overview can still recommend a live test, but the shell should not look stuck
+// in setup just because there is no separate "test completed" marker yet.
+const READINESS_TOTAL = 6;
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   const session = await requireDashboardSession();
@@ -30,14 +31,13 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const needsSetup = !(hasOrigin && hasPublishableKey && hasSkill);
 
   // Readiness: 1 tenant, 2 origin, 3 publishable key, 4 install (origin+key),
-  // 5 skill, 6 test session, 7 usage cap. Each is a real boolean we can compute.
+  // 5 skill, 6 usage cap. Each is a persisted fact we can compute.
   const readinessCompleted = [
     Boolean(tenant),
     hasOrigin,
     hasPublishableKey,
     hasOrigin && hasPublishableKey, // install script is usable
     hasSkill,
-    false, // test session — no persisted signal yet; pending until a live test runs
     usage.capSeconds > 0,
   ].filter(Boolean).length;
 

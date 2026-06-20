@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { Tenant } from "@/db/repo";
 import { switchTenantAction } from "./actions";
-import { Select } from "./v2";
 
 /**
  * Super-admin only: switch which tenant the dashboard acts as. Re-issues the
@@ -17,8 +17,8 @@ export function TenantSwitcher({
   tenants: Tenant[];
   currentTenantId: string;
 }) {
-  const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   function onChange(event: React.ChangeEvent<HTMLSelectElement>) {
     const nextTenantId = event.target.value;
@@ -29,40 +29,36 @@ export function TenantSwitcher({
     formData.set("tenantId", nextTenantId);
     startTransition(async () => {
       await switchTenantAction(formData);
-      setOpen(false);
+      router.replace("/dashboard");
+      router.refresh();
     });
   }
 
   const current = tenants.find((tenant) => tenant.id === currentTenantId);
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-      <div className="flex items-center justify-between">
-        <div className="min-w-0">
-          <strong className="block truncate text-sm">{current?.name ?? "Workspace"}</strong>
-          <span className="text-xs text-neutral-500">Acting as this tenant</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          className="rounded-md border border-white/10 px-2.5 py-1 text-xs text-neutral-400 transition hover:text-neutral-200"
+    <div className="min-w-[240px] rounded-[12px] border border-amber-500/20 bg-amber-500/[0.08] px-3 py-2">
+      <label className="grid gap-1">
+        <span className="text-[11px] font-extrabold uppercase tracking-[0.08em] text-amber-300">
+          Active workspace
+        </span>
+        <select
+          value={current?.id ?? currentTenantId}
+          onChange={onChange}
+          disabled={pending}
+          aria-label="Active workspace"
+          className="w-full rounded-[8px] border border-white/10 bg-gray-950/75 px-2.5 py-1.5 text-sm font-bold text-gray-100 outline-none transition focus:border-amber-500/55 focus:ring-[3px] focus:ring-amber-500/12 disabled:opacity-50"
         >
-          {open ? "Close" : "Switch"}
-        </button>
+          {tenants.map((tenant) => (
+            <option key={tenant.id} value={tenant.id}>
+              {tenant.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="mt-1 text-[11px] text-gray-500">
+        {pending ? "Switching workspace…" : "All pages use this workspace."}
       </div>
-
-      {open && (
-        <div className="mt-3">
-          <Select
-            label="Switch to"
-            defaultValue={currentTenantId}
-            onChange={onChange}
-            disabled={pending}
-            options={tenants.map((tenant) => ({ value: tenant.id, label: tenant.name }))}
-          />
-          {pending && <p className="mt-2 text-xs text-neutral-500">Switching…</p>}
-        </div>
-      )}
     </div>
   );
 }

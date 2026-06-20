@@ -160,21 +160,20 @@ export function AppShell({
               <strong className="text-gray-200">
                 {readinessCompleted}/{readinessTotal} checks
               </strong>
-              <StatusPill tone={readinessCompleted >= readinessTotal ? "green" : "amber"} label={readinessCompleted >= readinessTotal ? "Ready" : "Setup"} />
+              <StatusPill
+                tone={needsSetup ? "amber" : "green"}
+                label={needsSetup ? "Setup" : "Configured"}
+              />
             </div>
           </div>
 
-          {canSwitchTenants ? (
-            <TenantSwitcher tenants={switchableTenants} currentTenantId={currentTenantId} />
-          ) : (
-            <div className="rounded-[14px] border border-line bg-white/[0.04] p-3">
-              <strong className="block text-sm text-gray-100">{tenantName}</strong>
-              <span className="text-xs text-muted">Tenant workspace</span>
-              <span className="mt-1 block text-xs text-gray-500">
-                {role === "super_admin" ? "Super admin" : "Tenant admin"}
-              </span>
-            </div>
-          )}
+          <div className="rounded-[14px] border border-line bg-white/[0.04] p-3">
+            <strong className="block truncate text-sm text-gray-100">{tenantName}</strong>
+            <span className="text-xs text-muted">Active workspace</span>
+            <span className="mt-1 block text-xs text-gray-500">
+              {role === "super_admin" ? "Super admin" : "Tenant admin"}
+            </span>
+          </div>
 
           <div className="flex items-center gap-3 px-1 text-xs text-muted">
             <Link href="/dashboard/install" className="transition hover:text-gray-200">
@@ -198,11 +197,19 @@ export function AppShell({
       <main className="min-w-0">
         {/* Topbar */}
         <header className="sticky top-0 z-10 flex h-[var(--spacing-topbar)] items-center justify-between gap-4 border-b border-line-soft bg-[rgba(15,15,16,0.78)] px-4 backdrop-blur-[18px] md:px-7">
-          <div className="flex items-center gap-2.5 text-sm text-gray-300">
+          <div className="flex min-w-0 items-center gap-3 text-sm text-gray-300">
             <strong className="font-bold text-gray-100">{current?.label ?? "Overview"}</strong>
+            <span className="hidden max-w-[240px] truncate rounded-full border border-line bg-white/[0.04] px-2.5 py-1 text-xs font-bold text-gray-300 md:inline-flex">
+              {tenantName}
+            </span>
           </div>
 
           <div className="flex items-center gap-2.5">
+            {canSwitchTenants && (
+              <div className="hidden xl:block">
+                <TenantSwitcher tenants={switchableTenants} currentTenantId={currentTenantId} />
+              </div>
+            )}
             {usageCapSeconds > 0 && (
               <StatusPill label={`${usedMinutes} / ${capMinutes} min`} />
             )}
@@ -226,6 +233,12 @@ export function AppShell({
             <AccountChip email={accountEmail} role={role} />
           </div>
         </header>
+
+        {canSwitchTenants && (
+          <div className="border-b border-line-soft bg-[rgba(15,15,16,0.72)] px-4 py-3 backdrop-blur-[18px] xl:hidden">
+            <TenantSwitcher tenants={switchableTenants} currentTenantId={currentTenantId} />
+          </div>
+        )}
 
         {/* Content canvas */}
         <div className="mx-auto w-[min(1280px,calc(100vw-var(--spacing-sidebar)-56px))] px-4 py-8 pb-16 md:px-8">
