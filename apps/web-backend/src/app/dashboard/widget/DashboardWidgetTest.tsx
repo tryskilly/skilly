@@ -240,6 +240,19 @@ interface CustomerWebsitePreviewProps {
   launcherLabel: string | null;
 }
 
+interface SiteImportPreview {
+  url: string;
+  finalUrl: string;
+  host: string;
+  title: string;
+  description: string;
+  headings: string[];
+  navigation: string[];
+  callsToAction: string[];
+  questions: string[];
+  bodySummary: string;
+}
+
 function normalizePreviewUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim();
   if (!trimmed) {
@@ -259,6 +272,9 @@ function hostFromUrl(rawUrl: string): string {
 export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: CustomerWebsitePreviewProps) {
   const [siteUrl, setSiteUrl] = useState("");
   const [context, setContext] = useState("");
+  const [generatedPreview, setGeneratedPreview] = useState<SiteImportPreview | null>(null);
+  const [importStatus, setImportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [importError, setImportError] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [pointing, setPointing] = useState(false);
@@ -267,18 +283,64 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   const [fullScreen, setFullScreen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const host = previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl);
+  const host = generatedPreview?.host ?? (previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl));
   const label = launcherLabel || "Ask Skilly";
 
-  function runPreview() {
-    const nextPreviewUrl = normalizePreviewUrl(siteUrl);
-    setPreviewUrl(nextPreviewUrl);
-    setFrameLoaded(false);
-    setFrameLikelyBlocked(false);
+  function startPointing() {
     setPointing(true);
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
+    timerRef.current = setTimeout(() => {
+      setPointing(false);
+      timerRef.current = null;
+    }, 3000);
+  }
+
+  async function generatePreview() {
+    const nextPreviewUrl = normalizePreviewUrl(siteUrl);
+    setImportStatus("loading");
+    setImportError("");
+    setPreviewUrl("");
+    setFrameLikelyBlocked(false);
+    startPointing();
+
+    try {
+      const response = await fetch("/api/dashboard/site-import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: nextPreviewUrl }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { preview?: SiteImportPreview; error?: string };
+      if (!response.ok || !body.preview) {
+        throw new Error(body.error || "Unable to import this site.");
+      }
+      setGeneratedPreview(body.preview);
+      setImportStatus("success");
+    } catch (error) {
+      setGeneratedPreview({
+        url: nextPreviewUrl,
+        finalUrl: nextPreviewUrl,
+        host: hostFromUrl(nextPreviewUrl),
+        title: hostFromUrl(nextPreviewUrl),
+        description: "Studio could not import this page automatically, but you can still preview Skilly with the URL, notes, and uploaded docs.",
+        headings: ["Welcome", "Getting started", "Common questions"],
+        navigation: ["Home", "Product", "Pricing", "Support"],
+        callsToAction: ["Get started", "Contact us"],
+        questions: ["What can Skilly help users do here?"],
+        bodySummary: context.trim() || "Add context so Skilly can answer and guide users on this site.",
+      });
+      setImportStatus("error");
+      setImportError(error instanceof Error ? error.message : "Unable to import this site.");
+    }
+  }
+
+  function openLivePreview() {
+    const nextPreviewUrl = normalizePreviewUrl(siteUrl);
+    setPreviewUrl(nextPreviewUrl);
+    setFrameLoaded(false);
+    setFrameLikelyBlocked(false);
+    startPointing();
     if (frameTimerRef.current) {
       clearTimeout(frameTimerRef.current);
     }
@@ -286,10 +348,6 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       setFrameLikelyBlocked((isBlocked) => isBlocked || !frameLoaded);
       frameTimerRef.current = null;
     }, 3500);
-    timerRef.current = setTimeout(() => {
-      setPointing(false);
-      timerRef.current = null;
-    }, 3000);
   }
 
   useEffect(() => {
@@ -303,7 +361,154 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
     };
   }, [frameLoaded]);
 
-  const previewFrame = (
+  const generatedPreviewPanel = (
+    <div className="relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#f7f4ec] text-gray-950">
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[#e2ded4] bg-white px-4 py-3">
+        <div>
+          <strong>{generatedPreview ? generatedPreview.host : "Generated customer preview"}</strong>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            {generatedPreview
+              ? "Preview generated from website content, notes, and uploaded context."
+              : "Enter a URL and generate a realistic Skilly preview before installation."}
+          </p>
+        </div>
+        <StatusPill
+          tone={importStatus === "success" ? "green" : importStatus === "error" ? "amber" : "neutral"}
+          label={importStatus === "loading" ? "importing" : importStatus === "success" ? "generated" : importStatus === "error" ? "manual context" : "ready"}
+          showDot
+        />
+      </div>
+
+      <div className="min-h-[568px] bg-[#f7f4ec] p-5">
+        {importStatus === "loading" ? (
+          <div className="grid h-[520px] place-items-center text-center">
+            <div>
+              <CursorGlyph size={42} />
+              <h3 className="mt-4 text-2xl font-bold tracking-normal">Importing site content</h3>
+              <p className="mt-3 text-sm text-neutral-600">Reading public page content to build the preview.</p>
+            </div>
+          </div>
+        ) : generatedPreview ? (
+          <div className="mx-auto max-w-4xl overflow-hidden rounded-[14px] border border-[#ded8ce] bg-white shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ece7df] px-5 py-3">
+              <div className="font-semibold">{generatedPreview.title}</div>
+              <div className="flex flex-wrap gap-2 text-xs font-semibold text-neutral-500">
+                {(generatedPreview.navigation.length ? generatedPreview.navigation : ["Home", "Product", "Support"])
+                  .slice(0, 5)
+                  .map((item) => (
+                    <span key={item}>{item}</span>
+                  ))}
+              </div>
+            </div>
+            <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <section>
+                <div className="text-xs font-bold uppercase text-amber-700">{generatedPreview.host}</div>
+                <h3 className="mt-3 max-w-2xl text-3xl font-bold leading-tight tracking-normal">
+                  {generatedPreview.headings[0] ?? generatedPreview.title}
+                </h3>
+                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600">
+                  {generatedPreview.description || generatedPreview.bodySummary}
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {(generatedPreview.callsToAction.length ? generatedPreview.callsToAction : ["Get started", "Contact us"])
+                    .slice(0, 3)
+                    .map((cta, index) => (
+                      <button
+                        key={cta}
+                        type="button"
+                        className={
+                          index === 0
+                            ? "rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
+                            : "rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
+                        }
+                      >
+                        {cta}
+                      </button>
+                    ))}
+                </div>
+                {generatedPreview.headings.length > 1 && (
+                  <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                    {generatedPreview.headings.slice(1, 5).map((heading) => (
+                      <div key={heading} className="rounded-[10px] border border-[#ece7df] bg-[#faf8f4] p-3 text-sm font-semibold">
+                        {heading}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+              <aside className="rounded-[12px] border border-[#ece7df] bg-[#faf8f4] p-4">
+                <div className="text-sm font-bold">Skilly will learn from</div>
+                <ul className="mt-3 space-y-2 text-sm text-neutral-600">
+                  <li>Website copy from {generatedPreview.host}</li>
+                  {context.trim() && <li>Your goal: {context.trim()}</li>}
+                  {uploadedFiles.length > 0 && <li>{uploadedFiles.length} uploaded context file{uploadedFiles.length === 1 ? "" : "s"}</li>}
+                  <li>Tenant skill: <code className="font-mono">{skillId}</code></li>
+                </ul>
+                {generatedPreview.questions.length > 0 && (
+                  <>
+                    <div className="mt-5 text-sm font-bold">Likely questions</div>
+                    <div className="mt-2 space-y-2">
+                      {generatedPreview.questions.slice(0, 3).map((question) => (
+                        <div key={question} className="rounded-[8px] bg-white px-3 py-2 text-xs text-neutral-700">
+                          {question}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </aside>
+            </div>
+          </div>
+        ) : (
+          <div className="grid h-[520px] place-items-center text-center">
+            <div className="max-w-md">
+              <CursorGlyph size={42} />
+              <h3 className="mt-4 text-2xl font-bold tracking-normal">Preview the Skilly experience</h3>
+              <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+                Studio generates a representative page from public website content, then overlays Skilly so the customer
+                can review behavior before installing the snippet.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {importError && (
+        <div className="absolute left-5 top-[68px] z-10 max-w-xl rounded-[10px] border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow">
+          {importError} Generated preview is using the URL and manual context instead.
+        </div>
+      )}
+
+      <button
+        type="button"
+        aria-label={label}
+        onClick={startPointing}
+        className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
+        style={{ backgroundColor: accentColor }}
+      >
+        <CursorGlyph size={28} />
+      </button>
+
+      {pointing && (
+        <>
+          <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
+            On {host}, Skilly would use this preview plus your notes
+            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
+            {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
+          </div>
+          <div
+            aria-hidden="true"
+            className="absolute left-[52%] top-[44%] z-20 -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
+            style={{ color: accentColor }}
+          >
+            <CursorGlyph size={34} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const livePreviewFrame = previewUrl ? (
     <div
       className={
         fullScreen
@@ -313,9 +518,9 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
     >
       <div className="flex h-12 items-center justify-between border-b border-white/10 bg-[#18181a] px-4 text-gray-200">
         <div>
-          <strong>{previewUrl ? host : "Live website preview"}</strong>
+          <strong>{host}</strong>
           <p className="mt-0.5 text-xs text-muted">
-            {previewUrl ? previewUrl : "Enter a URL to open the customer's site in this frame."}
+            Optional enhanced preview. Some sites block this for security.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -339,7 +544,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         </div>
       </div>
 
-      {previewUrl && !frameLikelyBlocked ? (
+      {!frameLikelyBlocked ? (
         <iframe
           key={previewUrl}
           src={previewUrl}
@@ -355,15 +560,14 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
             }
           }}
         />
-      ) : previewUrl ? (
+      ) : (
         <div className={fullScreen ? "grid h-[calc(100dvh-48px)] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950" : "grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950"}>
           <div className="max-w-xl">
             <CursorGlyph size={42} />
             <h3 className="mt-4 text-2xl font-bold tracking-normal">This site blocks embedded previews</h3>
             <p className="mt-3 text-sm leading-relaxed text-neutral-600">
-              Many production websites block iframes for security. Studio can still use the URL, notes, and docs to
-              draft the skill; for the true live overlay, install the snippet on the site or test on a staging page that
-              allows embedding.
+              No problem. This is normal browser security. Use the generated preview for review, then install the
+              snippet on staging or production for exact live behavior.
             </p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <a
@@ -379,6 +583,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
                 onClick={() => {
                   setFrameLikelyBlocked(false);
                   setFrameLoaded(false);
+                  openLivePreview();
                 }}
                 className="rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
               >
@@ -387,23 +592,12 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
             </div>
           </div>
         </div>
-      ) : (
-        <div className={fullScreen ? "grid h-[calc(100dvh-48px)] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950" : "grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950"}>
-          <div className="max-w-md">
-            <CursorGlyph size={42} />
-            <h3 className="mt-4 text-2xl font-bold tracking-normal">Preview Skilly on the customer's site</h3>
-            <p className="mt-3 text-sm leading-relaxed text-neutral-600">
-              Add the site URL, what Skilly should help users do, and any docs. Studio will open a live frame and place
-              the widget preview over it.
-            </p>
-          </div>
-        </div>
       )}
 
       <button
         type="button"
         aria-label={label}
-        onClick={runPreview}
+        onClick={startPointing}
         className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
         style={{ backgroundColor: accentColor }}
       >
@@ -427,7 +621,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         </>
       )}
     </div>
-  );
+  ) : null;
 
   return (
     <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
@@ -445,7 +639,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           className="mt-2 h-10 w-full rounded-[10px] border border-line bg-black/20 px-3 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 focus:border-amber-500/45"
         />
         <p className="mt-1.5 text-xs text-muted">
-          Plain domains are fine. Studio opens the site in a preview frame when the site allows embedding.
+          Plain domains are fine. Studio imports public content to generate a representative preview.
         </p>
 
         <label className="mt-4 block text-sm font-bold text-gray-100" htmlFor="customer-preview-context">
@@ -475,21 +669,32 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           className="mt-2 block w-full text-sm text-muted file:mr-3 file:rounded-[8px] file:border-0 file:bg-white/[0.08] file:px-3 file:py-2 file:text-sm file:font-bold file:text-gray-200 hover:file:bg-white/[0.12]"
         />
         <p className="mt-1.5 text-xs text-muted">
-          This preview records the file names for now. The next step is server-side ingestion to draft the skill from
-          these documents.
+          This preview records file names for now. Document text ingestion can feed the first skill draft next.
         </p>
 
-        <Button className="mt-4 w-full justify-center" type="button" onClick={runPreview}>
-          Open live preview
+        <Button
+          className="mt-4 w-full justify-center"
+          type="button"
+          variant="primary"
+          onClick={() => void generatePreview()}
+          disabled={importStatus === "loading"}
+        >
+          {importStatus === "loading" ? "Generating preview..." : "Generate preview"}
+        </Button>
+        <Button className="mt-2 w-full justify-center" type="button" onClick={openLivePreview}>
+          Try live iframe preview
         </Button>
 
         <div className="mt-4 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
-          Preview uses tenant skill <code className="font-mono text-gray-300">{skillId}</code>. URL, notes, and docs
-          are the inputs we should use to draft the customer's first skill.
+          Generated preview is the default review path. Live iframe preview is optional and depends on the customer's
+          site allowing <code className="font-mono text-gray-300">studio.tryskilly.app</code> to embed it.
         </div>
       </div>
 
-      {previewFrame}
+      <div className="space-y-4">
+        {generatedPreviewPanel}
+        {livePreviewFrame}
+      </div>
     </div>
   );
 }

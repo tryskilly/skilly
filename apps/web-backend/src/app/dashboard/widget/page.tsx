@@ -34,14 +34,14 @@ export default async function WidgetPage() {
       <PageHeader
         eyebrow="Widget"
         title="Preview Skilly on your website."
-        description="Enter a website URL, add product context or docs, and see how the customer-facing widget would appear over the live site before you install the snippet."
+        description="Enter a website URL, add product context or docs, and generate a realistic Skilly preview before installing the snippet."
       />
 
       <div id="customer-website-preview" className="scroll-mt-24">
         <Panel>
           <PanelHeader
-            title="Customer website preview"
-            description="Open the customer's site in a live frame, overlay Skilly, and use the URL plus notes/docs as the starting point for the customer's teaching skill."
+            title="Generated customer preview"
+            description="Studio imports public site content, builds a representative preview page, and overlays Skilly. Live iframe preview is optional when the site allows embedding."
           />
           <PanelBody>
             <CustomerWebsitePreview
