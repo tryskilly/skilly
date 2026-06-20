@@ -60,7 +60,7 @@ class SkillyController {
     // Voice pipeline is enabled when a backend (token source) is configured.
     this.liveMode = Boolean(config.backendUrl);
 
-    this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT);
+    this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT, config.launcherLabel);
     this.widget.onLauncherActivated = () => this.start();
     this.widget.mount();
     this.pointing = new PointingEngine(this.widget);
@@ -356,6 +356,7 @@ if (embedScript instanceof HTMLScriptElement && embedScript.dataset.skillyKey) {
     skill: embedScript.dataset.skillySkill,
     accentColor: embedScript.dataset.skillyAccent,
     locale: embedScript.dataset.skillyLocale,
+    launcherLabel: embedScript.dataset.skillyLauncher,
     coreUrl: embedScript.dataset.skillyCoreUrl,
     backendUrl: embedScript.dataset.skillyBackendUrl,
   });

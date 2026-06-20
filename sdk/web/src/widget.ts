@@ -23,13 +23,16 @@ export class SkillyWidget {
   private hostElement: HTMLDivElement;
   private shadowRoot: ShadowRoot;
   private launcherButton!: HTMLButtonElement;
+  private launcherLabelButton!: HTMLButtonElement;
   private bubbleElement!: HTMLDivElement;
   private cursorElement!: HTMLDivElement;
+  private idleLauncherLabel: string;
 
   /** Set by the controller; fired when the user activates the companion. */
   public onLauncherActivated: (() => void) | null = null;
 
-  constructor(accentColor: string) {
+  constructor(accentColor: string, launcherLabel?: string) {
+    this.idleLauncherLabel = launcherLabel?.trim() || "Click to ask Skilly";
     this.hostElement = document.createElement("div");
     this.hostElement.setAttribute("data-skilly-widget", "");
     this.shadowRoot = this.hostElement.attachShadow({ mode: "open" });
@@ -50,13 +53,24 @@ export class SkillyWidget {
   }
 
   private renderLauncher(accentColor: string): void {
+    const activate = () => this.onLauncherActivated?.();
+
+    this.launcherLabelButton = document.createElement("button");
+    this.launcherLabelButton.className = "skilly-launcher-label";
+    this.launcherLabelButton.type = "button";
+    this.launcherLabelButton.textContent = this.idleLauncherLabel;
+    this.launcherLabelButton.setAttribute("aria-label", this.idleLauncherLabel);
+    this.launcherLabelButton.addEventListener("click", activate);
+    this.shadowRoot.appendChild(this.launcherLabelButton);
+
     this.launcherButton = document.createElement("button");
+    this.launcherButton.type = "button";
     this.launcherButton.className = "skilly-launcher";
-    this.launcherButton.setAttribute("aria-label", "Open Skilly companion");
+    this.launcherButton.setAttribute("aria-label", this.idleLauncherLabel);
     this.launcherButton.setAttribute("data-state", "idle");
     this.launcherButton.style.color = accentColor;
     this.launcherButton.innerHTML = SKILLY_MARK_ICON;
-    this.launcherButton.addEventListener("click", () => this.onLauncherActivated?.());
+    this.launcherButton.addEventListener("click", activate);
     this.shadowRoot.appendChild(this.launcherButton);
   }
 
@@ -79,6 +93,16 @@ export class SkillyWidget {
   /** Reflect the companion state on the launcher (drives the listening pulse). */
   setState(state: SkillyState): void {
     this.launcherButton.setAttribute("data-state", state);
+    this.launcherLabelButton.setAttribute("data-state", state);
+    const label =
+      state === "idle"
+        ? this.idleLauncherLabel
+        : state === "thinking"
+          ? "Starting…"
+          : "Click to stop";
+    this.launcherLabelButton.textContent = label;
+    this.launcherLabelButton.setAttribute("aria-label", label);
+    this.launcherButton.setAttribute("aria-label", label);
   }
 
   /** Show a message in the response bubble (empty string hides it). */
