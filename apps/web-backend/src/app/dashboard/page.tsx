@@ -104,8 +104,13 @@ export default async function DashboardPage() {
             <ButtonLink href="/dashboard/install" variant="secondary">
               View install guide
             </ButtonLink>
-            <ButtonLink href="/dashboard/widget" variant="primary" analyticsEvent="dashboard_widget_test_clicked" analyticsLabel="Test widget">
-              Test widget
+            <ButtonLink
+              href="/dashboard/widget"
+              variant="primary"
+              analyticsEvent="dashboard_widget_preview_clicked"
+              analyticsLabel="Preview widget"
+            >
+              Preview widget
             </ButtonLink>
           </>
         }
@@ -142,7 +147,7 @@ export default async function DashboardPage() {
             </div>
             <div className="mt-[22px] flex flex-wrap gap-2.5">
               <ButtonLink href="/dashboard/widget" variant={setupComplete ? "primary" : "secondary"}>
-                Run test session
+                Preview customer site
               </ButtonLink>
               <ButtonLink href="/dashboard/install" variant={setupComplete ? "secondary" : "primary"}>
                 {setupComplete ? "View install guide" : "Continue setup"}
@@ -231,8 +236,13 @@ export default async function DashboardPage() {
                 <p className="max-w-xs text-xs text-muted">
                   Install the script and start a test session to see real interactions here.
                 </p>
-                <ButtonLink href="/dashboard/widget" variant="secondary" analyticsEvent="dashboard_widget_test_clicked" analyticsLabel="Test widget">
-                  Test widget
+                <ButtonLink
+                  href="/dashboard/widget"
+                  variant="secondary"
+                  analyticsEvent="dashboard_widget_preview_clicked"
+                  analyticsLabel="Preview widget"
+                >
+                  Preview widget
                 </ButtonLink>
               </div>
             )}

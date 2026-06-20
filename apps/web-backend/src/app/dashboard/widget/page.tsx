@@ -9,7 +9,7 @@ import {
   PanelHeader,
   StatusPill,
 } from "../v2";
-import { DashboardWidgetTest } from "./DashboardWidgetTest";
+import { CustomerWebsitePreview, StudioAssistantPreview } from "./DashboardWidgetTest";
 import { WidgetConfigForm } from "./WidgetConfigForm";
 
 export const dynamic = "force-dynamic";
@@ -47,23 +47,19 @@ export default async function WidgetPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Widget"
-        title="Shape the embedded companion."
-        description="The web widget is a Shadow DOM surface with launcher, voice bubble, and cursor pointing. Amber is recommended — it behaves like a highlighter over product UIs. Your settings flow into the live embed snippet."
+        title="Preview the customer companion."
+        description="Studio has two Skilly surfaces: the Studio assistant helps admins finish setup here, while the customer website preview shows how the tenant-owned widget will guide visitors on their own site."
       />
 
-      {/* Live test + state showcase */}
+      {/* Studio-owned guide + customer-owned website preview */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
         <Panel>
           <PanelHeader
-            title="Test widget"
-            description="Run the real embedded widget inside Studio before installing it on your site. It uses your current workspace, skill, and appearance settings."
+            title="Studio assistant"
+            description="Skilly-owned guide for helping users complete setup inside Studio. This is separate from the tenant's public teaching skill."
           />
           <PanelBody>
-            <DashboardWidgetTest
-              skillId={skillSelection.skillId}
-              accentColor={config.accentColor}
-              launcherLabel={config.launcherLabel}
-            />
+            <StudioAssistantPreview accentColor={config.accentColor} />
           </PanelBody>
         </Panel>
 
@@ -83,6 +79,20 @@ export default async function WidgetPage() {
           </PanelBody>
         </Panel>
       </div>
+
+      <Panel>
+        <PanelHeader
+          title="Customer website preview"
+          description="Enter the customer's site and onboarding goal to simulate how their public widget would behave before the snippet is installed."
+        />
+        <PanelBody>
+          <CustomerWebsitePreview
+            skillId={skillSelection.skillId}
+            accentColor={config.accentColor}
+            launcherLabel={config.launcherLabel}
+          />
+        </PanelBody>
+      </Panel>
 
       {/* Config + snippet */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
