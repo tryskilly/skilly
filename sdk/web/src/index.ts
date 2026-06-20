@@ -16,7 +16,7 @@
 import { loadCore } from "./core.js";
 import { SkillyWidget } from "./widget.js";
 import { buildDomDigest, type DomDigest, type ElementRegistry } from "./digest.js";
-import { parsePointTags, PointingEngine } from "./pointing.js";
+import { inferPointFromText, parsePointTags, PointingEngine } from "./pointing.js";
 import { fetchSessionToken, fetchTenantSkill, reportSessionUsage } from "./token.js";
 import { buildCompanionInstructions } from "./prompt.js";
 import { RealtimeSession, type RealtimeState } from "./realtime.js";
@@ -33,6 +33,7 @@ class SkillyController {
   private config: SkillyConfig | null = null;
   private widget: SkillyWidget | null = null;
   private pointing: PointingEngine | null = null;
+  private currentDigest: DomDigest | null = null;
   private currentRegistry: ElementRegistry | null = null;
   // Storage is type-erased; the public on()/emit() signatures keep callers type-safe.
   private handlers = new Map<SkillyEventName, Set<(payload: never) => void>>();
@@ -75,6 +76,7 @@ class SkillyController {
    */
   getPageDigest(): DomDigest {
     const { digest, registry } = buildDomDigest();
+    this.currentDigest = digest;
     this.currentRegistry = registry;
     return digest;
   }
@@ -240,7 +242,7 @@ class SkillyController {
     const { cleanedText, points } = parsePointTags(fullText);
     this.widget.setBubbleText(cleanedText);
 
-    const point = points[0];
+    const point = points[0] ?? inferPointFromText(cleanedText, this.currentDigest);
     if (point && point.target !== this.lastPointedTarget) {
       this.lastPointedTarget = point.target;
       void this.pointing
@@ -308,6 +310,7 @@ class SkillyController {
     this.pointing?.clear();
     this.pointing = null;
     this.currentRegistry = null;
+    this.currentDigest = null;
     this.widget?.destroy();
     this.widget = null;
     this.config = null;
