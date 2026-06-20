@@ -259,14 +259,15 @@ function hostFromUrl(rawUrl: string): string {
 export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: CustomerWebsitePreviewProps) {
   const [siteUrl, setSiteUrl] = useState("");
   const [context, setContext] = useState("");
-  const [generated, setGenerated] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [pointing, setPointing] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const host = hostFromUrl(siteUrl);
+  const host = previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl);
   const label = launcherLabel || "Ask Skilly";
 
   function runPreview() {
-    setGenerated(true);
+    setPreviewUrl(normalizePreviewUrl(siteUrl));
     setPointing(true);
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -286,7 +287,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   }, []);
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
       <div className="rounded-[14px] border border-line-soft bg-white/[0.035] p-4">
         <label className="block text-sm font-bold text-gray-100" htmlFor="customer-preview-url">
           Website URL
@@ -301,11 +302,11 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           className="mt-2 h-10 w-full rounded-[10px] border border-line bg-black/20 px-3 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 focus:border-amber-500/45"
         />
         <p className="mt-1.5 text-xs text-muted">
-          Plain domains are fine. Studio will preview the flow without requiring the domain to be reachable yet.
+          Plain domains are fine. Studio opens the site in a preview frame when the site allows embedding.
         </p>
 
         <label className="mt-4 block text-sm font-bold text-gray-100" htmlFor="customer-preview-context">
-          What should Skilly help users do?
+          What should Skilly help users do on this site?
         </label>
         <textarea
           id="customer-preview-context"
@@ -316,72 +317,75 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           className="mt-2 w-full resize-none rounded-[10px] border border-line bg-black/20 px-3 py-2 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 focus:border-amber-500/45"
         />
 
+        <label className="mt-4 block text-sm font-bold text-gray-100" htmlFor="customer-preview-docs">
+          Docs or notes
+        </label>
+        <input
+          id="customer-preview-docs"
+          type="file"
+          multiple
+          accept=".txt,.md,.pdf,.doc,.docx,.csv,.json"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []).map((file) => file.name);
+            setUploadedFiles(files);
+          }}
+          className="mt-2 block w-full text-sm text-muted file:mr-3 file:rounded-[8px] file:border-0 file:bg-white/[0.08] file:px-3 file:py-2 file:text-sm file:font-bold file:text-gray-200 hover:file:bg-white/[0.12]"
+        />
+        <p className="mt-1.5 text-xs text-muted">
+          This preview records the file names for now. The next step is server-side ingestion to draft the skill from
+          these documents.
+        </p>
+
         <Button className="mt-4 w-full justify-center" type="button" onClick={runPreview}>
-          Generate preview
+          Open live preview
         </Button>
 
         <div className="mt-4 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
-          Uses tenant skill <code className="font-mono text-gray-300">{skillId}</code>. Later this can be upgraded to
-          crawl the URL and draft the skill automatically from the page plus attachments.
+          Preview uses tenant skill <code className="font-mono text-gray-300">{skillId}</code>. URL, notes, and docs
+          are the inputs we should use to draft the customer's first skill.
         </div>
       </div>
 
-      <div className="relative min-h-[500px] overflow-hidden rounded-[16px] border border-line bg-[#f7f4ec] p-5 text-gray-950">
-        <div className="mb-5 flex items-center justify-between border-b border-[#e2ded4] pb-3">
+      <div className="relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#111113] text-gray-950">
+        <div className="flex h-12 items-center justify-between border-b border-white/10 bg-[#18181a] px-4 text-gray-200">
           <div>
-            <strong>{generated ? host : "Your website preview"}</strong>
-            <p className="mt-1 text-sm text-neutral-600">
-              {generated ? "Simulated customer page with Skilly injected." : "Enter a URL and goal to generate a preview."}
+            <strong>{previewUrl ? host : "Live website preview"}</strong>
+            <p className="mt-0.5 text-xs text-muted">
+              {previewUrl ? previewUrl : "Enter a URL to open the customer's site in this frame."}
             </p>
           </div>
-          <span className="rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white">
-            Start free
+          <span className="rounded-[8px] border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-300">
+            iframe preview
           </span>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <section className="rounded-[12px] border border-[#e2ded4] bg-white p-5 shadow-[0_12px_32px_rgba(0,0,0,0.08)]">
-            <p className="text-xs font-bold uppercase tracking-wide text-amber-700">{generated ? host : "Preview"}</p>
-            <h3 className="mt-2 text-2xl font-bold tracking-normal">
-              {generated ? "Get started with the product" : "Customer onboarding flow"}
-            </h3>
-            <p className="mt-3 text-sm leading-relaxed text-neutral-600">
-              {context.trim() ||
-                "Skilly will use the customer's website, product notes, and teaching skill to guide visitors through the next action."}
-            </p>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <button
-                type="button"
-                data-skilly="customer-preview-primary"
-                className="rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
-              >
-                Create first project
-              </button>
-              <button
-                type="button"
-                data-skilly="customer-preview-secondary"
-                className="rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
-              >
-                View docs
-              </button>
+        {previewUrl ? (
+          <iframe
+            key={previewUrl}
+            src={previewUrl}
+            title={`Live preview of ${host}`}
+            className="h-[568px] w-full border-0 bg-white"
+            referrerPolicy="no-referrer"
+            sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+          />
+        ) : (
+          <div className="grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950">
+            <div className="max-w-md">
+              <CursorGlyph size={42} />
+              <h3 className="mt-4 text-2xl font-bold tracking-normal">Preview Skilly on the customer's site</h3>
+              <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+                Add the site URL, what Skilly should help users do, and any docs. Studio will open a live frame and
+                place the widget preview over it.
+              </p>
             </div>
-          </section>
-
-          <aside className="rounded-[12px] border border-[#e2ded4] bg-white p-4">
-            <div className="text-sm font-semibold">Detected guidance plan</div>
-            <ol className="mt-3 space-y-2 text-sm text-neutral-600">
-              <li>1. Explain the page goal.</li>
-              <li>2. Point at the primary action.</li>
-              <li>3. Offer the next setup step.</li>
-            </ol>
-          </aside>
-        </div>
+          </div>
+        )}
 
         <button
           type="button"
           aria-label={label}
           onClick={runPreview}
-          className="absolute bottom-5 right-5 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.22)]"
+          className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
           style={{ backgroundColor: accentColor }}
         >
           <CursorGlyph size={28} />
@@ -389,12 +393,14 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
 
         {pointing && (
           <>
-            <div className="absolute bottom-[92px] right-5 w-80 rounded-[14px] border border-neutral-900/10 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.28)]">
-              On {host}, I would guide visitors to start here and explain why this is the next best action.
+            <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
+              On {host}, Skilly would use this page plus your notes
+              {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
+              {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
             </div>
             <div
               aria-hidden="true"
-              className="absolute left-[112px] top-[286px] -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
+              className="absolute left-[52%] top-[44%] z-20 -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
               style={{ color: accentColor }}
             >
               <CursorGlyph size={34} />
