@@ -103,7 +103,25 @@ export const WIDGET_STYLES = /* css */ `
   transition: opacity 0.2s ease, transform 0.2s ease;
   z-index: 2147483647;
 }
-.skilly-bubble[data-visible="true"] { opacity: 1; transform: translateY(0); }
+.skilly-bubble[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.skilly-bubble-message {
+  color: #F2F2F7;
+}
+.skilly-attribution {
+  display: inline-flex;
+  margin-top: 9px;
+  color: rgba(242, 242, 247, 0.58);
+  font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  text-decoration: none;
+}
+.skilly-attribution:hover {
+  color: #FCD34D;
+  text-decoration: underline;
+}
 
 /* Blue cursor companion that flies to and points at host UI (animation = Phase 8.2). */
 .skilly-cursor {

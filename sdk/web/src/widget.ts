@@ -25,6 +25,7 @@ export class SkillyWidget {
   private launcherButton!: HTMLButtonElement;
   private launcherLabelButton!: HTMLButtonElement;
   private bubbleElement!: HTMLDivElement;
+  private bubbleMessageElement!: HTMLDivElement;
   private cursorElement!: HTMLDivElement;
   private idleLauncherLabel: string;
 
@@ -79,6 +80,20 @@ export class SkillyWidget {
     this.bubbleElement.className = "skilly-bubble";
     this.bubbleElement.setAttribute("data-visible", "false");
     this.bubbleElement.setAttribute("role", "status");
+
+    this.bubbleMessageElement = document.createElement("div");
+    this.bubbleMessageElement.className = "skilly-bubble-message";
+    this.bubbleElement.appendChild(this.bubbleMessageElement);
+
+    const attributionLink = document.createElement("a");
+    attributionLink.className = "skilly-attribution";
+    attributionLink.href =
+      "https://tryskilly.app?utm_source=skilly_widget&utm_medium=embedded_widget&utm_campaign=powered_by";
+    attributionLink.target = "_blank";
+    attributionLink.rel = "noopener noreferrer";
+    attributionLink.textContent = "Powered by Skilly";
+    this.bubbleElement.appendChild(attributionLink);
+
     this.shadowRoot.appendChild(this.bubbleElement);
   }
 
@@ -108,9 +123,10 @@ export class SkillyWidget {
   /** Show a message in the response bubble (empty string hides it). */
   setBubbleText(text: string): void {
     if (text) {
-      this.bubbleElement.textContent = text;
+      this.bubbleMessageElement.textContent = text;
       this.bubbleElement.setAttribute("data-visible", "true");
     } else {
+      this.bubbleMessageElement.textContent = "";
       this.bubbleElement.setAttribute("data-visible", "false");
     }
   }
