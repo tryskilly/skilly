@@ -80,19 +80,21 @@ export default async function WidgetPage() {
         </Panel>
       </div>
 
-      <Panel>
-        <PanelHeader
-          title="Customer website preview"
-          description="Enter the customer's site and onboarding goal to simulate how their public widget would behave before the snippet is installed."
-        />
-        <PanelBody>
-          <CustomerWebsitePreview
-            skillId={skillSelection.skillId}
-            accentColor={config.accentColor}
-            launcherLabel={config.launcherLabel}
+      <div id="customer-website-preview" className="scroll-mt-24">
+        <Panel>
+          <PanelHeader
+            title="Customer website preview"
+            description="Enter the customer's site and onboarding goal to simulate how their public widget would behave before the snippet is installed."
           />
-        </PanelBody>
-      </Panel>
+          <PanelBody>
+            <CustomerWebsitePreview
+              skillId={skillSelection.skillId}
+              accentColor={config.accentColor}
+              launcherLabel={config.launcherLabel}
+            />
+          </PanelBody>
+        </Panel>
+      </div>
 
       {/* Config + snippet */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">

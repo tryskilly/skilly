@@ -58,86 +58,77 @@ function loadWidgetScript(): Promise<void> {
 }
 
 export function StudioAssistantPreview({ accentColor }: StudioAssistantPreviewProps) {
-  const [status, setStatus] = useState<"loading" | "ready" | "active" | "error">("loading");
-  const [message, setMessage] = useState("Loading the Studio assistant...");
-  const [mode, setMode] = useState<"loading" | "live" | "fallback">("loading");
+  const [status, setStatus] = useState<"ready" | "loading" | "active" | "error">("ready");
+  const [message, setMessage] = useState("Use this guide when you want help inside Studio.");
+  const [mode, setMode] = useState<"idle" | "live" | "fallback">("idle");
   const [fallbackPointing, setFallbackPointing] = useState(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unsubscribersRef = useRef<Array<() => void>>([]);
   const label = "Ask Studio Assistant";
 
   useEffect(() => {
-    let disposed = false;
-    const unsubscribers: Array<() => void> = [];
-
-    async function mountWidget() {
-      try {
-        await loadWidgetScript();
-        if (disposed || !window.Skilly) {
-          return;
-        }
-        window.Skilly.destroy?.();
-        window.Skilly.init({
-          key: DASHBOARD_TEST_KEY,
-          skill: STUDIO_GUIDE_SKILL_ID,
-          backendUrl: "/api/dashboard/test-widget",
-          coreUrl: CORE_URL,
-          accentColor,
-          launcherLabel: label,
-        });
-        setMode("live");
-        unsubscribers.push(
-          window.Skilly.on?.("turn", () => {
-            setStatus("active");
-            setMessage("Widget session started. Allow microphone access if the browser asks.");
-          }) ?? (() => {}),
-        );
-        unsubscribers.push(
-          window.Skilly.on?.("complete", () => {
-            setStatus("ready");
-            setMessage("Test completed. Start another one or use the floating launcher.");
-          }) ?? (() => {}),
-        );
-        unsubscribers.push(
-          window.Skilly.on?.("error", (payload) => {
-            const detail =
-              payload && typeof payload === "object" && "message" in payload
-                ? String((payload as { message?: unknown }).message)
-                : "The widget could not start.";
-            setStatus("error");
-            setMessage(detail);
-          }) ?? (() => {}),
-        );
-        setStatus("ready");
-        setMessage("Ready. Use the button below or the floating Studio assistant launcher.");
-      } catch (error) {
-        setMode("fallback");
-        setStatus("ready");
-        setMessage(
-          error instanceof Error
-            ? `${error.message}. Fallback preview is available below.`
-            : "Fallback preview is available below.",
-        );
-      }
-    }
-
-    void mountWidget();
-
     return () => {
-      disposed = true;
       if (fallbackTimerRef.current) {
         clearTimeout(fallbackTimerRef.current);
       }
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
+      unsubscribersRef.current = [];
       window.Skilly?.destroy?.();
     };
-  }, [accentColor, label]);
+  }, []);
 
-  function startTest() {
-    if (mode === "live" && window.Skilly) {
+  async function startStudioGuide() {
+    setStatus("loading");
+    setMessage("Starting the Studio assistant...");
+
+    try {
+      await loadWidgetScript();
+      if (!window.Skilly) {
+        throw new Error("Studio assistant could not load");
+      }
+
+      window.Skilly.destroy?.();
+      unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
+      unsubscribersRef.current = [];
+      window.Skilly.init({
+        key: DASHBOARD_TEST_KEY,
+        skill: STUDIO_GUIDE_SKILL_ID,
+        backendUrl: "/api/dashboard/test-widget",
+        coreUrl: CORE_URL,
+        accentColor,
+        launcherLabel: label,
+      });
+      unsubscribersRef.current.push(
+        window.Skilly.on?.("turn", () => {
+          setStatus("active");
+          setMessage("Studio guide started. Allow microphone access if the browser asks.");
+        }) ?? (() => {}),
+      );
+      unsubscribersRef.current.push(
+        window.Skilly.on?.("complete", () => {
+          setStatus("ready");
+          setMessage("Studio guide completed. Start it again when you need setup help.");
+        }) ?? (() => {}),
+      );
+      unsubscribersRef.current.push(
+        window.Skilly.on?.("error", (payload) => {
+          const detail =
+            payload && typeof payload === "object" && "message" in payload
+              ? String((payload as { message?: unknown }).message)
+              : "The Studio assistant could not start.";
+          setStatus("error");
+          setMessage(detail);
+        }) ?? (() => {}),
+      );
+      setMode("live");
       window.Skilly.start("Help me finish setting up Skilly Studio and point at the next setup action.");
-      return;
+    } catch {
+      startFallbackGuide();
     }
+  }
 
+  function startFallbackGuide() {
+    setMode("fallback");
     setStatus("active");
     setMessage("Fallback preview: the Studio assistant is pointing at the setup action.");
     setFallbackPointing(true);
@@ -180,16 +171,17 @@ export function StudioAssistantPreview({ accentColor }: StudioAssistantPreviewPr
               type="button"
               data-skilly="dashboard-test-primary"
               className="rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
+              onClick={() => document.getElementById("customer-website-preview")?.scrollIntoView({ behavior: "smooth" })}
             >
               Preview customer site
             </button>
-            <button
-              type="button"
+            <a
+              href="/dashboard/skill"
               data-skilly="dashboard-test-secondary"
               className="rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
             >
               Edit teaching skill
-            </button>
+            </a>
           </div>
         </section>
 
@@ -201,7 +193,12 @@ export function StudioAssistantPreview({ accentColor }: StudioAssistantPreviewPr
             Studio assistant
           </div>
           <p className="mt-3 text-sm text-neutral-600">{message}</p>
-          <Button className="mt-4 w-full justify-center" type="button" onClick={startTest} disabled={status === "loading"}>
+          <Button
+            className="mt-4 w-full justify-center"
+            type="button"
+            onClick={() => void startStudioGuide()}
+            disabled={status === "loading"}
+          >
             Start Studio guide
           </Button>
         </aside>
@@ -211,7 +208,7 @@ export function StudioAssistantPreview({ accentColor }: StudioAssistantPreviewPr
         <button
           type="button"
           aria-label={label}
-          onClick={startTest}
+          onClick={startFallbackGuide}
           className="absolute bottom-5 right-5 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.22)]"
           style={{ backgroundColor: accentColor }}
         >

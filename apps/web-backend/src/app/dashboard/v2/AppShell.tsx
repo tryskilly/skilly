@@ -224,13 +224,13 @@ export function AppShell({
               </Link>
             )}
             <Link
-              href="/dashboard/widget"
+              href="/dashboard/widget#customer-website-preview"
               data-analytics-event="dashboard_widget_preview_clicked"
-              data-analytics-label="Preview widget"
-              data-analytics-target="/dashboard/widget"
+              data-analytics-label="Preview customer site"
+              data-analytics-target="/dashboard/widget#customer-website-preview"
               className="inline-flex h-[38px] items-center gap-2 rounded-[9px] border border-white/12 bg-amber-500 px-[13px] text-sm font-bold text-gray-950 shadow-[0_10px_24px_rgba(245,158,11,0.16)] transition hover:bg-amber-600 active:scale-[0.98]"
             >
-              Preview widget
+              Preview customer site
             </Link>
             <AccountChip email={accountEmail} role={role} />
           </div>
