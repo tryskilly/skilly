@@ -108,6 +108,8 @@ export interface WebBackendRepo {
   findTenantByKeyHash(keyHash: string): Promise<KeyLookup | null>;
   /** The tenant's compiled SKILL.md for `skillId`, or null. */
   getTenantSkill(tenantId: string, skillId: string): Promise<TenantSkill | null>;
+  /** Every saved skill for the tenant, ordered by skill id. */
+  listTenantSkills(tenantId: string): Promise<TenantSkill[]>;
   /** Seconds of metered usage for the tenant in the current billing period. */
   getUsageSecondsThisPeriod(tenantId: string): Promise<number>;
   /** Append a metered usage event (with optional v2 dimensions). */

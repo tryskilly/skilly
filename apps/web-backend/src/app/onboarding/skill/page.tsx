@@ -1,5 +1,6 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import { Panel, PanelBody, PanelHeader } from "@/app/dashboard/v2";
 import { OnboardingSkillEditor } from "./OnboardingSkillEditor";
 import { OnboardingStepFooter } from "../shared";
@@ -26,7 +27,8 @@ const TEMPLATES: Array<{ id: string; label: string; content: string }> = [
 ];
 
 export default async function OnboardingSkillPage() {
-  const skill = await getRepo().getTenantSkill(await getCurrentDashboardTenantId(), DEFAULT_SKILL_ID);
+  const repo = getRepo();
+  const { skill } = await getDashboardSkillSelection(repo, await getCurrentDashboardTenantId());
 
   return (
     <>

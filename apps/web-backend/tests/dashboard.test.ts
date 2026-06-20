@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { validateSkillContent } from "../src/domain/skillValidation";
 import { isValidKeyFormat, hashKey } from "../src/domain/keys";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
+import { getDashboardSkillSelection } from "../src/lib/dashboardSkill";
 
 describe("validateSkillContent", () => {
   test("accepts reasonable skill content", () => {
@@ -59,6 +60,57 @@ describe("dashboard repo operations", () => {
 
     const summary = await repo.getUsageSummary(tenantId);
     expect(summary.capSeconds).toBe(10_800);
+  });
+
+  test("listTenantSkills returns tenant skills ordered by skill id", async () => {
+    const repo = new MemoryRepo();
+    await repo.saveTenantSkill(tenantId, "zeta", "# Zeta\n\nLate skill.");
+    await repo.saveTenantSkill(tenantId, "alpha", "# Alpha\n\nEarly skill.");
+
+    const skills = await repo.listTenantSkills(tenantId);
+
+    expect(skills.map((skill) => skill.skillId)).toEqual(["alpha", "default", "zeta"]);
+  });
+
+  test("dashboard skill selection prefers default when present", async () => {
+    const repo = new MemoryRepo();
+
+    const selection = await getDashboardSkillSelection(repo, tenantId);
+
+    expect(selection.skillId).toBe("default");
+    expect(selection.skill?.content).toContain("Acme");
+  });
+
+  test("dashboard skill selection falls back to an existing named production skill", async () => {
+    const seed = defaultSeed();
+    const productionTenantId = "33333333-3333-3333-3333-333333333333";
+    const repo = new MemoryRepo({
+      ...seed,
+      tenants: [
+        {
+          id: productionTenantId,
+          name: "Skilly Marketing",
+          allowedOrigins: ["https://tryskilly.app"],
+          allowedAppIds: [],
+          usageCapSeconds: 10_800,
+          polarCustomerId: null,
+        },
+      ],
+      skills: [
+        {
+          tenantId: productionTenantId,
+          skillId: "skilly-marketing",
+          content: "# Skilly Marketing Guide\n\nHelp visitors understand Skilly.",
+        },
+      ],
+      keys: [],
+      memberships: [],
+    });
+
+    const selection = await getDashboardSkillSelection(repo, productionTenantId);
+
+    expect(selection.skillId).toBe("skilly-marketing");
+    expect(selection.skill?.content).toContain("Skilly Marketing Guide");
   });
 
   test("dashboard membership resolves WorkOS identity to an explicit tenant role", async () => {

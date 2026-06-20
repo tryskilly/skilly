@@ -5,7 +5,8 @@ import { getRepo } from "@/db";
 import { validateSkillContent } from "@/domain/skillValidation";
 import { captureServerEvent } from "@/lib/analytics";
 import { requireDashboardSession, setDashboardSession } from "@/lib/dashboardAuth";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 
 export interface CreateKeyState {
   rawKey?: string;
@@ -163,10 +164,12 @@ export async function saveSkillAction(
     });
     return { ok: false, issues: validation.issues };
   }
-  await getRepo().saveTenantSkill(tenantId, DEFAULT_SKILL_ID, content);
+  const repo = getRepo();
+  const { skillId } = await getDashboardSkillSelection(repo, tenantId);
+  await repo.saveTenantSkill(tenantId, skillId, content);
   await captureServerEvent("dashboard_skill_saved", {
     tenant_id: tenantId,
-    skill_id: DEFAULT_SKILL_ID,
+    skill_id: skillId,
     content_length: content.length,
     source_surface: "web_dashboard",
   });

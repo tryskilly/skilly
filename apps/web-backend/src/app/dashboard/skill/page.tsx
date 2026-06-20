@@ -1,12 +1,14 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import { PageHeader, Panel, PanelBody, PanelHeader, StatusPill } from "../v2";
 import { SkillEditor } from "./SkillEditor";
 
 export const dynamic = "force-dynamic";
 
 export default async function SkillPage() {
-  const skill = await getRepo().getTenantSkill(await getCurrentDashboardTenantId(), DEFAULT_SKILL_ID);
+  const repo = getRepo();
+  const { skillId, skill } = await getDashboardSkillSelection(repo, await getCurrentDashboardTenantId());
   const hasContent = Boolean(skill?.content.trim());
 
   return (
@@ -21,7 +23,7 @@ export default async function SkillPage() {
       <Panel>
         <PanelHeader
           title="SKILL.md editor"
-          description="Plain-markdown teaching content. The safety scan runs on every save (size limits + injection/exfiltration + raw-URL checks)."
+          description={`Plain-markdown teaching content for ${skillId}. The safety scan runs on every save (size limits + injection/exfiltration + raw-URL checks).`}
         />
         <PanelBody>
           <SkillEditor initialContent={skill?.content ?? ""} />

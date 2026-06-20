@@ -47,9 +47,10 @@ async function run() {
 
   // 2. Unauthenticated dashboard redirect
   const dashboard = await request("/dashboard", { redirect: "manual" });
+  const dashboardRedirectStatus = dashboard.status === 302 || dashboard.status === 307;
   assert(
     "Dashboard redirects unauthenticated users to /login",
-    dashboard.status === 302 && dashboard.headers.get("location")?.startsWith("/login"),
+    dashboardRedirectStatus && dashboard.headers.get("location")?.startsWith("/login"),
     `status=${dashboard.status}, location=${dashboard.headers.get("location")}`,
   );
 

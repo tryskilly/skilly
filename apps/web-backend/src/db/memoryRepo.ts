@@ -125,6 +125,12 @@ export class MemoryRepo implements WebBackendRepo {
     return this.skills.get(`${tenantId}:${skillId}`) ?? null;
   }
 
+  async listTenantSkills(tenantId: string): Promise<TenantSkill[]> {
+    return [...this.skills.values()]
+      .filter((skill) => skill.tenantId === tenantId)
+      .sort((left, right) => left.skillId.localeCompare(right.skillId));
+  }
+
   async getUsageSecondsThisPeriod(tenantId: string): Promise<number> {
     return this.usage
       .filter((event) => event.tenantId === tenantId)

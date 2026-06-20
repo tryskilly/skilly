@@ -1,5 +1,6 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import { CodeBlock, Panel, PanelBody, PanelHeader } from "@/app/dashboard/v2";
 import { OnboardingStepFooter } from "../shared";
 
@@ -8,7 +9,11 @@ export const dynamic = "force-dynamic";
 export default async function OnboardingInstallPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [tenant, keys] = await Promise.all([repo.getTenant(tenantId), repo.listApiKeys(tenantId)]);
+  const [tenant, keys, skillSelection] = await Promise.all([
+    repo.getTenant(tenantId),
+    repo.listApiKeys(tenantId),
+    getDashboardSkillSelection(repo, tenantId),
+  ]);
   const publishableKey = keys.find((key) => key.keyType === "publishable" && !key.revoked);
   const displayKey = publishableKey ? `${publishableKey.prefix}_...${publishableKey.last4}` : "pk_live_your_key";
 
@@ -32,7 +37,7 @@ export default async function OnboardingInstallPage() {
             highlight={["data-skilly-key", "data-skilly-skill"]}
             code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
-        data-skilly-skill="${DEFAULT_SKILL_ID}"
+        data-skilly-skill="${skillSelection.skillId}"
         defer></script>`}
           />
         </PanelBody>

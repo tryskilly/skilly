@@ -1,5 +1,6 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   ButtonLink,
   CheckList,
@@ -20,10 +21,10 @@ const FRAMEWORKS = ["HTML", "React", "Next.js", "Webflow", "Shopify"];
 export default async function InstallPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [tenant, keys, skill] = await Promise.all([
+  const [tenant, keys, skillSelection] = await Promise.all([
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),
-    repo.getTenantSkill(tenantId, DEFAULT_SKILL_ID),
+    getDashboardSkillSelection(repo, tenantId),
   ]);
   const publishableKey = keys.find((key) => key.keyType === "publishable" && !key.revoked);
   const displayKey = publishableKey ? `${publishableKey.prefix}_...${publishableKey.last4}` : "pk_live_your_key";
@@ -31,7 +32,7 @@ export default async function InstallPage() {
   const checks: ReadinessCheck[] = [
     { id: "origin", label: "Allowed origin configured", status: tenant?.allowedOrigins.length ? "done" : "pending", href: "/dashboard/origins" },
     { id: "key", label: "Publishable key available", status: publishableKey ? "done" : "pending", href: "/dashboard/keys" },
-    { id: "skill", label: "Skill file saved", status: skill?.content.trim() ? "done" : "pending", href: "/dashboard/skill" },
+    { id: "skill", label: "Skill file saved", status: skillSelection.skill?.content.trim() ? "done" : "pending", href: "/dashboard/skill" },
     { id: "token", label: "Token endpoint reachable", status: "done" },
   ];
 
@@ -70,7 +71,7 @@ export default async function InstallPage() {
               highlight={["data-skilly-key", "data-skilly-skill"]}
               code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
-        data-skilly-skill="${DEFAULT_SKILL_ID}"
+        data-skilly-skill="${skillSelection.skillId}"
         data-skilly-backend-url="https://studio.tryskilly.app"
         data-skilly-core-url="https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js"
         defer></script>`}

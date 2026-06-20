@@ -1,5 +1,6 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   CodeBlock,
   CursorGlyph,
@@ -42,9 +43,10 @@ function hexToRgba(hex: string, alpha: number): string {
 export default async function WidgetPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [keys, config] = await Promise.all([
+  const [keys, config, skillSelection] = await Promise.all([
     repo.listApiKeys(tenantId),
     repo.getWidgetConfig(tenantId),
+    getDashboardSkillSelection(repo, tenantId),
   ]);
   const publishableKey = keys.find((key) => key.keyType === "publishable" && !key.revoked);
   const displayKey = publishableKey
@@ -145,7 +147,7 @@ export default async function WidgetPage() {
               highlight={["data-skilly-key", "data-skilly-skill", "data-skilly-backend-url", "data-skilly-core-url", "data-skilly-accent", "data-skilly-locale"]}
               code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
-        data-skilly-skill="${DEFAULT_SKILL_ID}"
+        data-skilly-skill="${skillSelection.skillId}"
         data-skilly-backend-url="https://studio.tryskilly.app"
         data-skilly-core-url="https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js"
         data-skilly-accent="${config.accentColor}"

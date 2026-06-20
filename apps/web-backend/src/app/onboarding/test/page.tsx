@@ -1,5 +1,6 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   ButtonLink,
   CheckList,
@@ -17,14 +18,14 @@ export const dynamic = "force-dynamic";
 export default async function OnboardingTestPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [tenant, keys, skill] = await Promise.all([
+  const [tenant, keys, skillSelection] = await Promise.all([
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),
-    repo.getTenantSkill(tenantId, DEFAULT_SKILL_ID),
+    getDashboardSkillSelection(repo, tenantId),
   ]);
   const hasOrigin = Boolean(tenant?.allowedOrigins.length);
   const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
-  const hasSkill = Boolean(skill?.content.trim());
+  const hasSkill = Boolean(skillSelection.skill?.content.trim());
 
   const checks: ReadinessCheck[] = [
     { id: "workspace", label: "Workspace created", status: tenant ? "done" : "pending" },

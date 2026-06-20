@@ -69,6 +69,17 @@ export class PostgresRepo implements WebBackendRepo {
     return row ? { tenantId, skillId, content: row.content } : null;
   }
 
+  async listTenantSkills(tenantId: string): Promise<TenantSkill[]> {
+    const result = await this.pool.query<{ skill_id: string; content: string }>(
+      `SELECT skill_id, content
+         FROM tenant_skills
+        WHERE tenant_id = $1
+        ORDER BY skill_id ASC`,
+      [tenantId],
+    );
+    return result.rows.map((row) => ({ tenantId, skillId: row.skill_id, content: row.content }));
+  }
+
   async getUsageSecondsThisPeriod(tenantId: string): Promise<number> {
     const result = await this.pool.query<{ total: string | null }>(
       `SELECT COALESCE(SUM(seconds), 0) AS total

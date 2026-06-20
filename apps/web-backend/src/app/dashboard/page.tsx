@@ -1,5 +1,6 @@
 import { getRepo } from "@/db";
-import { DEFAULT_SKILL_ID, getCurrentDashboardTenantId } from "@/lib/session";
+import { getCurrentDashboardTenantId } from "@/lib/session";
+import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   ButtonLink,
   CheckList,
@@ -51,14 +52,14 @@ export default async function DashboardPage() {
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),
     repo.getUsageSummary(tenantId),
-    repo.getTenantSkill(tenantId, DEFAULT_SKILL_ID),
+    getDashboardSkillSelection(repo, tenantId),
     repo.getUsageMetrics(tenantId),
     repo.listRecentSessions(tenantId, 5),
   ]);
 
   const hasOrigin = Boolean(tenant?.allowedOrigins.length);
   const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
-  const hasSkill = Boolean(skill?.content.trim());
+  const hasSkill = Boolean(skill.skill?.content.trim());
 
   // The 7 readiness checks (spec §4) — each maps to a real, computable state.
   const checks: ReadinessCheck[] = [
