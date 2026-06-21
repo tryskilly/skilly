@@ -269,6 +269,23 @@ function hostFromUrl(rawUrl: string): string {
   }
 }
 
+function base64UrlEncode(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return window
+    .btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function compactList(values: string[], limit: number): string[] {
+  return values.map((value) => value.trim()).filter(Boolean).slice(0, limit);
+}
+
 export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: CustomerWebsitePreviewProps) {
   const [siteUrl, setSiteUrl] = useState("");
   const [context, setContext] = useState("");
@@ -285,6 +302,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const customerWidgetReadyRef = useRef(false);
+  const customerWidgetSkillRef = useRef("");
   const unsubscribersRef = useRef<Array<() => void>>([]);
   const host = generatedPreview?.host ?? (previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl));
   const label = launcherLabel || "Ask Skilly";
@@ -305,9 +323,28 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
     unsubscribersRef.current = [];
   }
 
+  function buildPreviewSkillId(surface: "generated" | "live"): string {
+    const targetUrl = normalizePreviewUrl(previewUrl || generatedPreview?.finalUrl || siteUrl);
+    const payload = {
+      host: hostFromUrl(targetUrl).slice(0, 120),
+      url: targetUrl.slice(0, 240),
+      title: (generatedPreview?.title || hostFromUrl(targetUrl)).slice(0, 160),
+      description: (generatedPreview?.description || generatedPreview?.bodySummary || "").slice(0, 700),
+      goal: context.trim().slice(0, 700),
+      headings: compactList(generatedPreview?.headings ?? [], 6),
+      callsToAction: compactList(generatedPreview?.callsToAction ?? [], 5),
+      questions: compactList(generatedPreview?.questions ?? [], 5),
+      files: compactList(uploadedFiles, 6),
+      surface,
+      tenantSkillId: skillId,
+    };
+    return `preview-${base64UrlEncode(JSON.stringify(payload))}`;
+  }
+
   async function startCustomerWidget(surface: "generated" | "live") {
     const targetUrl = normalizePreviewUrl(previewUrl || generatedPreview?.finalUrl || siteUrl);
     const targetHost = hostFromUrl(targetUrl);
+    const previewSkillId = buildPreviewSkillId(surface);
     const goalParts = [
       `Preview Skilly on ${targetHost}.`,
       context.trim() ? `Customer goal: ${context.trim()}` : "Help the visitor understand this page and choose the next action.",
@@ -327,18 +364,19 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         throw new Error("Skilly widget could not load");
       }
 
-      if (!customerWidgetReadyRef.current) {
+      if (!customerWidgetReadyRef.current || customerWidgetSkillRef.current !== previewSkillId) {
         window.Skilly.destroy?.();
         clearCustomerWidgetSubscriptions();
         window.Skilly.init({
           key: DASHBOARD_TEST_KEY,
-          skill: skillId,
+          skill: previewSkillId,
           backendUrl: "/api/dashboard/test-widget",
           coreUrl: CORE_URL,
           accentColor,
           launcherLabel: label,
         });
         customerWidgetReadyRef.current = true;
+        customerWidgetSkillRef.current = previewSkillId;
         unsubscribersRef.current.push(
           window.Skilly.on?.("turn", () => {
             setWidgetStatus("active");
@@ -366,6 +404,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       window.Skilly.start(goalParts.join(" "));
     } catch (error) {
       customerWidgetReadyRef.current = false;
+      customerWidgetSkillRef.current = "";
       clearCustomerWidgetSubscriptions();
       setWidgetStatus("error");
       setWidgetMessage(error instanceof Error ? error.message : "Skilly could not start the voice preview.");
@@ -442,6 +481,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         window.Skilly?.destroy?.();
       }
       customerWidgetReadyRef.current = false;
+      customerWidgetSkillRef.current = "";
     };
   }, []);
 
