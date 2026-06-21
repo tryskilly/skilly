@@ -412,13 +412,15 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
     }
   }
 
-  async function generatePreview() {
+  async function generatePreview(options: { preserveLivePreview?: boolean } = {}) {
     const nextPreviewUrl = normalizePreviewUrl(siteUrl);
     setImportStatus("loading");
     setImportError("");
-    setPreviewUrl("");
-    setFrameLikelyBlocked(false);
-    setWidgetMessage("Generate the preview, then click the Skilly launcher to test voice.");
+    if (!options.preserveLivePreview) {
+      setPreviewUrl("");
+      setFrameLikelyBlocked(false);
+    }
+    setWidgetMessage("Fallback preview is being generated. Click the Skilly launcher after it appears.");
 
     try {
       const response = await fetch("/api/dashboard/site-import", {
@@ -458,12 +460,14 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
     const nextPreviewUrl = normalizePreviewUrl(siteUrl);
     setPreviewUrl(nextPreviewUrl);
     setFrameLikelyBlocked(false);
-    setWidgetMessage("Open the live preview, then click the Skilly launcher to test voice.");
+    setImportError("");
+    setWidgetMessage("Live preview opened. Click the Skilly launcher inside this panel to test voice.");
     if (frameTimerRef.current) {
       clearTimeout(frameTimerRef.current);
     }
     frameTimerRef.current = setTimeout(() => {
       setFrameLikelyBlocked(true);
+      void generatePreview({ preserveLivePreview: true });
       frameTimerRef.current = null;
     }, 3500);
   }
@@ -788,6 +792,30 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
     </div>
   ) : null;
 
+  const initialLivePreviewPanel = (
+    <div className="relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#111113] text-gray-100">
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-white/10 bg-[#18181a] px-4 py-3">
+        <div>
+          <strong>Live website preview</strong>
+          <p className="mt-0.5 text-xs text-muted">
+            Enter a URL, then open the live preview. Generated preview appears only if embedding is blocked.
+          </p>
+        </div>
+        <StatusPill tone="neutral" label="ready" showDot />
+      </div>
+      <div className="grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950">
+        <div className="max-w-md">
+          <CursorGlyph size={42} />
+          <h3 className="mt-4 text-2xl font-bold tracking-normal">Open the live site first</h3>
+          <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+            Studio will try to show the actual customer website here. If the site blocks embedding, Studio will switch
+            to a generated fallback using the URL, imported content, and your notes.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
       <div className="rounded-[14px] border border-line-soft bg-white/[0.035] p-4">
@@ -804,7 +832,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           className="mt-2 h-10 w-full rounded-[10px] border border-line bg-black/20 px-3 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 focus:border-amber-500/45"
         />
         <p className="mt-1.5 text-xs text-muted">
-          Plain domains are fine. Studio imports public content to generate a representative preview.
+          Plain domains are fine. Studio opens the live site first; generated preview is only a fallback.
         </p>
 
         <label className="mt-4 block text-sm font-bold text-gray-100" htmlFor="customer-preview-context">
@@ -841,18 +869,22 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           className="mt-4 w-full justify-center"
           type="button"
           variant="primary"
+          onClick={openLivePreview}
+        >
+          Open live preview
+        </Button>
+        <Button
+          className="mt-2 w-full justify-center"
+          type="button"
           onClick={() => void generatePreview()}
           disabled={importStatus === "loading"}
         >
-          {importStatus === "loading" ? "Generating preview..." : "Generate preview"}
-        </Button>
-        <Button className="mt-2 w-full justify-center" type="button" onClick={openLivePreview}>
-          Try live iframe preview
+          {importStatus === "loading" ? "Generating fallback..." : "Use generated fallback"}
         </Button>
 
         <div className="mt-4 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
-          Generated preview is the default review path. Live iframe preview is optional and depends on the customer's
-          site allowing <code className="font-mono text-gray-300">studio.tryskilly.app</code> to embed it.
+          Studio tries the live iframe first. If the site blocks embedding, Studio falls back to an imported generated
+          preview; exact in-site pointing still requires the installed snippet on the customer's site.
         </div>
         <div className="mt-3 flex items-start gap-2 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
           <StatusPill
@@ -865,8 +897,8 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       </div>
 
       <div className="space-y-4">
-        {generatedPreviewPanel}
-        {livePreviewFrame}
+        {livePreviewFrame ?? (generatedPreview ? generatedPreviewPanel : initialLivePreviewPanel)}
+        {livePreviewFrame && frameLikelyBlocked && generatedPreviewPanel}
       </div>
     </div>
   );

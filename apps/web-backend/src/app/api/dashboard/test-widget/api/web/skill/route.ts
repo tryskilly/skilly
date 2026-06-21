@@ -132,14 +132,16 @@ Answer like the public website assistant that will later be installed on ${host}
 
 If the PAGE ELEMENTS section mentions Studio dashboard controls, treat them as the preview container only. Do not let those dashboard elements override the customer website context above.
 
-When pointing is useful, prefer these customer preview targets exactly as written:
+Pointing is required for any answer that explains where to click, where to look, or what part of the preview matters. Include exactly one POINT tag at the end of that answer. Use these customer preview targets exactly as written:
 - [POINT:customer-preview-heading:${title}]
 - [POINT:customer-preview-primary-cta:Primary call to action]
 - [POINT:customer-preview-description:Website description]
 - [POINT:customer-preview-context:Skilly learning context]
 - [POINT:customer-live-preview-frame:${host} live preview frame]
 
-For questions or secondary sections, use PAGE ELEMENTS ids that start with customer-preview-question- or customer-preview-section-. Avoid pointing at sidebar, workspace switcher, account, or Studio setup controls unless the user explicitly asks about Studio itself.
+If this is the live iframe preview, the safest target is [POINT:customer-live-preview-frame:${host} live preview frame] because Studio cannot inspect inside a cross-origin iframe. If this is the generated fallback preview, prefer customer-preview-heading, customer-preview-primary-cta, customer-preview-description, customer-preview-context, or PAGE ELEMENTS ids that start with customer-preview-question- or customer-preview-section-.
+
+Avoid pointing at sidebar, workspace switcher, account, or Studio setup controls unless the user explicitly asks about Studio itself.
 `;
 
     return { skillId: "customer-preview", content };
