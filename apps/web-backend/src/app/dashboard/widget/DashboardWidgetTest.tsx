@@ -275,18 +275,21 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   const [generatedPreview, setGeneratedPreview] = useState<SiteImportPreview | null>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [importError, setImportError] = useState("");
+  const [widgetStatus, setWidgetStatus] = useState<"ready" | "loading" | "active" | "error">("ready");
+  const [widgetMessage, setWidgetMessage] = useState("Click the Skilly launcher to test the real voice flow.");
   const [previewUrl, setPreviewUrl] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [pointing, setPointing] = useState(false);
-  const [frameLoaded, setFrameLoaded] = useState(false);
   const [frameLikelyBlocked, setFrameLikelyBlocked] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const customerWidgetReadyRef = useRef(false);
+  const unsubscribersRef = useRef<Array<() => void>>([]);
   const host = generatedPreview?.host ?? (previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl));
   const label = launcherLabel || "Ask Skilly";
 
-  function startPointing() {
+  function startFallbackPointing() {
     setPointing(true);
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -297,13 +300,86 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
     }, 3000);
   }
 
+  function clearCustomerWidgetSubscriptions() {
+    unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
+    unsubscribersRef.current = [];
+  }
+
+  async function startCustomerWidget(surface: "generated" | "live") {
+    const targetUrl = normalizePreviewUrl(previewUrl || generatedPreview?.finalUrl || siteUrl);
+    const targetHost = hostFromUrl(targetUrl);
+    const goalParts = [
+      `Preview Skilly on ${targetHost}.`,
+      context.trim() ? `Customer goal: ${context.trim()}` : "Help the visitor understand this page and choose the next action.",
+      generatedPreview?.title ? `Imported page title: ${generatedPreview.title}.` : "",
+      uploadedFiles.length ? `Uploaded context files: ${uploadedFiles.join(", ")}.` : "",
+      surface === "live"
+        ? "The customer site is open in Studio's live preview frame; use the current preview context for guidance."
+        : "Use the generated preview content as the page context.",
+    ].filter(Boolean);
+
+    setWidgetStatus("loading");
+    setWidgetMessage("Starting the real Skilly voice preview. Allow microphone access if the browser asks.");
+
+    try {
+      await loadWidgetScript();
+      if (!window.Skilly) {
+        throw new Error("Skilly widget could not load");
+      }
+
+      if (!customerWidgetReadyRef.current) {
+        window.Skilly.destroy?.();
+        clearCustomerWidgetSubscriptions();
+        window.Skilly.init({
+          key: DASHBOARD_TEST_KEY,
+          skill: skillId,
+          backendUrl: "/api/dashboard/test-widget",
+          coreUrl: CORE_URL,
+          accentColor,
+          launcherLabel: label,
+        });
+        customerWidgetReadyRef.current = true;
+        unsubscribersRef.current.push(
+          window.Skilly.on?.("turn", () => {
+            setWidgetStatus("active");
+            setWidgetMessage("Skilly is listening. Click the Skilly launcher again to stop.");
+          }) ?? (() => {}),
+        );
+        unsubscribersRef.current.push(
+          window.Skilly.on?.("complete", () => {
+            setWidgetStatus("ready");
+            setWidgetMessage("Voice preview stopped. Click the launcher to test it again.");
+          }) ?? (() => {}),
+        );
+        unsubscribersRef.current.push(
+          window.Skilly.on?.("error", (payload) => {
+            const detail =
+              payload && typeof payload === "object" && "message" in payload
+                ? String((payload as { message?: unknown }).message)
+                : "Skilly could not start the voice preview.";
+            setWidgetStatus("error");
+            setWidgetMessage(detail);
+          }) ?? (() => {}),
+        );
+      }
+
+      window.Skilly.start(goalParts.join(" "));
+    } catch (error) {
+      customerWidgetReadyRef.current = false;
+      clearCustomerWidgetSubscriptions();
+      setWidgetStatus("error");
+      setWidgetMessage(error instanceof Error ? error.message : "Skilly could not start the voice preview.");
+      startFallbackPointing();
+    }
+  }
+
   async function generatePreview() {
     const nextPreviewUrl = normalizePreviewUrl(siteUrl);
     setImportStatus("loading");
     setImportError("");
     setPreviewUrl("");
     setFrameLikelyBlocked(false);
-    startPointing();
+    setWidgetMessage("Generate the preview, then click the Skilly launcher to test voice.");
 
     try {
       const response = await fetch("/api/dashboard/site-import", {
@@ -342,14 +418,13 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   function openLivePreview() {
     const nextPreviewUrl = normalizePreviewUrl(siteUrl);
     setPreviewUrl(nextPreviewUrl);
-    setFrameLoaded(false);
     setFrameLikelyBlocked(false);
-    startPointing();
+    setWidgetMessage("Open the live preview, then click the Skilly launcher to test voice.");
     if (frameTimerRef.current) {
       clearTimeout(frameTimerRef.current);
     }
     frameTimerRef.current = setTimeout(() => {
-      setFrameLikelyBlocked((isBlocked) => isBlocked || !frameLoaded);
+      setFrameLikelyBlocked(true);
       frameTimerRef.current = null;
     }, 3500);
   }
@@ -362,8 +437,13 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       if (frameTimerRef.current) {
         clearTimeout(frameTimerRef.current);
       }
+      clearCustomerWidgetSubscriptions();
+      if (customerWidgetReadyRef.current) {
+        window.Skilly?.destroy?.();
+      }
+      customerWidgetReadyRef.current = false;
     };
-  }, [frameLoaded]);
+  }, []);
 
   const generatedPreviewPanel = (
     <div className="relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#f7f4ec] text-gray-950">
@@ -500,7 +580,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       <button
         type="button"
         aria-label={label}
-        onClick={startPointing}
+        onClick={() => void startCustomerWidget("generated")}
         className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
         style={{ backgroundColor: accentColor }}
       >
@@ -571,7 +651,6 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           referrerPolicy="no-referrer"
           sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
           onLoad={() => {
-            setFrameLoaded(true);
             if (frameTimerRef.current) {
               clearTimeout(frameTimerRef.current);
               frameTimerRef.current = null;
@@ -600,7 +679,6 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
                 type="button"
                 onClick={() => {
                   setFrameLikelyBlocked(false);
-                  setFrameLoaded(false);
                   openLivePreview();
                 }}
                 className="rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
@@ -615,7 +693,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       <button
         type="button"
         aria-label={label}
-        onClick={startPointing}
+        onClick={() => void startCustomerWidget("live")}
         className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
         style={{ backgroundColor: accentColor }}
       >
@@ -706,6 +784,14 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         <div className="mt-4 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
           Generated preview is the default review path. Live iframe preview is optional and depends on the customer's
           site allowing <code className="font-mono text-gray-300">studio.tryskilly.app</code> to embed it.
+        </div>
+        <div className="mt-3 flex items-start gap-2 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
+          <StatusPill
+            tone={widgetStatus === "active" ? "green" : widgetStatus === "error" ? "red" : widgetStatus === "loading" ? "amber" : "neutral"}
+            label={widgetStatus}
+            showDot
+          />
+          <span>{widgetMessage}</span>
         </div>
       </div>
 
