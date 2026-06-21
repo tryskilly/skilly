@@ -131,6 +131,15 @@ ${bulletList(files)}
 Answer like the public website assistant that will later be installed on ${host}. Be concise, practical, and specific to this website. When the user asks how to use or evaluate the widget, explain what Skilly would say or do on this customer site.
 
 If the PAGE ELEMENTS section mentions Studio dashboard controls, treat them as the preview container only. Do not let those dashboard elements override the customer website context above.
+
+When pointing is useful, prefer these customer preview targets exactly as written:
+- [POINT:customer-preview-heading:${title}]
+- [POINT:customer-preview-primary-cta:Primary call to action]
+- [POINT:customer-preview-description:Website description]
+- [POINT:customer-preview-context:Skilly learning context]
+- [POINT:customer-live-preview-frame:${host} live preview frame]
+
+For questions or secondary sections, use PAGE ELEMENTS ids that start with customer-preview-question- or customer-preview-section-. Avoid pointing at sidebar, workspace switcher, account, or Studio setup controls unless the user explicitly asks about Studio itself.
 `;
 
     return { skillId: "customer-preview", content };

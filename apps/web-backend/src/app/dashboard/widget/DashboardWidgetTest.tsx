@@ -515,9 +515,15 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
             </div>
           </div>
         ) : generatedPreview ? (
-          <div className="mx-auto max-w-4xl overflow-hidden rounded-[14px] border border-[#ded8ce] bg-white shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
+          <div
+            className="mx-auto max-w-4xl overflow-hidden rounded-[14px] border border-[#ded8ce] bg-white shadow-[0_18px_48px_rgba(0,0,0,0.12)]"
+            data-skilly="customer-preview-page"
+            data-skilly-label={`${generatedPreview.host} preview page`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ece7df] px-5 py-3">
-              <div className="font-semibold">{generatedPreview.title}</div>
+              <div className="font-semibold" data-skilly="customer-preview-title" data-skilly-label={generatedPreview.title}>
+                {generatedPreview.title}
+              </div>
               <div className="flex flex-wrap gap-2 text-xs font-semibold text-neutral-500">
                 {(generatedPreview.navigation.length
                   ? generatedPreview.navigation
@@ -533,10 +539,18 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
             <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
               <section>
                 <div className="text-xs font-bold uppercase text-amber-700">{generatedPreview.host}</div>
-                <h3 className="mt-3 max-w-2xl text-3xl font-bold leading-tight tracking-normal">
+                <h3
+                  className="mt-3 max-w-2xl text-3xl font-bold leading-tight tracking-normal"
+                  data-skilly="customer-preview-heading"
+                  data-skilly-label={generatedPreview.headings[0] ?? generatedPreview.title}
+                >
                   {generatedPreview.headings[0] ?? generatedPreview.title}
                 </h3>
-                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600">
+                <p
+                  className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600"
+                  data-skilly="customer-preview-description"
+                  data-skilly-label="Website description"
+                >
                   {generatedPreview.description || generatedPreview.bodySummary}
                 </p>
                 <div className="mt-5 flex flex-wrap gap-2">
@@ -550,6 +564,8 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
                       <button
                         key={cta}
                         type="button"
+                        data-skilly={index === 0 ? "customer-preview-primary-cta" : `customer-preview-cta-${index + 1}`}
+                        data-skilly-label={cta}
                         className={
                           index === 0
                             ? "rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
@@ -562,15 +578,21 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
                 </div>
                 {generatedPreview.headings.length > 1 && (
                   <div className="mt-6 grid gap-2 sm:grid-cols-2">
-                    {generatedPreview.headings.slice(1, 5).map((heading) => (
+                    {generatedPreview.headings.slice(1, 5).map((heading, index) => (
                       <div key={heading} className="rounded-[10px] border border-[#ece7df] bg-[#faf8f4] p-3 text-sm font-semibold">
-                        {heading}
+                        <span data-skilly={`customer-preview-section-${index + 1}`} data-skilly-label={heading}>
+                          {heading}
+                        </span>
                       </div>
                     ))}
                   </div>
                 )}
               </section>
-              <aside className="rounded-[12px] border border-[#ece7df] bg-[#faf8f4] p-4">
+              <aside
+                className="rounded-[12px] border border-[#ece7df] bg-[#faf8f4] p-4"
+                data-skilly="customer-preview-context"
+                data-skilly-label="Skilly learning context"
+              >
                 <div className="text-sm font-bold">Skilly will learn from</div>
                 <ul className="mt-3 space-y-2 text-sm text-neutral-600">
                   <li>
@@ -586,8 +608,13 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
                   <>
                     <div className="mt-5 text-sm font-bold">Likely questions</div>
                     <div className="mt-2 space-y-2">
-                      {generatedPreview.questions.slice(0, 3).map((question) => (
-                        <div key={question} className="rounded-[8px] bg-white px-3 py-2 text-xs text-neutral-700">
+                      {generatedPreview.questions.slice(0, 3).map((question, index) => (
+                        <div
+                          key={question}
+                          className="rounded-[8px] bg-white px-3 py-2 text-xs text-neutral-700"
+                          data-skilly={`customer-preview-question-${index + 1}`}
+                          data-skilly-label={question}
+                        >
                           {question}
                         </div>
                       ))}
@@ -648,6 +675,8 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
 
   const livePreviewFrame = previewUrl ? (
     <div
+      data-skilly="customer-live-preview-frame"
+      data-skilly-label={`${host} live preview frame`}
       className={
         fullScreen
           ? "fixed inset-0 z-50 grid bg-[#0f0f10] text-gray-950"
