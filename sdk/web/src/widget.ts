@@ -10,8 +10,8 @@ import type { SkillyState } from "./types.js";
 
 // Inline SVGs so the widget has zero asset dependencies.
 const SKILLY_MARK_ICON = /* html */ `
-<svg class="skilly-launcher-mark" viewBox="0 0 80 80" aria-hidden="true">
-  <path d="M20 8C18 7 16 9 16 11L16 60C16 62 18 64 20 63L34 52C35 51 37 51 38 52L50 66C51 67 53 68 55 67L61 61C63 59 62 57 61 56L49 44C48 43 48 41 49 40L58 38C60 37 61 35 59 34L20 8Z" fill="currentColor"/>
+<svg class="skilly-launcher-mark" viewBox="0 0 1024 1024" aria-hidden="true">
+  <path d="M367 165c0-42 47-67 82-43l440 299c38 26 27 85-18 94l-118 24c-32 7-45 46-22 69l170 169c22 22 22 57 0 79l-77 77c-23 23-60 21-81-4L586 746c-20-24-56-27-80-8L425 801c-34 27-84 3-84-40V216c0-28 10-41 26-51Z" fill="currentColor"/>
 </svg>`;
 
 const CURSOR_ICON = /* html */ `
