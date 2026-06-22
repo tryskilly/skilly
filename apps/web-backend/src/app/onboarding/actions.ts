@@ -21,6 +21,7 @@ export async function onboardingCompanyAction(formData: FormData): Promise<void>
     await getRepo().updateTenantName(tenantId, name);
     await captureServerEvent("onboarding_company_named", {
       tenant_id: tenantId,
+      account_email: session.email ?? undefined,
       source_surface: "web_onboarding",
     });
     revalidatePath("/dashboard");

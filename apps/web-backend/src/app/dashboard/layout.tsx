@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { getRepo } from "@/db";
+import { isInternalAnalyticsEmail } from "@/lib/analyticsPolicy";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
 import { hasDashboardPeopleSurface } from "@/lib/dashboardSurfaces";
 import { AnalyticsProvider } from "../AnalyticsProvider";
@@ -42,7 +43,11 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   ].filter(Boolean).length;
 
   return (
-    <AnalyticsProvider tenantId={tenantId} tenantName={tenant?.name ?? "Workspace"} roleSurface={session.role}>
+    <AnalyticsProvider
+      tenantId={tenantId}
+      roleSurface={session.role}
+      analyticsSuppressed={isInternalAnalyticsEmail(session.email)}
+    >
       <AppShell
         tenantName={tenant?.name ?? "Workspace"}
         role={session.role}

@@ -1,3 +1,5 @@
+import { shouldSuppressServerAnalytics } from "./analyticsPolicy";
+
 type AnalyticsValue = string | number | boolean | null | undefined;
 
 export type AnalyticsProperties = Record<string, AnalyticsValue>;
@@ -14,15 +16,30 @@ function cleanProperties(properties: AnalyticsProperties): Record<string, string
   );
 }
 
+function providerSafeProperties(
+  properties: Record<string, string | number | boolean | null>,
+): Record<string, string | number | boolean | null> {
+  return Object.fromEntries(
+    Object.entries(properties).filter(([key]) => {
+      const normalized = key.toLowerCase();
+      return !normalized.includes("email") && !normalized.includes("phone");
+    }),
+  );
+}
+
 export async function captureServerEvent(
   event: string,
   properties: AnalyticsProperties = {},
   distinctId = properties.tenant_id ?? "skilly_web_backend",
 ): Promise<void> {
-  const cleaned = {
+  if (shouldSuppressServerAnalytics(properties)) {
+    return;
+  }
+
+  const cleaned = providerSafeProperties({
     ...cleanProperties(properties),
     source_surface: properties.source_surface ?? "web_backend",
-  };
+  });
 
   await Promise.allSettled([
     capturePostHogEvent(event, cleaned, String(distinctId)),

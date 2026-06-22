@@ -20,6 +20,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!accessToken || !productId) {
     await captureServerEvent("dashboard_checkout_failed", {
       tenant_id: tenantId,
+      account_email: session.email ?? undefined,
       reason: "billing_not_configured",
       source_surface: "web_backend",
     });
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   await captureServerEvent("dashboard_checkout_started", {
     tenant_id: tenantId,
+    account_email: session.email ?? undefined,
     source_surface: "web_dashboard",
   });
 
@@ -44,6 +46,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!response.ok) {
     await captureServerEvent("dashboard_checkout_failed", {
       tenant_id: tenantId,
+      account_email: session.email ?? undefined,
       status: response.status,
       reason: "polar_non_2xx",
       source_surface: "web_backend",
@@ -54,6 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const checkout = (await response.json()) as { url?: string; checkout_url?: string };
   await captureServerEvent("dashboard_checkout_url_created", {
     tenant_id: tenantId,
+    account_email: session.email ?? undefined,
     source_surface: "web_backend",
   });
   return NextResponse.json({ url: checkout.url ?? checkout.checkout_url ?? null }, { status: 200 });

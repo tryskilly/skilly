@@ -37,6 +37,7 @@ export async function POST(): Promise<NextResponse> {
   if (isOverQuota(quotaInput)) {
     await captureServerEvent("dashboard_test_widget_token_rejected", {
       tenant_id: tenant.id,
+      account_email: session.email ?? undefined,
       status: 429,
       reason: "quota",
       source_surface: "studio_dashboard",
@@ -54,6 +55,7 @@ export async function POST(): Promise<NextResponse> {
     await repo.recordUsage({ tenantId: tenant.id, kind: "token_mint", seconds: 0 });
     await captureServerEvent("dashboard_test_widget_token_minted", {
       tenant_id: tenant.id,
+      account_email: session.email ?? undefined,
       source_surface: "studio_dashboard",
     });
     return NextResponse.json({
@@ -65,6 +67,7 @@ export async function POST(): Promise<NextResponse> {
   } catch (error) {
     await captureServerEvent("dashboard_test_widget_token_failed", {
       tenant_id: tenant.id,
+      account_email: session.email ?? undefined,
       status: upstreamStatus(error),
       source_surface: "studio_dashboard",
     });

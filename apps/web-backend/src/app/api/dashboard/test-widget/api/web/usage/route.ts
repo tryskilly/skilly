@@ -48,6 +48,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   });
   await captureServerEvent("dashboard_test_widget_usage_reported", {
     tenant_id: session.tenantId,
+    account_email: session.email ?? undefined,
     seconds,
     source_surface: "studio_dashboard",
   });

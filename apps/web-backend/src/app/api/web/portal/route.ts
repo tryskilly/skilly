@@ -21,6 +21,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!accessToken) {
     await captureServerEvent("dashboard_portal_failed", {
       tenant_id: tenantId,
+      account_email: session.email ?? undefined,
       reason: "billing_not_configured",
       source_surface: "web_backend",
     });
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // No subscription yet → there's nothing to manage; tell the client to start checkout.
     await captureServerEvent("dashboard_portal_no_customer", {
       tenant_id: tenantId,
+      account_email: session.email ?? undefined,
       source_surface: "web_backend",
     });
     return NextResponse.json(
@@ -51,6 +53,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!response.ok) {
     await captureServerEvent("dashboard_portal_failed", {
       tenant_id: tenantId,
+      account_email: session.email ?? undefined,
       status: response.status,
       reason: "polar_non_2xx",
       source_surface: "web_backend",
@@ -61,6 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const portal = (await response.json()) as { url?: string };
   await captureServerEvent("dashboard_portal_opened", {
     tenant_id: tenantId,
+    account_email: session.email ?? undefined,
     source_surface: "web_dashboard",
   });
   return NextResponse.json({ url: portal.url ?? null }, { status: 200 });
