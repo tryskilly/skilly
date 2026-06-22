@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
+import { captureServerEvent } from "@/lib/analytics";
 import { setDashboardSession } from "@/lib/dashboardAuth";
 import {
   createSelfServeDashboardMembership,
@@ -39,14 +40,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // who happens to use the signup entry still just signs in normally.
     if (!membership && storedState.intent === "signup") {
       membership = await createSelfServeDashboardMembership(repo, auth);
-      await setDashboardSession({
-        role: membership.role,
-        tenantId: membership.tenantId,
-        issuedAt: Date.now(),
-        workosUserId: auth.user.id,
-        email: auth.user.email ?? membership.email,
-        workosOrganizationId: membership.workosOrganizationId ?? auth.workosOrganizationId,
-      });
+      await Promise.all([
+        setDashboardSession({
+          role: membership.role,
+          tenantId: membership.tenantId,
+          issuedAt: Date.now(),
+          workosUserId: auth.user.id,
+          email: auth.user.email ?? membership.email,
+          workosOrganizationId: membership.workosOrganizationId ?? auth.workosOrganizationId,
+        }),
+        captureServerEvent("dashboard_signup_completed", {
+          product_line: "builders",
+          funnel_stage: "activation",
+          tenant_id: membership.tenantId,
+          source_surface: "web_dashboard",
+        }, auth.user.id),
+      ]);
       const dashboardPath = storedState.nextPath.startsWith("/dashboard") ? storedState.nextPath : "/dashboard";
       const response = NextResponse.redirect(publicUrl(request, dashboardPath), { status: 303 });
       response.cookies.delete(WORKOS_STATE_COOKIE);

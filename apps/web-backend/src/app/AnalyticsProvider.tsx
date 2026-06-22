@@ -18,7 +18,10 @@ type AnalyticsProperties = Record<string, string | number | boolean | null | und
 const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
 
-function getDistinctId(): string {
+// Module-level identity state so all trackClientEvent() calls share one distinct_id.
+let _resolvedDistinctId: string | null = null;
+
+function getAnonymousDistinctId(): string {
   const key = "skilly_web_distinct_id";
   const existing = window.localStorage.getItem(key);
   if (existing) {
@@ -27,6 +30,17 @@ function getDistinctId(): string {
   const generated = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   window.localStorage.setItem(key, generated);
   return generated;
+}
+
+function getDistinctId(): string {
+  return _resolvedDistinctId ?? getAnonymousDistinctId();
+}
+
+function deriveFunnelStage(pathname: string): string {
+  if (pathname.startsWith("/dashboard/billing") || pathname.startsWith("/dashboard/people/account")) {
+    return "conversion";
+  }
+  return "activation";
 }
 
 function cleanProperties(properties: AnalyticsProperties): Record<string, string | number | boolean | null> {
@@ -85,17 +99,21 @@ export function AnalyticsProvider({
   tenantId,
   roleSurface = "tenant_admin",
   analyticsSuppressed = false,
+  workosUserId,
 }: {
   children: ReactNode;
   tenantId?: string;
   roleSurface?: "tenant_admin" | "super_admin" | "public";
   analyticsSuppressed?: boolean;
+  workosUserId?: string;
 }) {
   const pathname = usePathname();
   const baseProperties = useMemo(
     () => ({
       tenant_id: tenantId,
       role_surface: pathname.startsWith("/dashboard/admin") ? "super_admin" : roleSurface,
+      product_line: pathname.startsWith("/dashboard/people") ? "people" : "builders",
+      funnel_stage: deriveFunnelStage(pathname),
     }),
     [pathname, roleSurface, tenantId],
   );
@@ -103,6 +121,30 @@ export function AnalyticsProvider({
   useEffect(() => {
     window.__SKILLY_ANALYTICS_SUPPRESSED__ = analyticsSuppressed;
   }, [analyticsSuppressed]);
+
+  // Identity stitching: link the anonymous browser ID from the marketing site
+  // to the WorkOS user so the full marketing → signup → dashboard funnel is
+  // visible as one user profile in PostHog.
+  useEffect(() => {
+    if (!workosUserId || analyticsSuppressed || browserAnalyticsSuppressed() || !POSTHOG_KEY) {
+      return;
+    }
+    const anonId = getAnonymousDistinctId();
+    _resolvedDistinctId = workosUserId;
+    void fetch(`${POSTHOG_HOST.replace(/\/$/, "")}/capture/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({
+        api_key: POSTHOG_KEY,
+        event: "$identify",
+        properties: {
+          distinct_id: workosUserId,
+          $anon_distinct_id: anonId,
+        },
+      }),
+    }).catch(() => undefined);
+  }, [workosUserId, analyticsSuppressed]);
 
   useEffect(() => {
     if (analyticsSuppressed || browserAnalyticsSuppressed()) {

@@ -47,6 +47,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       tenantId={tenantId}
       roleSurface={session.role}
       analyticsSuppressed={isInternalAnalyticsEmail(session.email)}
+      workosUserId={session.workosUserId}
     >
       <AppShell
         tenantName={tenant?.name ?? "Workspace"}
