@@ -1,4 +1,5 @@
 import { getRepo } from "@/db";
+import { getBuilderPlans } from "@/domain/billing";
 import { getCurrentDashboardTenantId } from "@/lib/session";
 import { BillingCard } from "../BillingCard";
 import { PageHeader, Panel, PanelBody, PanelHeader, StatusPill } from "../v2";
@@ -8,6 +9,14 @@ export const dynamic = "force-dynamic";
 export default async function BillingPage() {
   const usage = await getRepo().getUsageSummary(await getCurrentDashboardTenantId());
   const hasPlan = usage.capSeconds > 0;
+  const plans = getBuilderPlans(process.env).map(({ id, name, priceMonthly, minutes, capSeconds, description }) => ({
+    id,
+    name,
+    priceMonthly,
+    minutes,
+    capSeconds,
+    description,
+  }));
 
   return (
     <div className="space-y-6">
@@ -18,7 +27,7 @@ export default async function BillingPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-        <BillingCard capSeconds={usage.capSeconds} />
+        <BillingCard capSeconds={usage.capSeconds} plans={plans} />
 
         <Panel>
           <PanelHeader title="How metering works" description="How Skilly meters usage and applies caps." />

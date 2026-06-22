@@ -3,19 +3,33 @@
 import { useState } from "react";
 import { Button } from "./v2";
 
+export interface BillingPlanOption {
+  id: "starter" | "studio" | "scale";
+  name: string;
+  priceMonthly: number;
+  minutes: number;
+  capSeconds: number;
+  description: string;
+}
+
 /**
  * Plan card (v2). Two flows — both preserved from v1, only the chrome changed:
- * - "Upgrade plan" (no active cap) → POST /api/web/checkout (Polar checkout).
+ * - "Upgrade plan" (no active cap) → POST /api/web/checkout (Polar checkout) with the selected plan.
  * - "Manage plan" (active cap) → POST /api/web/portal (Polar customer-portal
  *   session). If the tenant has no stored Polar customer id yet, the portal
  *   route returns { fallback: "checkout" } and we fall back to checkout so the
  *   user is never stuck.
  */
-export function BillingCard({ capSeconds }: { capSeconds: number }) {
+export function BillingCard({ capSeconds, plans }: { capSeconds: number; plans: BillingPlanOption[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasPlan = capSeconds > 0;
-  const plan = hasPlan ? `${Math.round(capSeconds / 60)} min / month` : "Free (no paid plan)";
+  const currentPlan = plans.find((candidate) => candidate.capSeconds === capSeconds);
+  const plan = hasPlan
+    ? currentPlan
+      ? `${currentPlan.name} · ${currentPlan.minutes.toLocaleString()} min / month`
+      : `${Math.round(capSeconds / 60).toLocaleString()} min / month`
+    : "Free (no paid plan)";
 
   async function redirectTo(url: string | undefined | null): Promise<boolean> {
     if (url) {
@@ -25,8 +39,12 @@ export function BillingCard({ capSeconds }: { capSeconds: number }) {
     return false;
   }
 
-  async function startCheckout(): Promise<void> {
-    const response = await fetch("/api/web/checkout", { method: "POST" });
+  async function startCheckout(planId = "starter"): Promise<void> {
+    const response = await fetch("/api/web/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: planId }),
+    });
     const data = (await response.json()) as { url?: string; error?: string };
     if (await redirectTo(data.url)) {
       return;
@@ -85,6 +103,48 @@ export function BillingCard({ capSeconds }: { capSeconds: number }) {
         </Button>
       </div>
       {error && <p className="mt-2 text-xs text-[#fca5a5]">{error}</p>}
+      <div className="mt-5 grid gap-3">
+        {plans.map((option) => {
+          const isCurrent = hasPlan && option.capSeconds === capSeconds;
+          return (
+            <div
+              key={option.id}
+              className={`rounded-[14px] border p-4 ${
+                isCurrent ? "border-amber-500/45 bg-amber-500/10" : "border-line-soft bg-black/15"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-bold text-gray-100">{option.name}</div>
+                  <div className="mt-1 text-xs text-muted">{option.description}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-gray-100">${option.priceMonthly}</div>
+                  <div className="text-xs text-muted">/mo</div>
+                </div>
+              </div>
+              <div className="mt-3 text-sm text-gray-300">{option.minutes.toLocaleString()} minutes / month</div>
+              {!hasPlan && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setError(null);
+                    void startCheckout(option.id)
+                      .catch((error) => setError(error instanceof Error ? error.message : "Something went wrong."))
+                      .finally(() => setBusy(false));
+                  }}
+                  className="mt-3 h-10 w-full rounded-[8px] border border-line-soft bg-white/[0.06] text-sm font-bold text-gray-100 transition hover:bg-white/[0.1] disabled:opacity-60"
+                >
+                  {busy ? "Opening…" : `Choose ${option.name}`}
+                </button>
+              )}
+              {isCurrent && <div className="mt-3 text-xs font-bold text-amber-300">Current plan</div>}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

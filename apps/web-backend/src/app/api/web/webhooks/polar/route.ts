@@ -10,7 +10,7 @@ import { captureServerEvent } from "@/lib/analytics";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_PLAN_CAP_SECONDS = 36_000; // 10h/month
+const DEFAULT_PLAN_CAP_SECONDS = 24_000; // Starter fallback: 400 min/month
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = process.env.POLAR_WEBHOOK_SECRET;
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await captureServerEvent("tenant_plan_cap_updated", {
       tenant_id: update.tenantId,
       cap_seconds: update.capSeconds,
+      plan: update.plan,
       source_surface: "web_backend",
     });
   } else {
