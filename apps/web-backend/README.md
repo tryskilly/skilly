@@ -159,6 +159,29 @@ WorkOS dashboard redirect URI:
 - `https://studio.tryskilly.app/api/auth/workos/callback`
 - Temporary deploy URL callbacks may be added during DNS rollout.
 
+Mac app user migration:
+
+- Existing Mac app users already live in WorkOS. To let them sign in to Studio,
+  create explicit `dashboard_memberships` for those WorkOS identities.
+- The migration script creates one Studio workspace per unmapped WorkOS user and
+  adds that user as `super_admin`; it does not merge users into one shared
+  tenant.
+- Dry run first:
+
+  ```bash
+  WORKOS_API_KEY=... DATABASE_URL=... bun run migrate:workos-users
+  ```
+
+- Apply after reviewing the output:
+
+  ```bash
+  WORKOS_API_KEY=... DATABASE_URL=... bun run migrate:workos-users -- --apply
+  ```
+
+- Useful options: `--limit 10`, `--skip-unverified`, `--role tenant_admin`,
+  `--cap-seconds 0`. Keep `--cap-seconds 0` for imported Mac users unless you
+  intentionally want to grant Builder widget minutes.
+
 Production database setup:
 
 - Preferred: run `bun run db:migrate` against Neon, then seed the initial
