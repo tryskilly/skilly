@@ -52,11 +52,15 @@ export async function authenticateWebRequest(
   // native client) do we consult the app-id allowlist — this prevents a web
   // caller from bypassing origin checks with a spoofed app-id header.
   if (params.origin) {
-    if (!matchOrigin(params.origin, lookup.tenant.allowedOrigins)) {
+    const projects = await repo.listProjects(lookup.tenant.id);
+    const projectAllowsOrigin = projects.some((project) => matchOrigin(params.origin!, project.allowedOrigins));
+    if (!projectAllowsOrigin && !matchOrigin(params.origin, lookup.tenant.allowedOrigins)) {
       return { ok: false, status: 403, error: "origin not allowed for this key" };
     }
   } else if (params.appId) {
-    if (!matchAppId(params.appId, lookup.tenant.allowedAppIds)) {
+    const projects = await repo.listProjects(lookup.tenant.id);
+    const projectAllowsAppId = projects.some((project) => matchAppId(params.appId!, project.allowedAppIds));
+    if (!projectAllowsAppId && !matchAppId(params.appId, lookup.tenant.allowedAppIds)) {
       return { ok: false, status: 403, error: "app id not allowed for this key" };
     }
   } else {

@@ -27,6 +27,20 @@ export interface TenantSkill {
   content: string;
 }
 
+export interface Project {
+  id: string;
+  tenantId: string;
+  name: string;
+  slug: string;
+  skillId: string;
+  skillContent: string;
+  allowedOrigins: string[];
+  allowedAppIds: string[];
+  widgetConfig: WidgetConfig;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface UsageEvent {
   tenantId: string;
   kind: "token_mint" | "session_seconds";
@@ -110,6 +124,22 @@ export interface WebBackendRepo {
   getTenantSkill(tenantId: string, skillId: string): Promise<TenantSkill | null>;
   /** Every saved skill for the tenant, ordered by skill id. */
   listTenantSkills(tenantId: string): Promise<TenantSkill[]>;
+  /** Ensure every workspace has one project that mirrors existing tenant-level setup. */
+  ensureDefaultProject(tenantId: string): Promise<Project>;
+  /** Projects owned by a workspace, ordered newest-first. */
+  listProjects(tenantId: string): Promise<Project[]>;
+  /** A single project, scoped to the workspace. */
+  getProject(tenantId: string, projectId: string): Promise<Project | null>;
+  /** Find a project by the skill id used in the embed snippet. */
+  getProjectBySkillId(tenantId: string, skillId: string): Promise<Project | null>;
+  /** Persist project-specific skill content. */
+  saveProjectSkill(projectId: string, content: string): Promise<void>;
+  /** Replace project-specific allowed web origins. */
+  setProjectOrigins(projectId: string, origins: string[]): Promise<void>;
+  /** Replace project-specific allowed native app ids. */
+  setProjectAppIds(projectId: string, appIds: string[]): Promise<void>;
+  /** Save project-specific widget config. */
+  saveProjectWidgetConfig(projectId: string, config: WidgetConfig): Promise<void>;
   /** Seconds of metered usage for the tenant in the current billing period. */
   getUsageSecondsThisPeriod(tenantId: string): Promise<number>;
   /** Append a metered usage event (with optional v2 dimensions). */

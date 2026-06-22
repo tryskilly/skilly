@@ -12,16 +12,16 @@ export default async function BillingPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Billing"
-        title="Manage plan and quota."
-        description="Tenant caps gate Realtime token minting across web, iOS, Android, and future desktop surfaces."
+        eyebrow="For builders · Billing"
+        title="Plan and minutes."
+        description="One builder plan pools voice minutes across all customer sites and apps in this workspace."
       />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         <BillingCard capSeconds={usage.capSeconds} />
 
         <Panel>
-          <PanelHeader title="Billing model" description="How Skilly meters usage and applies caps." />
+          <PanelHeader title="How metering works" description="How Skilly meters usage and applies caps." />
           <PanelBody>
             <div className="grid gap-3 text-sm text-gray-300">
               <p>

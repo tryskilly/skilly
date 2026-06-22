@@ -175,13 +175,16 @@ export function Panel({
   children,
   className,
   elevated = false,
+  id,
 }: {
   children: ReactNode;
   className?: string;
   elevated?: boolean;
+  id?: string;
 }) {
   return (
     <section
+      id={id}
       className={`min-w-0 rounded-[16px] border border-line shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ${elevated ? "bg-[linear-gradient(180deg,rgba(255,255,255,0.065),rgba(255,255,255,0.04))]" : "bg-[linear-gradient(180deg,rgba(255,255,255,0.058),rgba(255,255,255,0.034))]"} ${className ?? ""}`}
     >
       {children}

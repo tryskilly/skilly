@@ -75,9 +75,9 @@ export default async function UsagePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Usage"
-        title="Track voice minutes and sessions."
-        description="Metering tracks monthly session seconds for tenant quota. Session events now carry page, domain, duration, and result dimensions."
+        eyebrow="For builders · Usage"
+        title="Voice minutes across projects."
+        description="Minutes are pooled at the builder workspace today, while sessions carry page, domain, duration, and result dimensions for project-level reporting."
       />
 
       {/* Metric strip */}

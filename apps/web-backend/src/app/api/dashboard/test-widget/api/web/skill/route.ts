@@ -4,7 +4,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
 import { getDashboardSession } from "@/lib/dashboardAuth";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -166,13 +165,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(previewSkill);
   }
 
-  const selection = await getDashboardSkillSelection(repo, session.tenantId);
-  const skill =
-    requestedSkillId && requestedSkillId !== selection.skillId
+  const activeProject = await repo.ensureDefaultProject(session.tenantId);
+  const requestedProject = requestedSkillId ? await repo.getProjectBySkillId(session.tenantId, requestedSkillId) : null;
+  const project = requestedProject ?? activeProject;
+  const legacySkill =
+    requestedSkillId && requestedSkillId !== project.skillId
       ? await repo.getTenantSkill(session.tenantId, requestedSkillId)
-      : selection.skill;
+      : null;
+  const skill = legacySkill
+    ? { skillId: legacySkill.skillId, content: legacySkill.content }
+    : { skillId: project.skillId, content: project.skillContent };
 
-  if (!skill) {
+  if (!skill.content.trim()) {
     return NextResponse.json({ error: "skill not found" }, { status: 404 });
   }
 

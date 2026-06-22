@@ -5,8 +5,8 @@ import { getRepo } from "@/db";
 import { validateSkillContent } from "@/domain/skillValidation";
 import { captureServerEvent } from "@/lib/analytics";
 import { requireDashboardSession, setDashboardSession } from "@/lib/dashboardAuth";
+import { getDashboardProjectSelection } from "@/lib/dashboardProject";
 import { getCurrentDashboardTenantId } from "@/lib/session";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 
 export interface CreateKeyState {
   rawKey?: string;
@@ -64,7 +64,10 @@ export async function addOriginAction(formData: FormData): Promise<void> {
   }
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const tenant = await repo.getTenant(tenantId);
+  const [{ project }, tenant] = await Promise.all([getDashboardProjectSelection(repo), repo.getTenant(tenantId)]);
+  if (!project.allowedOrigins.includes(origin)) {
+    await repo.setProjectOrigins(project.id, [...project.allowedOrigins, origin]);
+  }
   if (tenant && !tenant.allowedOrigins.includes(origin)) {
     await repo.setTenantOrigins(tenantId, [...tenant.allowedOrigins, origin]);
     await captureServerEvent("dashboard_origin_added", {
@@ -82,7 +85,11 @@ export async function removeOriginAction(formData: FormData): Promise<void> {
   const origin = String(formData.get("origin") ?? "");
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const tenant = await repo.getTenant(tenantId);
+  const [{ project }, tenant] = await Promise.all([getDashboardProjectSelection(repo), repo.getTenant(tenantId)]);
+  await repo.setProjectOrigins(
+    project.id,
+    project.allowedOrigins.filter((existing) => existing !== origin),
+  );
   if (tenant) {
     await repo.setTenantOrigins(
       tenantId,
@@ -107,7 +114,10 @@ export async function addAppIdAction(formData: FormData): Promise<void> {
   }
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const tenant = await repo.getTenant(tenantId);
+  const [{ project }, tenant] = await Promise.all([getDashboardProjectSelection(repo), repo.getTenant(tenantId)]);
+  if (!project.allowedAppIds.includes(appId)) {
+    await repo.setProjectAppIds(project.id, [...project.allowedAppIds, appId]);
+  }
   if (tenant && !tenant.allowedAppIds.includes(appId)) {
     await repo.setTenantAppIds(tenantId, [...tenant.allowedAppIds, appId]);
     await captureServerEvent("dashboard_app_id_added", {
@@ -125,7 +135,11 @@ export async function removeAppIdAction(formData: FormData): Promise<void> {
   const appId = String(formData.get("appId") ?? "");
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const tenant = await repo.getTenant(tenantId);
+  const [{ project }, tenant] = await Promise.all([getDashboardProjectSelection(repo), repo.getTenant(tenantId)]);
+  await repo.setProjectAppIds(
+    project.id,
+    project.allowedAppIds.filter((existing) => existing !== appId),
+  );
   if (tenant) {
     await repo.setTenantAppIds(
       tenantId,
@@ -165,7 +179,9 @@ export async function saveSkillAction(
     return { ok: false, issues: validation.issues };
   }
   const repo = getRepo();
-  const { skillId } = await getDashboardSkillSelection(repo, tenantId);
+  const { project } = await getDashboardProjectSelection(repo);
+  const skillId = project.skillId;
+  await repo.saveProjectSkill(project.id, content);
   await repo.saveTenantSkill(tenantId, skillId, content);
   await captureServerEvent("dashboard_skill_saved", {
     tenant_id: tenantId,
@@ -208,7 +224,10 @@ export async function saveWidgetConfigAction(
   }
   const tenantId = await getCurrentDashboardTenantId();
   try {
-    await getRepo().saveWidgetConfig(tenantId, { accentColor, locale, launcherLabel });
+    const repo = getRepo();
+    const { project } = await getDashboardProjectSelection(repo);
+    await repo.saveProjectWidgetConfig(project.id, { accentColor, locale, launcherLabel });
+    await repo.saveWidgetConfig(tenantId, { accentColor, locale, launcherLabel });
     await captureServerEvent("dashboard_widget_config_saved", {
       tenant_id: tenantId,
       locale,

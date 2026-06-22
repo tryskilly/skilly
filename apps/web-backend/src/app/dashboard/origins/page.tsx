@@ -1,6 +1,7 @@
 import { getRepo } from "@/db";
 import { getCurrentDashboardTenantId } from "@/lib/session";
 import { addAppIdAction, addOriginAction, removeAppIdAction, removeOriginAction } from "../actions";
+import { ProjectContextPanel } from "../ProjectContextPanel";
 import {
   Button,
   ConfirmRemoveButton,
@@ -15,26 +16,30 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function OriginsPage() {
-  const tenant = await getRepo().getTenant(await getCurrentDashboardTenantId());
+  const repo = getRepo();
+  const tenantId = await getCurrentDashboardTenantId();
+  const project = await repo.ensureDefaultProject(tenantId);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Domains"
-        title="Where can Skilly run?"
-        description="Origins protect the web widget. Native app IDs protect future iOS and Android SDK requests. Both are enforced on every token mint."
+        eyebrow="For builders · Allow"
+        title="Where is this project allowed to run?"
+        description="Web projects use allowed origins. Native projects use app IDs. Both are enforced on every token mint."
       />
+
+      <ProjectContextPanel skillId={project.skillId} surfaces={["Web origins", "Native app IDs"]} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel>
           <PanelHeader
-            title="Allowed web origins"
+            title="Web origins"
             description="Exact origins, or a single wildcard label like https://*.acme.com."
           />
           <PanelBody>
-            {tenant?.allowedOrigins.length ? (
+            {project.allowedOrigins.length ? (
               <ul className="divide-y divide-line-soft">
-                {tenant.allowedOrigins.map((origin) => (
+                {project.allowedOrigins.map((origin) => (
                   <li key={origin} className="flex items-center justify-between gap-4 py-3">
                     <span className="font-mono text-[13px] text-gray-300">{origin}</span>
                     <ConfirmRemoveButton
@@ -53,7 +58,7 @@ export default async function OriginsPage() {
               </ul>
             ) : (
               <div className="rounded-[12px] border border-line-soft bg-white/[0.035] p-4 text-sm text-muted">
-                No web origins configured yet.
+                No web origins configured for this project yet.
               </div>
             )}
             <form action={addOriginAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -67,13 +72,13 @@ export default async function OriginsPage() {
 
         <Panel>
           <PanelHeader
-            title="Allowed app IDs"
+            title="Native app IDs"
             description="iOS bundle IDs or Android package names. Trailing .* wildcard is supported."
           />
           <PanelBody>
-            {tenant?.allowedAppIds.length ? (
+            {project.allowedAppIds.length ? (
               <ul className="divide-y divide-line-soft">
-                {tenant.allowedAppIds.map((appId) => (
+                {project.allowedAppIds.map((appId) => (
                   <li key={appId} className="flex items-center justify-between gap-4 py-3">
                     <span className="font-mono text-[13px] text-gray-300">{appId}</span>
                     <ConfirmRemoveButton
@@ -92,7 +97,7 @@ export default async function OriginsPage() {
               </ul>
             ) : (
               <div className="rounded-[12px] border border-line-soft bg-white/[0.035] p-4 text-sm text-muted">
-                No native app IDs configured yet.
+                No native app IDs configured for this project yet.
               </div>
             )}
             <form action={addAppIdAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -102,7 +107,7 @@ export default async function OriginsPage() {
               </Button>
             </form>
             <div className="mt-4 flex items-center gap-2">
-              <StatusPill tone="neutral" label={`${tenant?.allowedOrigins.length ?? 0} origins · ${tenant?.allowedAppIds.length ?? 0} app IDs`} />
+              <StatusPill tone="neutral" label={`${project.allowedOrigins.length} origins · ${project.allowedAppIds.length} app IDs`} />
             </div>
           </PanelBody>
         </Panel>

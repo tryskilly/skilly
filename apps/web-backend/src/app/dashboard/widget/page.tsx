@@ -1,6 +1,5 @@
 import { getRepo } from "@/db";
 import { getCurrentDashboardTenantId } from "@/lib/session";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   CodeBlock,
   PageHeader,
@@ -10,17 +9,18 @@ import {
 } from "../v2";
 import { CustomerWebsitePreview, StudioAssistantPreview } from "./DashboardWidgetTest";
 import { WidgetConfigForm } from "./WidgetConfigForm";
+import { ProjectContextPanel } from "../ProjectContextPanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function WidgetPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [keys, config, skillSelection] = await Promise.all([
+  const [keys, project] = await Promise.all([
     repo.listApiKeys(tenantId),
-    repo.getWidgetConfig(tenantId),
-    getDashboardSkillSelection(repo, tenantId),
+    repo.ensureDefaultProject(tenantId),
   ]);
+  const config = project.widgetConfig;
   const publishableKey = keys.find((key) => key.keyType === "publishable" && !key.revoked);
   const displayKey = publishableKey
     ? `${publishableKey.prefix}_...${publishableKey.last4}`
@@ -32,20 +32,22 @@ export default async function WidgetPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Widget"
-        title="Preview Skilly on your website."
-        description="Enter a website URL, add product context or docs, and test Skilly over the live site first. Studio falls back to a generated preview only when embedding is blocked."
+        eyebrow="For builders · Style and test"
+        title="Style the launcher and test the project."
+        description="Set the launcher appearance, preview Skilly on the customer site, and use generated preview only when the live site blocks embedding."
       />
+
+      <ProjectContextPanel skillId={project.skillId} surfaces={["Style", "Test"]} />
 
       <div id="customer-website-preview" className="scroll-mt-24">
         <Panel>
           <PanelHeader
             title="Live customer preview"
-            description="Studio opens the actual site when possible, overlays Skilly from the parent page, and uses generated preview only as the blocked-iframe fallback."
+            description="Live preview is the primary path. The generated page is only the fallback when browser security blocks embedding."
           />
           <PanelBody>
             <CustomerWebsitePreview
-              skillId={skillSelection.skillId}
+              skillId={project.skillId}
               accentColor={config.accentColor}
               launcherLabel={config.launcherLabel}
             />
@@ -57,7 +59,7 @@ export default async function WidgetPage() {
         <Panel>
           <PanelHeader
             title="Appearance"
-            description="Accent color and language are injected into your embed snippet. The launcher label personalizes the button."
+            description="Accent, language, and launcher label are saved for this project setup."
           />
           <PanelBody>
             <WidgetConfigForm
@@ -69,7 +71,7 @@ export default async function WidgetPage() {
         </Panel>
 
         <Panel>
-          <PanelHeader title="Your embed snippet" description="After the preview feels right, drop this into your site." />
+          <PanelHeader title="Embed snippet" description="After the preview feels right, install this on the customer site." />
           <PanelBody>
             <CodeBlock
               language="html"
@@ -77,7 +79,7 @@ export default async function WidgetPage() {
               highlight={["data-skilly-key", "data-skilly-skill", "data-skilly-backend-url", "data-skilly-core-url", "data-skilly-accent", "data-skilly-locale"]}
               code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
-        data-skilly-skill="${skillSelection.skillId}"
+        data-skilly-skill="${project.skillId}"
         data-skilly-backend-url="https://studio.tryskilly.app"
         data-skilly-core-url="https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js"
         data-skilly-accent="${config.accentColor}"

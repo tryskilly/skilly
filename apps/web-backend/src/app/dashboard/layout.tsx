@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { getRepo } from "@/db";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
+import { hasDashboardPeopleSurface } from "@/lib/dashboardSurfaces";
 import { AnalyticsProvider } from "../AnalyticsProvider";
 import { AppShell } from "./v2";
 
@@ -16,18 +16,18 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const session = await requireDashboardSession();
   const tenantId = session.tenantId;
   const repo = getRepo();
-  const [tenant, keys, skillSelection, switchableTenants, usage] = await Promise.all([
+  const [tenant, keys, project, switchableTenants, usage] = await Promise.all([
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),
-    getDashboardSkillSelection(repo, tenantId),
+    repo.ensureDefaultProject(tenantId),
     // Only super_admins see the tenant switcher; load the directory for them.
     session.role === "super_admin" ? repo.listTenants() : Promise.resolve([]),
     repo.getUsageSummary(tenantId),
   ]);
 
-  const hasOrigin = Boolean(tenant?.allowedOrigins.length);
+  const hasOrigin = Boolean(project.allowedOrigins.length || project.allowedAppIds.length);
   const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
-  const hasSkill = Boolean(skillSelection.skill?.content.trim());
+  const hasSkill = Boolean(project.skillContent.trim());
   const needsSetup = !(hasOrigin && hasPublishableKey && hasSkill);
 
   // Readiness: 1 tenant, 2 origin, 3 publishable key, 4 install (origin+key),
@@ -54,6 +54,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         readinessTotal={READINESS_TOTAL}
         usedSecondsThisMonth={usage.usageSecondsThisPeriod}
         usageCapSeconds={usage.capSeconds}
+        hasPeopleSurface={hasDashboardPeopleSurface(session)}
       >
         {children}
       </AppShell>

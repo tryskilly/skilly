@@ -7,44 +7,32 @@ import Link from "next/link";
  */
 export function Footer({ variant = "dashboard" }: { variant?: "dashboard" | "auth" }) {
   const year = new Date().getFullYear();
-  const docsHref = variant === "auth" ? "/login" : "/dashboard/install";
+  const docsHref = variant === "auth" ? "/docs" : "/dashboard/docs";
+  const statusHref = variant === "auth" ? "/status" : "/dashboard/status";
+  const privacyHref = variant === "auth" ? "/privacy" : "/dashboard/privacy";
+  const termsHref = variant === "auth" ? "/terms" : "/dashboard/privacy";
 
   return (
-    <footer className="border-t border-line-soft px-4 py-6 md:px-8">
+    <footer className="skilly-dashboard-footer shrink-0 border-t border-line-soft px-4 py-4 md:px-8">
       <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-3 text-xs text-muted">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <Link href={docsHref} className="transition hover:text-gray-200">
             Docs
           </Link>
           <span className="text-white/15">·</span>
-          <a
-            href="https://status.tryskilly.app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition hover:text-gray-200"
-          >
+          <Link href={statusHref} className="transition hover:text-gray-200">
             Status
-          </a>
+          </Link>
           <span className="text-white/15">·</span>
-          <a
-            href="https://tryskilly.app/privacy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition hover:text-gray-200"
-          >
+          <Link href={privacyHref} className="transition hover:text-gray-200">
             Privacy
-          </a>
+          </Link>
           {variant === "auth" && (
             <>
               <span className="text-white/15">·</span>
-              <a
-                href="https://tryskilly.app/terms"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="transition hover:text-gray-200"
-              >
+              <Link href={termsHref} className="transition hover:text-gray-200">
                 Terms
-              </a>
+              </Link>
             </>
           )}
         </div>

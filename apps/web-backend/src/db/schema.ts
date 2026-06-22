@@ -113,10 +113,37 @@ export const tenantWidgetConfigs = pgTable(
   },
 );
 
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    skillId: text("skill_id").notNull().default("default"),
+    skillContent: text("skill_content").notNull().default(""),
+    allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'::text[]`),
+    allowedAppIds: text("allowed_app_ids").array().notNull().default(sql`'{}'::text[]`),
+    accentColor: text("accent_color").notNull().default("#f59e0b"),
+    locale: text("locale").notNull().default("en"),
+    launcherLabel: text("launcher_label"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("projects_tenant_slug_key").on(table.tenantId, table.slug),
+    unique("projects_tenant_skill_id_key").on(table.tenantId, table.skillId),
+    index("projects_tenant_idx").on(table.tenantId),
+  ],
+);
+
 export const tenantsRelations = relations(tenants, ({ many, one }) => ({
   apiKeys: many(apiKeys),
   dashboardMemberships: many(dashboardMemberships),
   skills: many(tenantSkills),
   usageEvents: many(usageEvents),
   widgetConfig: one(tenantWidgetConfigs),
+  projects: many(projects),
 }));

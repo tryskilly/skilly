@@ -19,15 +19,15 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Settings"
+        eyebrow="For builders · Settings"
         eyebrowTone="neutral"
-        title="Workspace administration."
-        description="Company profile, team, and tenant identifiers. Super-admin controls live in the dedicated tenant directory."
+        title="Builder workspace settings."
+        description="Company profile, team access, authentication status, and tenant identifiers. Project setup lives under each site or app."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel>
-          <PanelHeader title="Company profile" description="The active workspace resolved by the current session." />
+          <PanelHeader title="Builder workspace" description="The account-level workspace resolved by the current session." />
           <PanelBody>
             <DisplayRow label="Name">{tenant?.name ?? "Unknown workspace"}</DisplayRow>
             <div className="border-b border-line-soft py-[13px]">
@@ -41,7 +41,7 @@ export default async function SettingsPage() {
         </Panel>
 
         <Panel>
-          <PanelHeader title="Roles" description="Two product surfaces with separate permissions." />
+          <PanelHeader title="Access model" description="Builder and People surfaces stay separate unless the account has both." />
           <PanelBody>
             <div className="space-y-3 text-sm text-gray-300">
               <div className="rounded-[12px] border border-line-soft bg-white/[0.035] p-3">

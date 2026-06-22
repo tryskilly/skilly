@@ -69,3 +69,46 @@ body {
     var(--color-gray-950);
   background-attachment: fixed;
 }
+
+.skilly-dashboard-shell {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: clip;
+}
+
+@media (min-width: 1024px) {
+  .skilly-dashboard-shell {
+    display: grid;
+    grid-template-columns: var(--spacing-sidebar) minmax(0, 1fr);
+  }
+}
+
+.skilly-dashboard-main {
+  display: flex;
+  min-width: 0;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.skilly-dashboard-topbar,
+.skilly-dashboard-tenantbar,
+.skilly-dashboard-footer {
+  flex: 0 0 auto;
+}
+
+.skilly-dashboard-topbar {
+  height: var(--spacing-topbar);
+}
+
+.skilly-dashboard-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

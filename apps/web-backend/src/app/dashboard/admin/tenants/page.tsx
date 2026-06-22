@@ -1,6 +1,5 @@
 import { getRepo } from "@/db";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   ButtonLink,
   DataTable,
@@ -27,18 +26,18 @@ export default async function AdminTenantsPage() {
   const tenants = await repo.listTenants();
   const summaries = await Promise.all(
     tenants.map(async (tenant) => {
-      const [usage, metrics, keys, skillSelection, members] = await Promise.all([
+      const [usage, metrics, keys, project, members] = await Promise.all([
         repo.getUsageSummary(tenant.id),
         repo.getUsageMetrics(tenant.id),
         repo.listApiKeys(tenant.id),
-        getDashboardSkillSelection(repo, tenant.id),
+        repo.ensureDefaultProject(tenant.id),
         repo.listDashboardMemberships(tenant.id),
       ]);
-      const hasOrigin = tenant.allowedOrigins.length > 0;
+      const hasOrigin = project.allowedOrigins.length > 0 || project.allowedAppIds.length > 0;
       const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
-      const hasSkill = Boolean(skillSelection.skill?.content.trim());
+      const hasSkill = Boolean(project.skillContent.trim());
       const configured = hasOrigin && hasPublishableKey && hasSkill;
-      return { tenant, usage, metrics, members, hasOrigin, hasPublishableKey, hasSkill, configured };
+      return { tenant, project, usage, metrics, members, hasOrigin, hasPublishableKey, hasSkill, configured };
     }),
   );
 
@@ -82,7 +81,7 @@ export default async function AdminTenantsPage() {
                 <Th>Actions</Th>
               </DataTableHeader>
               <DataTableBody>
-                {summaries.map(({ tenant, usage, metrics, members, configured, hasOrigin, hasPublishableKey, hasSkill }) => {
+                {summaries.map(({ tenant, project, usage, metrics, members, configured, hasOrigin, hasPublishableKey, hasSkill }) => {
                   const usedMinutes = Math.round(usage.usageSecondsThisPeriod / 60);
                   const capMinutes = usage.capSeconds > 0 ? Math.round(usage.capSeconds / 60) : 0;
                   const errorPercent = metrics.sessionCount > 0 ? Math.round(metrics.errorRate * 100) : 0;
@@ -124,7 +123,7 @@ export default async function AdminTenantsPage() {
                           label={metrics.sessionCount > 0 ? `${errorPercent}%` : "—"}
                         />
                       </Td>
-                      <Td align="right" mono>{tenant.allowedOrigins.length}</Td>
+                      <Td align="right" mono>{project.allowedOrigins.length}</Td>
                       <Td align="right" mono>{members.length}</Td>
                       <Td>
                         <div className="flex flex-wrap gap-2">

@@ -17,6 +17,18 @@ export async function getDashboardSkillSelection(
   repo: WebBackendRepo,
   tenantId: string,
 ): Promise<DashboardSkillSelection> {
+  const project = await repo.ensureDefaultProject(tenantId);
+  if (project.skillContent.trim()) {
+    return {
+      skillId: project.skillId,
+      skill: {
+        tenantId,
+        skillId: project.skillId,
+        content: project.skillContent,
+      },
+    };
+  }
+
   const defaultSkill = await repo.getTenantSkill(tenantId, DEFAULT_SKILL_ID);
   if (defaultSkill) {
     return { skillId: DEFAULT_SKILL_ID, skill: defaultSkill };

@@ -253,6 +253,11 @@ interface SiteImportPreview {
   bodySummary: string;
 }
 
+interface UploadedContextFile {
+  name: string;
+  text: string;
+}
+
 function normalizePreviewUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim();
   if (!trimmed) {
@@ -286,6 +291,21 @@ function compactList(values: string[], limit: number): string[] {
   return values.map((value) => value.trim()).filter(Boolean).slice(0, limit);
 }
 
+async function readContextFiles(fileList: FileList | null): Promise<UploadedContextFile[]> {
+  const files = Array.from(fileList ?? []).slice(0, 5);
+  const readableFiles = files.filter((file) =>
+    ["text/plain", "text/markdown", "text/csv", "application/json"].includes(file.type) ||
+    /\.(txt|md|markdown|csv|json)$/i.test(file.name),
+  );
+
+  return Promise.all(
+    readableFiles.map(async (file) => ({
+      name: file.name,
+      text: (await file.text()).slice(0, 5000),
+    })),
+  );
+}
+
 export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: CustomerWebsitePreviewProps) {
   const [siteUrl, setSiteUrl] = useState("");
   const [context, setContext] = useState("");
@@ -295,7 +315,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   const [widgetStatus, setWidgetStatus] = useState<"ready" | "loading" | "active" | "error">("ready");
   const [widgetMessage, setWidgetMessage] = useState("Click the Skilly launcher to test the real voice flow.");
   const [previewUrl, setPreviewUrl] = useState("");
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedContextFile[]>([]);
   const [pointing, setPointing] = useState(false);
   const [frameLikelyBlocked, setFrameLikelyBlocked] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -306,6 +326,11 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
   const unsubscribersRef = useRef<Array<() => void>>([]);
   const host = generatedPreview?.host ?? (previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl));
   const label = launcherLabel || "Ask Skilly";
+  const uploadedFileNames = uploadedFiles.map((file) => file.name);
+  const uploadedContextSummary = uploadedFiles
+    .map((file) => `${file.name}: ${file.text.replace(/\s+/g, " ").trim().slice(0, 700)}`)
+    .filter(Boolean)
+    .join(" ");
 
   function startFallbackPointing() {
     setPointing(true);
@@ -334,7 +359,8 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       headings: compactList(generatedPreview?.headings ?? [], 6),
       callsToAction: compactList(generatedPreview?.callsToAction ?? [], 5),
       questions: compactList(generatedPreview?.questions ?? [], 5),
-      files: compactList(uploadedFiles, 6),
+      files: compactList(uploadedFileNames, 6),
+      uploadedContext: uploadedContextSummary.slice(0, 1400),
       surface,
       tenantSkillId: skillId,
     };
@@ -349,7 +375,8 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
       `Preview Skilly on ${targetHost}.`,
       context.trim() ? `Customer goal: ${context.trim()}` : "Help the visitor understand this page and choose the next action.",
       generatedPreview?.title ? `Imported page title: ${generatedPreview.title}.` : "",
-      uploadedFiles.length ? `Uploaded context files: ${uploadedFiles.join(", ")}.` : "",
+      uploadedFileNames.length ? `Uploaded context files: ${uploadedFileNames.join(", ")}.` : "",
+      uploadedContextSummary ? `Uploaded context snippets: ${uploadedContextSummary.slice(0, 1600)}` : "",
       surface === "live"
         ? "The customer site is open in Studio's live preview frame; use the current preview context for guidance."
         : "Use the generated preview content as the page context.",
@@ -444,12 +471,14 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         title: fallbackHost,
         description: fallbackGoal
           ? `Manual preview using your goal: ${fallbackGoal}`
-          : "Add a short goal or upload docs so Skilly can generate a useful first preview for this site.",
-        headings: fallbackGoal ? [fallbackGoal] : ["Add context to preview this site"],
+          : uploadedContextSummary
+            ? `Manual preview using uploaded context: ${uploadedContextSummary.slice(0, 260)}`
+            : "Add a short goal or upload text notes so Skilly can generate a useful first preview for this site.",
+        headings: fallbackGoal ? [fallbackGoal] : uploadedContextSummary ? ["Uploaded context"] : ["Add context to preview this site"],
         navigation: [],
         callsToAction: [],
         questions: [],
-        bodySummary: fallbackGoal || "The public page could not be imported automatically.",
+        bodySummary: fallbackGoal || uploadedContextSummary || "The public page could not be imported automatically.",
       });
       setImportStatus("error");
       setImportError(error instanceof Error ? error.message : "Unable to import this site.");
@@ -662,7 +691,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         <>
           <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
             On {host}, Skilly would use this preview plus your notes
-            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
+            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded context file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
             {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
           </div>
           <div
@@ -777,7 +806,7 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
         <>
           <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
             On {host}, Skilly would use this page plus your notes
-            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
+            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded context file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
             {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
           </div>
           <div
@@ -854,15 +883,19 @@ export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: 
           id="customer-preview-docs"
           type="file"
           multiple
-          accept=".txt,.md,.pdf,.doc,.docx,.csv,.json"
+          accept=".txt,.md,.markdown,.csv,.json,text/plain,text/markdown,text/csv,application/json"
           onChange={(event) => {
-            const files = Array.from(event.target.files ?? []).map((file) => file.name);
-            setUploadedFiles(files);
+            void readContextFiles(event.currentTarget.files).then((files) => {
+              setUploadedFiles(files);
+              if (files.length) {
+                setWidgetMessage(`${files.length} context file${files.length === 1 ? "" : "s"} loaded into the preview skill.`);
+              }
+            });
           }}
           className="mt-2 block w-full text-sm text-muted file:mr-3 file:rounded-[8px] file:border-0 file:bg-white/[0.08] file:px-3 file:py-2 file:text-sm file:font-bold file:text-gray-200 hover:file:bg-white/[0.12]"
         />
         <p className="mt-1.5 text-xs text-muted">
-          This preview records file names for now. Document text ingestion can feed the first skill draft next.
+          Text, Markdown, CSV, and JSON files are read into this preview skill. PDFs and Word files need server-side extraction before they are accepted here.
         </p>
 
         <Button

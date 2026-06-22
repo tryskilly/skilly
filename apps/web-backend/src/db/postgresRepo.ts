@@ -10,6 +10,7 @@ import type {
   DashboardMembershipInput,
   DashboardMembershipLookup,
   KeyLookup,
+  Project,
   RecentSession,
   SessionResult,
   Tenant,
@@ -25,6 +26,40 @@ import { DEFAULT_WIDGET_CONFIG } from "./repo";
 
 export class PostgresRepo implements WebBackendRepo {
   constructor(private readonly pool: Pool) {}
+
+  private projectFromRow(row: {
+    id: string;
+    tenant_id: string;
+    name: string;
+    slug: string;
+    skill_id: string;
+    skill_content: string;
+    allowed_origins: string[];
+    allowed_app_ids: string[];
+    accent_color: string;
+    locale: string;
+    launcher_label: string | null;
+    created_at?: Date;
+    updated_at?: Date;
+  }): Project {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      name: row.name,
+      slug: row.slug,
+      skillId: row.skill_id,
+      skillContent: row.skill_content,
+      allowedOrigins: row.allowed_origins,
+      allowedAppIds: row.allowed_app_ids,
+      widgetConfig: {
+        accentColor: row.accent_color,
+        locale: row.locale,
+        launcherLabel: row.launcher_label,
+      },
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
 
   async findTenantByKeyHash(keyHash: string): Promise<KeyLookup | null> {
     const result = await this.pool.query<{
@@ -78,6 +113,188 @@ export class PostgresRepo implements WebBackendRepo {
       [tenantId],
     );
     return result.rows.map((row) => ({ tenantId, skillId: row.skill_id, content: row.content }));
+  }
+
+  async ensureDefaultProject(tenantId: string): Promise<Project> {
+    const existing = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1
+        ORDER BY CASE WHEN slug = 'primary' THEN 0 ELSE 1 END, created_at ASC
+        LIMIT 1`,
+      [tenantId],
+    );
+    if (existing.rows[0]) {
+      return this.projectFromRow(existing.rows[0]);
+    }
+
+    const tenant = await this.getTenant(tenantId);
+    if (!tenant) {
+      throw new Error("tenant not found");
+    }
+    const skillSelection = (await this.getTenantSkill(tenantId, "default")) ?? (await this.listTenantSkills(tenantId))[0] ?? null;
+    const widgetConfig = await this.getWidgetConfig(tenantId);
+    const inserted = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `INSERT INTO projects (
+         tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+         accent_color, locale, launcher_label
+       ) VALUES ($1, 'Primary project', 'primary', $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (tenant_id, slug) DO UPDATE SET updated_at = projects.updated_at
+       RETURNING id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+                 accent_color, locale, launcher_label, created_at, updated_at`,
+      [
+        tenantId,
+        skillSelection?.skillId ?? "default",
+        skillSelection?.content ?? "",
+        tenant.allowedOrigins,
+        tenant.allowedAppIds,
+        widgetConfig.accentColor,
+        widgetConfig.locale,
+        widgetConfig.launcherLabel,
+      ],
+    );
+    return this.projectFromRow(inserted.rows[0]!);
+  }
+
+  async listProjects(tenantId: string): Promise<Project[]> {
+    await this.ensureDefaultProject(tenantId);
+    const result = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return result.rows.map((row) => this.projectFromRow(row));
+  }
+
+  async getProject(tenantId: string, projectId: string): Promise<Project | null> {
+    const result = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1 AND id = $2
+        LIMIT 1`,
+      [tenantId, projectId],
+    );
+    return result.rows[0] ? this.projectFromRow(result.rows[0]) : null;
+  }
+
+  async getProjectBySkillId(tenantId: string, skillId: string): Promise<Project | null> {
+    const result = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1 AND skill_id = $2
+        LIMIT 1`,
+      [tenantId, skillId],
+    );
+    return result.rows[0] ? this.projectFromRow(result.rows[0]) : null;
+  }
+
+  async saveProjectSkill(projectId: string, content: string): Promise<void> {
+    await this.pool.query(`UPDATE projects SET skill_content = $2, updated_at = now() WHERE id = $1`, [
+      projectId,
+      content,
+    ]);
+  }
+
+  async setProjectOrigins(projectId: string, origins: string[]): Promise<void> {
+    await this.pool.query(`UPDATE projects SET allowed_origins = $2, updated_at = now() WHERE id = $1`, [
+      projectId,
+      origins,
+    ]);
+  }
+
+  async setProjectAppIds(projectId: string, appIds: string[]): Promise<void> {
+    await this.pool.query(`UPDATE projects SET allowed_app_ids = $2, updated_at = now() WHERE id = $1`, [
+      projectId,
+      appIds,
+    ]);
+  }
+
+  async saveProjectWidgetConfig(projectId: string, config: WidgetConfig): Promise<void> {
+    await this.pool.query(
+      `UPDATE projects
+          SET accent_color = $2,
+              locale = $3,
+              launcher_label = $4,
+              updated_at = now()
+        WHERE id = $1`,
+      [projectId, config.accentColor, config.locale, config.launcherLabel],
+    );
   }
 
   async getUsageSecondsThisPeriod(tenantId: string): Promise<number> {

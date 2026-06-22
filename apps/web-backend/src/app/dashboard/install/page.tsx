@@ -1,6 +1,5 @@
 import { getRepo } from "@/db";
 import { getCurrentDashboardTenantId } from "@/lib/session";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   ButtonLink,
   CheckList,
@@ -13,6 +12,7 @@ import {
   StatusPill,
   type ReadinessCheck,
 } from "../v2";
+import { ProjectContextPanel } from "../ProjectContextPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -21,33 +21,34 @@ const FRAMEWORKS = ["HTML", "React", "Next.js", "Webflow", "Shopify"];
 export default async function InstallPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [tenant, keys, skillSelection] = await Promise.all([
-    repo.getTenant(tenantId),
+  const [keys, project] = await Promise.all([
     repo.listApiKeys(tenantId),
-    getDashboardSkillSelection(repo, tenantId),
+    repo.ensureDefaultProject(tenantId),
   ]);
   const publishableKey = keys.find((key) => key.keyType === "publishable" && !key.revoked);
   const displayKey = publishableKey ? `${publishableKey.prefix}_...${publishableKey.last4}` : "pk_live_your_key";
 
   const checks: ReadinessCheck[] = [
-    { id: "origin", label: "Allowed origin configured", status: tenant?.allowedOrigins.length ? "done" : "pending", href: "/dashboard/origins" },
+    { id: "origin", label: "Allowed surface configured", status: project.allowedOrigins.length || project.allowedAppIds.length ? "done" : "pending", href: "/dashboard/origins" },
     { id: "key", label: "Publishable key available", status: publishableKey ? "done" : "pending", href: "/dashboard/keys" },
-    { id: "skill", label: "Skill file saved", status: skillSelection.skill?.content.trim() ? "done" : "pending", href: "/dashboard/skill" },
+    { id: "skill", label: "Skill file saved", status: project.skillContent.trim() ? "done" : "pending", href: "/dashboard/skill" },
     { id: "token", label: "Token endpoint reachable", status: "done" },
   ];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Install"
-        title="Add Skilly to your product."
-        description="Copy the widget script, choose a framework guide, and verify the widget can request a token from your allowed origins."
+        eyebrow="For builders · Install"
+        title="Add Skilly to this project."
+        description="Install one snippet per customer surface. The snippet carries the project skill, backend, core runtime, and publishable key."
       />
+
+      <ProjectContextPanel skillId={project.skillId} surfaces={["Snippet", "Frameworks", "Token check"]} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <Panel>
           <PanelHeader
-            title="Install script"
+            title="Install snippet"
             description="Paste before the closing body tag, or load through your framework. The publishable key is safe in the browser."
           />
           <PanelBody>
@@ -71,7 +72,7 @@ export default async function InstallPage() {
               highlight={["data-skilly-key", "data-skilly-skill"]}
               code={`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="${displayKey}"
-        data-skilly-skill="${skillSelection.skillId}"
+        data-skilly-skill="${project.skillId}"
         data-skilly-backend-url="https://studio.tryskilly.app"
         data-skilly-core-url="https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js"
         defer></script>`}
@@ -86,7 +87,7 @@ export default async function InstallPage() {
         </Panel>
 
         <Panel>
-          <PanelHeader title="Connection checklist" description="Everything required before the widget can start sessions." />
+          <PanelHeader title="Project checklist" description="Everything required before this project can start sessions." />
           <PanelBody className="pt-[18px]">
             <CheckList>
               {checks.map((check) => (

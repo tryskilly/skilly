@@ -9,6 +9,7 @@ import type {
   DashboardMembershipInput,
   DashboardMembershipLookup,
   KeyLookup,
+  Project,
   RecentSession,
   Tenant,
   TenantSkill,
@@ -79,6 +80,7 @@ export class MemoryRepo implements WebBackendRepo {
   private keys = new Map<string, SeededKey>();
   private skills = new Map<string, TenantSkill>();
   private memberships: DashboardMembership[] = [];
+  private projects = new Map<string, Project>();
   // Monotonic insertion counter so newest-first ordering is stable even when
   // many events are recorded within the same millisecond (mirrors Postgres
   // BIGSERIAL + ORDER BY created_at DESC).
@@ -129,6 +131,106 @@ export class MemoryRepo implements WebBackendRepo {
     return [...this.skills.values()]
       .filter((skill) => skill.tenantId === tenantId)
       .sort((left, right) => left.skillId.localeCompare(right.skillId));
+  }
+
+  private projectClone(project: Project): Project {
+    return {
+      ...project,
+      allowedOrigins: [...project.allowedOrigins],
+      allowedAppIds: [...project.allowedAppIds],
+      widgetConfig: { ...project.widgetConfig },
+    };
+  }
+
+  async ensureDefaultProject(tenantId: string): Promise<Project> {
+    const existing = [...this.projects.values()]
+      .filter((project) => project.tenantId === tenantId)
+      .sort((left, right) => (left.slug === "primary" ? -1 : right.slug === "primary" ? 1 : left.name.localeCompare(right.name)))[0];
+    if (existing) {
+      return this.projectClone(existing);
+    }
+
+    const tenant = this.tenants.get(tenantId);
+    if (!tenant) {
+      throw new Error("tenant not found");
+    }
+    const skill =
+      this.skills.get(`${tenantId}:default`) ??
+      [...this.skills.values()]
+        .filter((candidate) => candidate.tenantId === tenantId)
+        .sort((left, right) => left.skillId.localeCompare(right.skillId))[0] ??
+      null;
+    const project: Project = {
+      id: randomUUID(),
+      tenantId,
+      name: "Primary project",
+      slug: "primary",
+      skillId: skill?.skillId ?? "default",
+      skillContent: skill?.content ?? "",
+      allowedOrigins: [...tenant.allowedOrigins],
+      allowedAppIds: [...tenant.allowedAppIds],
+      widgetConfig: this.widgetConfigs.get(tenantId) ?? { ...DEFAULT_WIDGET_CONFIG },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.projects.set(project.id, project);
+    return this.projectClone(project);
+  }
+
+  async listProjects(tenantId: string): Promise<Project[]> {
+    await this.ensureDefaultProject(tenantId);
+    return [...this.projects.values()]
+      .filter((project) => project.tenantId === tenantId)
+      .sort((left, right) => (right.createdAt?.getTime() ?? 0) - (left.createdAt?.getTime() ?? 0))
+      .map((project) => this.projectClone(project));
+  }
+
+  async getProject(tenantId: string, projectId: string): Promise<Project | null> {
+    const project = this.projects.get(projectId);
+    return project?.tenantId === tenantId ? this.projectClone(project) : null;
+  }
+
+  async getProjectBySkillId(tenantId: string, skillId: string): Promise<Project | null> {
+    const project = [...this.projects.values()].find(
+      (candidate) => candidate.tenantId === tenantId && candidate.skillId === skillId,
+    );
+    if (project) {
+      return this.projectClone(project);
+    }
+    const defaultProject = await this.ensureDefaultProject(tenantId);
+    return defaultProject.skillId === skillId ? defaultProject : null;
+  }
+
+  async saveProjectSkill(projectId: string, content: string): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.skillContent = content;
+      project.updatedAt = new Date();
+    }
+  }
+
+  async setProjectOrigins(projectId: string, origins: string[]): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.allowedOrigins = origins;
+      project.updatedAt = new Date();
+    }
+  }
+
+  async setProjectAppIds(projectId: string, appIds: string[]): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.allowedAppIds = appIds;
+      project.updatedAt = new Date();
+    }
+  }
+
+  async saveProjectWidgetConfig(projectId: string, config: WidgetConfig): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.widgetConfig = { ...config };
+      project.updatedAt = new Date();
+    }
   }
 
   async getUsageSecondsThisPeriod(tenantId: string): Promise<number> {

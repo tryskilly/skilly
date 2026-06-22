@@ -36,6 +36,13 @@
       "when": 1781634004000,
       "tag": "0004_default_skill_id",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782124544505,
+      "tag": "0005_tricky_unicorn",
+      "breakpoints": true
     }
   ]
 }

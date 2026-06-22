@@ -3,6 +3,7 @@ import { validateSkillContent } from "../src/domain/skillValidation";
 import { isValidKeyFormat, hashKey } from "../src/domain/keys";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
 import { getDashboardSkillSelection } from "../src/lib/dashboardSkill";
+import { authenticateWebRequest } from "../src/tenantService";
 
 describe("validateSkillContent", () => {
   test("accepts reasonable skill content", () => {
@@ -70,6 +71,60 @@ describe("dashboard repo operations", () => {
     const skills = await repo.listTenantSkills(tenantId);
 
     expect(skills.map((skill) => skill.skillId)).toEqual(["alpha", "default", "zeta"]);
+  });
+
+  test("ensureDefaultProject mirrors existing tenant setup into a project", async () => {
+    const repo = new MemoryRepo();
+
+    const project = await repo.ensureDefaultProject(tenantId);
+
+    expect(project.name).toBe("Primary project");
+    expect(project.skillId).toBe("default");
+    expect(project.skillContent).toContain("Acme Onboarding");
+    expect(project.allowedOrigins).toContain("http://localhost:4310");
+    expect(project.allowedAppIds).toContain("app.tryskilly.demo");
+  });
+
+  test("project skill updates drive dashboard skill selection", async () => {
+    const repo = new MemoryRepo();
+    const project = await repo.ensureDefaultProject(tenantId);
+
+    await repo.saveProjectSkill(project.id, "# Project Skill\n\nProject-specific teaching content.");
+
+    const selection = await getDashboardSkillSelection(repo, tenantId);
+    expect(selection.skillId).toBe(project.skillId);
+    expect(selection.skill?.content).toContain("Project-specific");
+  });
+
+  test("project origins authorize widget requests even when tenant origins are empty", async () => {
+    const seed = defaultSeed();
+    const rawKey = "pk_test_projectoriginprojectorigin001";
+    const projectTenantId = "44444444-4444-4444-4444-444444444444";
+    const repo = new MemoryRepo({
+      ...seed,
+      tenants: [
+        {
+          id: projectTenantId,
+          name: "Project Origin Tenant",
+          allowedOrigins: [],
+          allowedAppIds: [],
+          usageCapSeconds: 3600,
+          polarCustomerId: null,
+        },
+      ],
+      keys: [{ rawKey, keyType: "publishable", tenantId: projectTenantId }],
+      skills: [],
+      memberships: [],
+    });
+    const project = await repo.ensureDefaultProject(projectTenantId);
+    await repo.setProjectOrigins(project.id, ["https://project.example.com"]);
+
+    const auth = await authenticateWebRequest(repo, {
+      rawKey,
+      origin: "https://project.example.com",
+    });
+
+    expect(auth.ok).toBe(true);
   });
 
   test("dashboard skill selection prefers default when present", async () => {

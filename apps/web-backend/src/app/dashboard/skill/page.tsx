@@ -1,32 +1,34 @@
 import { getRepo } from "@/db";
 import { getCurrentDashboardTenantId } from "@/lib/session";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import { PageHeader, Panel, PanelBody, PanelHeader, StatusPill } from "../v2";
 import { SkillEditor } from "./SkillEditor";
+import { ProjectContextPanel } from "../ProjectContextPanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function SkillPage() {
   const repo = getRepo();
-  const { skillId, skill } = await getDashboardSkillSelection(repo, await getCurrentDashboardTenantId());
-  const hasContent = Boolean(skill?.content.trim());
+  const project = await repo.ensureDefaultProject(await getCurrentDashboardTenantId());
+  const hasContent = Boolean(project.skillContent.trim());
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Teaching skill"
-        title="Teach Skilly how to guide users."
-        description="Define how Skilly explains, guides, and points inside your product. This SKILL.md is served to the web SDK and composed with the page digest before a live turn — validate before publishing changes."
+        eyebrow="For builders · Teach"
+        title="Teach this project."
+        description="Every site or app needs its own SKILL.md: what Skilly should explain, what it should point at, and how it should answer visitors."
         action={<StatusPill tone={hasContent ? "green" : "amber"} label={hasContent ? "Saved" : "Empty"} showDot />}
       />
+
+      <ProjectContextPanel skillId={project.skillId} surfaces={["Teach", "Style", "Allow", "Install", "Test"]} />
 
       <Panel>
         <PanelHeader
           title="SKILL.md editor"
-          description={`Plain-markdown teaching content for ${skillId}. The safety scan runs on every save (size limits + injection/exfiltration + raw-URL checks).`}
+          description={`Plain-markdown teaching content for ${project.skillId}. The safety scan runs on every save before this project can go live.`}
         />
         <PanelBody>
-          <SkillEditor initialContent={skill?.content ?? ""} />
+          <SkillEditor initialContent={project.skillContent} />
         </PanelBody>
       </Panel>
     </div>

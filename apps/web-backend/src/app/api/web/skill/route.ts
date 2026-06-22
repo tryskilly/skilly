@@ -41,8 +41,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "missing ?skill" }, { status: 400, headers });
   }
 
-  const skill = await getRepo().getTenantSkill(auth.tenant.id, skillId);
-  if (!skill) {
+  const repo = getRepo();
+  const project = await repo.getProjectBySkillId(auth.tenant.id, skillId);
+  const legacySkill = project ? null : await repo.getTenantSkill(auth.tenant.id, skillId);
+  const skillContent = project?.skillContent ?? legacySkill?.content ?? "";
+  if (!skillContent) {
     await captureServerEvent("web_sdk_skill_fetch_failed", {
       tenant_id: auth.tenant.id,
       status: 404,
@@ -55,9 +58,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   await captureServerEvent("web_sdk_skill_fetched", {
     tenant_id: auth.tenant.id,
-    skill_id: skill.skillId,
-    content_length: skill.content.length,
+    skill_id: skillId,
+    project_id: project?.id,
+    content_length: skillContent.length,
     source_surface: "web_backend",
   });
-  return NextResponse.json({ skillId: skill.skillId, content: skill.content }, { status: 200, headers });
+  return NextResponse.json({ skillId, projectId: project?.id ?? null, content: skillContent }, { status: 200, headers });
 }

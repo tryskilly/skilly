@@ -1,6 +1,5 @@
 import { getRepo } from "@/db";
 import { getCurrentDashboardTenantId } from "@/lib/session";
-import { getDashboardSkillSelection } from "@/lib/dashboardSkill";
 import {
   ButtonLink,
   CheckList,
@@ -48,18 +47,18 @@ function formatResult(result: string | null | undefined): React.ReactNode {
 export default async function DashboardPage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [tenant, keys, usage, skill, metrics, recentSessions] = await Promise.all([
+  const [tenant, keys, usage, project, metrics, recentSessions] = await Promise.all([
     repo.getTenant(tenantId),
     repo.listApiKeys(tenantId),
     repo.getUsageSummary(tenantId),
-    getDashboardSkillSelection(repo, tenantId),
+    repo.ensureDefaultProject(tenantId),
     repo.getUsageMetrics(tenantId),
     repo.listRecentSessions(tenantId, 5),
   ]);
 
-  const hasOrigin = Boolean(tenant?.allowedOrigins.length);
+  const hasOrigin = Boolean(project.allowedOrigins.length || project.allowedAppIds.length);
   const hasPublishableKey = keys.some((key) => key.keyType === "publishable" && !key.revoked);
-  const hasSkill = Boolean(skill.skill?.content.trim());
+  const hasSkill = Boolean(project.skillContent.trim());
 
   // Setup readiness is limited to persisted facts. A live test is still a
   // recommended launch step, but it should not make a configured tenant look
@@ -96,9 +95,13 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Overview"
-        title="Is Skilly ready?"
-        description="The health dashboard for your installation: setup readiness, usage, widget status, and recent sessions."
+        eyebrow="For builders"
+        title={setupComplete ? "This site is live." : "Get this site live."}
+        description={
+          setupComplete
+            ? "Health, recent sessions, and minutes for the active customer project."
+            : "Finish the setup path in order: teach, style, allow, install, and test."
+        }
         action={
           <>
             <ButtonLink href="/dashboard/install" variant="secondary">
@@ -110,7 +113,7 @@ export default async function DashboardPage() {
               analyticsEvent="dashboard_widget_preview_clicked"
               analyticsLabel="Preview widget"
             >
-              Preview widget
+              Test widget
             </ButtonLink>
           </>
         }
@@ -129,25 +132,25 @@ export default async function DashboardPage() {
             <h2 className="mt-4 max-w-[620px] text-[28px] font-extrabold leading-tight tracking-[-0.045em] text-gray-100">
               {setupComplete ? (
                 <>
-                  <span className="text-amber-300">{tenant?.name ?? "This workspace"}</span> is configured for Skilly Web.
+                  <span className="text-amber-300">{tenant?.name ?? "This workspace"}</span> is ready for Skilly.
                 </>
               ) : (
                 <>
-                  Skilly is <span className="text-amber-300">{setupCompleted}/{setupChecks.length} configured</span> for this workspace.
+                  Skilly is <span className="text-amber-300">{setupCompleted}/{setupChecks.length} configured</span> for this site.
                 </>
               )}
             </h2>
             <p className="mt-2 max-w-[690px] text-sm leading-relaxed text-muted">
               {setupComplete
-                ? "Run or review a live test session before increasing production traffic."
-                : "Finish the remaining setup checks before enabling the widget for production traffic."}
+                ? "Run a live voice test before increasing production traffic."
+                : "Complete the remaining checks before enabling the widget for visitors."}
             </p>
             <div className="mt-5">
               <ProgressSteps completed={setupCompleted} total={setupChecks.length} />
             </div>
             <div className="mt-[22px] flex flex-wrap gap-2.5">
               <ButtonLink href="/dashboard/widget" variant={setupComplete ? "primary" : "secondary"}>
-                Preview customer site
+                Test customer site
               </ButtonLink>
               <ButtonLink href="/dashboard/install" variant={setupComplete ? "secondary" : "primary"}>
                 {setupComplete ? "View install guide" : "Continue setup"}
