@@ -26,7 +26,7 @@ Lives in the menu bar (`LSUIElement=true`, no dock icon). Push-to-talk (ctrl + o
 
 A ~24KB vanilla-TS Shadow DOM widget site owners drop into any web page via one `<script>` tag. No framework dependency. The companion sees the page structure (DOM digest — no screenshots), speaks to the user via WebRTC, and points to elements with bezier-arc cursor animation.
 
-<video src="skilly-web-demo.mp4" autoplay loop muted playsinline width="100%"></video>
+<video src="https://github.com/user-attachments/assets/acf38ab5-393a-49a0-aac2-125fcec7e1db" autoplay loop muted playsinline width="100%"></video>
 
 ```html
 <script src="https://cdn.tryskilly.app/web/v1.js"
