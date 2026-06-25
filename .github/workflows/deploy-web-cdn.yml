@@ -1,0 +1,51 @@
+name: Deploy Web CDN
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "sdk/web/src/**"
+      - "core/web-sdk/**"
+      - "scripts/build-web-cdn.sh"
+      - "scripts/build-web-sdk.sh"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust with wasm32 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-wasm-
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build CDN artifact
+        run: bash scripts/build-web-cdn.sh
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy sdk/web-cdn-public/ --project-name=${{ vars.CLOUDFLARE_PAGES_CDN_PROJECT }}
