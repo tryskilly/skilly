@@ -1,30 +1,77 @@
 // Postgres implementation of WebBackendRepo (node-postgres). Compiles without a
-// database; it connects lazily on first query. Schema: db/schema.sql.
+// database; it connects lazily on first query. Schema changes are owned by
+// Drizzle migrations in db/migrations.
 
 import { Pool } from "pg";
 import { generateKey, hashKey, keyDisplay, type KeyType } from "../domain/keys";
 import type {
   ApiKeyInfo,
+  DashboardMembership,
+  DashboardMembershipInput,
+  DashboardMembershipLookup,
   KeyLookup,
+  Project,
+  RecentSession,
+  SessionResult,
   Tenant,
   TenantSkill,
+  UsageDimensions,
   UsageEvent,
+  UsageMetrics,
   UsageSummary,
   WebBackendRepo,
+  WidgetConfig,
 } from "./repo";
+import { DEFAULT_WIDGET_CONFIG } from "./repo";
 
 export class PostgresRepo implements WebBackendRepo {
   constructor(private readonly pool: Pool) {}
+
+  private projectFromRow(row: {
+    id: string;
+    tenant_id: string;
+    name: string;
+    slug: string;
+    skill_id: string;
+    skill_content: string;
+    allowed_origins: string[];
+    allowed_app_ids: string[];
+    accent_color: string;
+    locale: string;
+    launcher_label: string | null;
+    created_at?: Date;
+    updated_at?: Date;
+  }): Project {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      name: row.name,
+      slug: row.slug,
+      skillId: row.skill_id,
+      skillContent: row.skill_content,
+      allowedOrigins: row.allowed_origins,
+      allowedAppIds: row.allowed_app_ids,
+      widgetConfig: {
+        accentColor: row.accent_color,
+        locale: row.locale,
+        launcherLabel: row.launcher_label,
+      },
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
 
   async findTenantByKeyHash(keyHash: string): Promise<KeyLookup | null> {
     const result = await this.pool.query<{
       id: string;
       name: string;
       allowed_origins: string[];
+      allowed_app_ids: string[];
       usage_cap_seconds: number;
+      polar_customer_id: string | null;
       key_type: "publishable" | "secret";
     }>(
-      `SELECT t.id, t.name, t.allowed_origins, t.usage_cap_seconds, k.key_type
+      `SELECT t.id, t.name, t.allowed_origins, t.allowed_app_ids, t.usage_cap_seconds, t.polar_customer_id, k.key_type
          FROM api_keys k
          JOIN tenants t ON t.id = k.tenant_id
         WHERE k.key_hash = $1 AND k.revoked = false
@@ -40,7 +87,9 @@ export class PostgresRepo implements WebBackendRepo {
         id: row.id,
         name: row.name,
         allowedOrigins: row.allowed_origins,
+        allowedAppIds: row.allowed_app_ids,
         usageCapSeconds: row.usage_cap_seconds,
+        polarCustomerId: row.polar_customer_id,
       },
       keyType: row.key_type,
     };
@@ -55,6 +104,199 @@ export class PostgresRepo implements WebBackendRepo {
     return row ? { tenantId, skillId, content: row.content } : null;
   }
 
+  async listTenantSkills(tenantId: string): Promise<TenantSkill[]> {
+    const result = await this.pool.query<{ skill_id: string; content: string }>(
+      `SELECT skill_id, content
+         FROM tenant_skills
+        WHERE tenant_id = $1
+        ORDER BY skill_id ASC`,
+      [tenantId],
+    );
+    return result.rows.map((row) => ({ tenantId, skillId: row.skill_id, content: row.content }));
+  }
+
+  async ensureDefaultProject(tenantId: string): Promise<Project> {
+    const existing = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1
+        ORDER BY CASE WHEN slug = 'primary' THEN 0 ELSE 1 END, created_at ASC
+        LIMIT 1`,
+      [tenantId],
+    );
+    if (existing.rows[0]) {
+      return this.projectFromRow(existing.rows[0]);
+    }
+
+    const tenant = await this.getTenant(tenantId);
+    if (!tenant) {
+      throw new Error("tenant not found");
+    }
+    const skillSelection = (await this.getTenantSkill(tenantId, "default")) ?? (await this.listTenantSkills(tenantId))[0] ?? null;
+    const widgetConfig = await this.getWidgetConfig(tenantId);
+    const inserted = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `INSERT INTO projects (
+         tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+         accent_color, locale, launcher_label
+       ) VALUES ($1, 'Primary project', 'primary', $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (tenant_id, slug) DO UPDATE SET updated_at = projects.updated_at
+       RETURNING id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+                 accent_color, locale, launcher_label, created_at, updated_at`,
+      [
+        tenantId,
+        skillSelection?.skillId ?? "default",
+        skillSelection?.content ?? "",
+        tenant.allowedOrigins,
+        tenant.allowedAppIds,
+        widgetConfig.accentColor,
+        widgetConfig.locale,
+        widgetConfig.launcherLabel,
+      ],
+    );
+    return this.projectFromRow(inserted.rows[0]!);
+  }
+
+  async listProjects(tenantId: string): Promise<Project[]> {
+    await this.ensureDefaultProject(tenantId);
+    const result = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return result.rows.map((row) => this.projectFromRow(row));
+  }
+
+  async getProject(tenantId: string, projectId: string): Promise<Project | null> {
+    const result = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1 AND id = $2
+        LIMIT 1`,
+      [tenantId, projectId],
+    );
+    return result.rows[0] ? this.projectFromRow(result.rows[0]) : null;
+  }
+
+  async getProjectBySkillId(tenantId: string, skillId: string): Promise<Project | null> {
+    const result = await this.pool.query<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      slug: string;
+      skill_id: string;
+      skill_content: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, tenant_id, name, slug, skill_id, skill_content, allowed_origins, allowed_app_ids,
+              accent_color, locale, launcher_label, created_at, updated_at
+         FROM projects
+        WHERE tenant_id = $1 AND skill_id = $2
+        LIMIT 1`,
+      [tenantId, skillId],
+    );
+    return result.rows[0] ? this.projectFromRow(result.rows[0]) : null;
+  }
+
+  async saveProjectSkill(projectId: string, content: string): Promise<void> {
+    await this.pool.query(`UPDATE projects SET skill_content = $2, updated_at = now() WHERE id = $1`, [
+      projectId,
+      content,
+    ]);
+  }
+
+  async setProjectOrigins(projectId: string, origins: string[]): Promise<void> {
+    await this.pool.query(`UPDATE projects SET allowed_origins = $2, updated_at = now() WHERE id = $1`, [
+      projectId,
+      origins,
+    ]);
+  }
+
+  async setProjectAppIds(projectId: string, appIds: string[]): Promise<void> {
+    await this.pool.query(`UPDATE projects SET allowed_app_ids = $2, updated_at = now() WHERE id = $1`, [
+      projectId,
+      appIds,
+    ]);
+  }
+
+  async saveProjectWidgetConfig(projectId: string, config: WidgetConfig): Promise<void> {
+    await this.pool.query(
+      `UPDATE projects
+          SET accent_color = $2,
+              locale = $3,
+              launcher_label = $4,
+              updated_at = now()
+        WHERE id = $1`,
+      [projectId, config.accentColor, config.locale, config.launcherLabel],
+    );
+  }
+
   async getUsageSecondsThisPeriod(tenantId: string): Promise<number> {
     const result = await this.pool.query<{ total: string | null }>(
       `SELECT COALESCE(SUM(seconds), 0) AS total
@@ -65,11 +307,153 @@ export class PostgresRepo implements WebBackendRepo {
     return Number(result.rows[0]?.total ?? 0);
   }
 
-  async recordUsage(event: UsageEvent): Promise<void> {
+  async recordUsage(event: UsageEvent & UsageDimensions): Promise<void> {
     await this.pool.query(
-      `INSERT INTO usage_events (tenant_id, kind, seconds) VALUES ($1, $2, $3)`,
-      [event.tenantId, event.kind, event.seconds],
+      `INSERT INTO usage_events (tenant_id, kind, seconds, page, domain, duration_seconds, result)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        event.tenantId,
+        event.kind,
+        event.seconds,
+        event.page ?? null,
+        event.domain ?? null,
+        event.durationSeconds ?? null,
+        event.result ?? null,
+      ],
     );
+  }
+
+  async listUsageEvents(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<UsageEvent & { createdAt: Date }>> {
+    const result = await this.pool.query<{
+      tenant_id: string;
+      kind: string;
+      seconds: number;
+      created_at: Date;
+    }>(
+      `SELECT tenant_id, kind, seconds, created_at
+         FROM usage_events
+        WHERE tenant_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({
+      tenantId: row.tenant_id,
+      kind: row.kind as UsageEvent["kind"],
+      seconds: row.seconds,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async listRecentSessions(tenantId: string, limit: number): Promise<RecentSession[]> {
+    const result = await this.pool.query<{
+      seconds: number;
+      created_at: Date;
+      page: string | null;
+      domain: string | null;
+      duration_seconds: number | null;
+      result: string | null;
+    }>(
+      `SELECT seconds, created_at, page, domain, duration_seconds, result
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds'
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({
+      seconds: row.seconds,
+      createdAt: row.created_at,
+      page: row.page,
+      domain: row.domain,
+      durationSeconds: row.duration_seconds,
+      result: row.result as SessionResult | null,
+    }));
+  }
+
+  async getUsageMetrics(tenantId: string): Promise<UsageMetrics> {
+    const result = await this.pool.query<{
+      session_count: string;
+      avg_seconds: string | null;
+      error_count: string;
+    }>(
+      `SELECT
+         COUNT(*)::text AS session_count,
+         COALESCE(AVG(seconds), 0)::text AS avg_seconds,
+         COUNT(*) FILTER (WHERE result IN ('error', 'mic_denied'))::text AS error_count
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds'
+          AND created_at >= date_trunc('month', now())`,
+      [tenantId],
+    );
+    const row = result.rows[0];
+    if (!row || Number(row.session_count) === 0) {
+      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0 };
+    }
+    const sessionCount = Number(row.session_count);
+    return {
+      sessionCount,
+      avgSessionSeconds: Math.round(Number(row.avg_seconds ?? 0)),
+      errorRate: Number(row.error_count) / sessionCount,
+    };
+  }
+
+  async getTopPages(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ page: string; count: number }>> {
+    const result = await this.pool.query<{ page: string; count: string }>(
+      `SELECT page, COUNT(*)::text AS count
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds' AND page IS NOT NULL
+          AND created_at >= date_trunc('month', now())
+        GROUP BY page
+        ORDER BY count DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({ page: row.page, count: Number(row.count) }));
+  }
+
+  async getTopDomains(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ domain: string; count: number }>> {
+    const result = await this.pool.query<{ domain: string; count: string }>(
+      `SELECT domain, COUNT(*)::text AS count
+         FROM usage_events
+        WHERE tenant_id = $1 AND kind = 'session_seconds' AND domain IS NOT NULL
+          AND created_at >= date_trunc('month', now())
+        GROUP BY domain
+        ORDER BY count DESC
+        LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => ({ domain: row.domain, count: Number(row.count) }));
+  }
+
+  async listTenants(): Promise<Tenant[]> {
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      usage_cap_seconds: number;
+      polar_customer_id: string | null;
+    }>(
+      `SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds, polar_customer_id FROM tenants ORDER BY created_at DESC`,
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      allowedOrigins: row.allowed_origins,
+      allowedAppIds: row.allowed_app_ids,
+      usageCapSeconds: row.usage_cap_seconds,
+      polarCustomerId: row.polar_customer_id,
+    }));
   }
 
   async getTenant(tenantId: string): Promise<Tenant | null> {
@@ -77,12 +461,189 @@ export class PostgresRepo implements WebBackendRepo {
       id: string;
       name: string;
       allowed_origins: string[];
+      allowed_app_ids: string[];
       usage_cap_seconds: number;
-    }>(`SELECT id, name, allowed_origins, usage_cap_seconds FROM tenants WHERE id = $1`, [tenantId]);
+      polar_customer_id: string | null;
+    }>(
+      `SELECT id, name, allowed_origins, allowed_app_ids, usage_cap_seconds, polar_customer_id FROM tenants WHERE id = $1`,
+      [tenantId],
+    );
     const row = result.rows[0];
     return row
-      ? { id: row.id, name: row.name, allowedOrigins: row.allowed_origins, usageCapSeconds: row.usage_cap_seconds }
+      ? {
+          id: row.id,
+          name: row.name,
+          allowedOrigins: row.allowed_origins,
+          allowedAppIds: row.allowed_app_ids,
+          usageCapSeconds: row.usage_cap_seconds,
+          polarCustomerId: row.polar_customer_id,
+        }
       : null;
+  }
+
+  async createTenant(input: {
+    name: string;
+    allowedOrigins?: string[];
+    allowedAppIds?: string[];
+    usageCapSeconds?: number;
+  }): Promise<Tenant> {
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      allowed_origins: string[];
+      allowed_app_ids: string[];
+      usage_cap_seconds: number;
+      polar_customer_id: string | null;
+    }>(
+      `INSERT INTO tenants (name, allowed_origins, allowed_app_ids, usage_cap_seconds)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, name, allowed_origins, allowed_app_ids, usage_cap_seconds, polar_customer_id`,
+      [
+        input.name,
+        input.allowedOrigins ?? [],
+        input.allowedAppIds ?? [],
+        input.usageCapSeconds ?? 0,
+      ],
+    );
+    const row = result.rows[0]!;
+    return {
+      id: row.id,
+      name: row.name,
+      allowedOrigins: row.allowed_origins,
+      allowedAppIds: row.allowed_app_ids,
+      usageCapSeconds: row.usage_cap_seconds,
+      polarCustomerId: row.polar_customer_id,
+    };
+  }
+
+  async updateTenantName(tenantId: string, name: string): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET name = $2 WHERE id = $1`, [tenantId, name]);
+  }
+
+  async findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null> {
+    const result = await this.pool.query<{
+      workos_user_id: string;
+      tenant_id: string;
+      role: "tenant_admin" | "super_admin";
+      email: string | null;
+      workos_organization_id: string | null;
+    }>(
+      `SELECT workos_user_id, tenant_id, role, email, workos_organization_id
+         FROM dashboard_memberships
+        WHERE workos_user_id = $1
+        ORDER BY
+          CASE
+            WHEN $2::text IS NOT NULL AND workos_organization_id = $2 THEN 0
+            WHEN workos_organization_id IS NULL THEN 1
+            ELSE 2
+          END,
+          created_at ASC
+        LIMIT 1`,
+      [lookup.workosUserId, lookup.workosOrganizationId ?? null],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          workosUserId: row.workos_user_id,
+          tenantId: row.tenant_id,
+          role: row.role,
+          email: row.email,
+          workosOrganizationId: row.workos_organization_id,
+        }
+      : null;
+  }
+
+  async upsertDashboardMembership(input: DashboardMembershipInput): Promise<DashboardMembership> {
+    const result = await this.pool.query<{
+      workos_user_id: string;
+      tenant_id: string;
+      role: "tenant_admin" | "super_admin";
+      email: string | null;
+      workos_organization_id: string | null;
+    }>(
+      `INSERT INTO dashboard_memberships (
+         workos_user_id,
+         tenant_id,
+         role,
+         email,
+         workos_organization_id
+       ) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (workos_user_id, tenant_id) DO UPDATE SET
+         role = EXCLUDED.role,
+         email = EXCLUDED.email,
+         workos_organization_id = EXCLUDED.workos_organization_id
+       RETURNING workos_user_id, tenant_id, role, email, workos_organization_id`,
+      [
+        input.workosUserId,
+        input.tenantId,
+        input.role,
+        input.email ?? null,
+        input.workosOrganizationId ?? null,
+      ],
+    );
+    const row = result.rows[0]!;
+    return {
+      workosUserId: row.workos_user_id,
+      tenantId: row.tenant_id,
+      role: row.role,
+      email: row.email,
+      workosOrganizationId: row.workos_organization_id,
+    };
+  }
+
+  async listDashboardMemberships(tenantId: string): Promise<DashboardMembership[]> {
+    const result = await this.pool.query<{
+      workos_user_id: string;
+      tenant_id: string;
+      role: "tenant_admin" | "super_admin";
+      email: string | null;
+      workos_organization_id: string | null;
+    }>(
+      `SELECT workos_user_id, tenant_id, role, email, workos_organization_id
+         FROM dashboard_memberships
+        WHERE tenant_id = $1
+        ORDER BY created_at ASC`,
+      [tenantId],
+    );
+    return result.rows.map((row) => ({
+      workosUserId: row.workos_user_id,
+      tenantId: row.tenant_id,
+      role: row.role,
+      email: row.email,
+      workosOrganizationId: row.workos_organization_id,
+    }));
+  }
+
+  async deleteDashboardMembership(
+    tenantId: string,
+    workosUserId: string,
+  ): Promise<{ removed: boolean; reason?: "last_super_admin" | "not_found" }> {
+    const target = await this.pool.query<{ role: "tenant_admin" | "super_admin" }>(
+      `SELECT role FROM dashboard_memberships WHERE tenant_id = $1 AND workos_user_id = $2`,
+      [tenantId, workosUserId],
+    );
+    if (target.rows.length === 0) {
+      return { removed: false, reason: "not_found" };
+    }
+    // Refuse to remove the last super_admin of a tenant — that would orphan it.
+    if (target.rows[0]!.role === "super_admin") {
+      const otherSuperAdmins = await this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM dashboard_memberships
+          WHERE tenant_id = $1
+            AND role = 'super_admin'
+            AND workos_user_id <> $2`,
+        [tenantId, workosUserId],
+      );
+      if (Number(otherSuperAdmins.rows[0]?.count ?? 0) === 0) {
+        return { removed: false, reason: "last_super_admin" };
+      }
+    }
+    await this.pool.query(
+      `DELETE FROM dashboard_memberships WHERE tenant_id = $1 AND workos_user_id = $2`,
+      [tenantId, workosUserId],
+    );
+    return { removed: true };
   }
 
   async listApiKeys(tenantId: string): Promise<ApiKeyInfo[]> {
@@ -141,5 +702,47 @@ export class PostgresRepo implements WebBackendRepo {
 
   async setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void> {
     await this.pool.query(`UPDATE tenants SET usage_cap_seconds = $2 WHERE id = $1`, [tenantId, capSeconds]);
+  }
+
+  async setTenantPolarCustomerId(tenantId: string, polarCustomerId: string): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET polar_customer_id = $2 WHERE id = $1`, [
+      tenantId,
+      polarCustomerId,
+    ]);
+  }
+
+  async setTenantOrigins(tenantId: string, origins: string[]): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET allowed_origins = $2 WHERE id = $1`, [tenantId, origins]);
+  }
+
+  async setTenantAppIds(tenantId: string, appIds: string[]): Promise<void> {
+    await this.pool.query(`UPDATE tenants SET allowed_app_ids = $2 WHERE id = $1`, [tenantId, appIds]);
+  }
+
+  async getWidgetConfig(tenantId: string): Promise<WidgetConfig> {
+    const result = await this.pool.query<{
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+    }>(`SELECT accent_color, locale, launcher_label FROM tenant_widget_configs WHERE tenant_id = $1`, [
+      tenantId,
+    ]);
+    const row = result.rows[0];
+    return row
+      ? { accentColor: row.accent_color, locale: row.locale, launcherLabel: row.launcher_label }
+      : { ...DEFAULT_WIDGET_CONFIG };
+  }
+
+  async saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO tenant_widget_configs (tenant_id, accent_color, locale, launcher_label)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tenant_id) DO UPDATE SET
+           accent_color = EXCLUDED.accent_color,
+           locale = EXCLUDED.locale,
+           launcher_label = EXCLUDED.launcher_label,
+           updated_at = now()`,
+      [tenantId, config.accentColor, config.locale, config.launcherLabel],
+    );
   }
 }

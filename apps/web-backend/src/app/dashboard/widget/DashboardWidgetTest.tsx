@@ -1,0 +1,938 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Button, CursorGlyph, StatusPill } from "../v2";
+
+type SkillyEventName = "turn" | "complete" | "error" | "point";
+
+interface SkillyWindowApi {
+  init(config: {
+    key: string;
+    skill: string;
+    backendUrl: string;
+    coreUrl: string;
+    accentColor: string;
+    launcherLabel?: string;
+  }): void;
+  start(goal?: string): void;
+  destroy(): void;
+  on?(event: SkillyEventName, handler: (payload: unknown) => void): () => void;
+}
+
+declare global {
+  interface Window {
+    Skilly?: SkillyWindowApi;
+  }
+}
+
+interface StudioAssistantPreviewProps {
+  accentColor: string;
+}
+
+const SDK_SCRIPT_URL = "https://cdn.tryskilly.app/web/v1.js";
+const CORE_URL = "https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js";
+const DASHBOARD_TEST_KEY = "pk_dashboard_session_test";
+const STUDIO_GUIDE_SKILL_ID = "studio-guide";
+
+function loadWidgetScript(): Promise<void> {
+  if (window.Skilly) {
+    return Promise.resolve();
+  }
+
+  const existing = document.querySelector<HTMLScriptElement>(`script[src="${SDK_SCRIPT_URL}"]`);
+  if (existing) {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Widget script failed to load")), { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = SDK_SCRIPT_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Widget script failed to load"));
+    document.head.appendChild(script);
+  });
+}
+
+export function StudioAssistantPreview({ accentColor }: StudioAssistantPreviewProps) {
+  const [status, setStatus] = useState<"ready" | "loading" | "active" | "error">("ready");
+  const [message, setMessage] = useState("Use this guide when you want help inside Studio.");
+  const [mode, setMode] = useState<"idle" | "live" | "fallback">("idle");
+  const [fallbackPointing, setFallbackPointing] = useState(false);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unsubscribersRef = useRef<Array<() => void>>([]);
+  const label = "Ask Studio Assistant";
+
+  useEffect(() => {
+    return () => {
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+      }
+      unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
+      unsubscribersRef.current = [];
+      window.Skilly?.destroy?.();
+    };
+  }, []);
+
+  async function startStudioGuide() {
+    setStatus("loading");
+    setMessage("Starting the Studio assistant...");
+
+    try {
+      await loadWidgetScript();
+      if (!window.Skilly) {
+        throw new Error("Studio assistant could not load");
+      }
+
+      window.Skilly.destroy?.();
+      unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
+      unsubscribersRef.current = [];
+      window.Skilly.init({
+        key: DASHBOARD_TEST_KEY,
+        skill: STUDIO_GUIDE_SKILL_ID,
+        backendUrl: "/api/dashboard/test-widget",
+        coreUrl: CORE_URL,
+        accentColor,
+        launcherLabel: label,
+      });
+      unsubscribersRef.current.push(
+        window.Skilly.on?.("turn", () => {
+          setStatus("active");
+          setMessage("Studio guide started. Allow microphone access if the browser asks.");
+        }) ?? (() => {}),
+      );
+      unsubscribersRef.current.push(
+        window.Skilly.on?.("complete", () => {
+          setStatus("ready");
+          setMessage("Studio guide completed. Start it again when you need setup help.");
+        }) ?? (() => {}),
+      );
+      unsubscribersRef.current.push(
+        window.Skilly.on?.("error", (payload) => {
+          const detail =
+            payload && typeof payload === "object" && "message" in payload
+              ? String((payload as { message?: unknown }).message)
+              : "The Studio assistant could not start.";
+          setStatus("error");
+          setMessage(detail);
+        }) ?? (() => {}),
+      );
+      setMode("live");
+      window.Skilly.start("Help me finish setting up Skilly Studio and point at the next setup action.");
+    } catch {
+      startFallbackGuide();
+    }
+  }
+
+  function startFallbackGuide() {
+    setMode("fallback");
+    setStatus("active");
+    setMessage("Fallback preview: the Studio assistant is pointing at the setup action.");
+    setFallbackPointing(true);
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+    }
+    fallbackTimerRef.current = setTimeout(() => {
+      setStatus("ready");
+      setMessage("Fallback preview completed. The live Studio assistant uses this same setup surface.");
+      setFallbackPointing(false);
+      fallbackTimerRef.current = null;
+    }, 2600);
+  }
+
+  const pillTone = status === "error" ? "red" : status === "active" ? "amber" : status === "ready" ? "green" : "neutral";
+
+  return (
+    <div className="relative min-h-[460px] overflow-hidden rounded-[16px] border border-line bg-[#f7f4ec] p-5 text-gray-950">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-[#e2ded4] pb-3">
+        <div>
+          <div className="text-sm font-semibold">Studio assistant surface</div>
+          <p className="mt-1 max-w-xl text-sm text-neutral-600">
+            This is Skilly's internal guide for helping admins finish setup inside Studio.
+          </p>
+        </div>
+        <StatusPill tone={pillTone} label={status} showDot />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <section className="rounded-[12px] border border-[#e2ded4] bg-white p-5 shadow-[0_12px_32px_rgba(0,0,0,0.08)]">
+          <h3 className="text-lg font-bold" data-skilly="dashboard-test-heading">
+            Studio setup
+          </h3>
+          <p className="mt-2 text-sm text-neutral-600">
+            Ask the Studio assistant what to do next. This guide should explain Studio controls, not act like the
+            customer's public website assistant.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-skilly="dashboard-test-primary"
+              className="rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
+              onClick={() => document.getElementById("customer-website-preview")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              Preview customer site
+            </button>
+            <a
+              href="/dashboard/skill"
+              data-skilly="dashboard-test-secondary"
+              className="rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
+            >
+              Edit teaching skill
+            </a>
+          </div>
+        </section>
+
+        <aside className="rounded-[12px] border border-[#e2ded4] bg-white p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold" data-skilly="dashboard-test-settings">
+            <span className="grid h-8 w-8 place-items-center rounded-full" style={{ backgroundColor: accentColor }}>
+              <CursorGlyph size={18} />
+            </span>
+            Studio assistant
+          </div>
+          <p className="mt-3 text-sm text-neutral-600">{message}</p>
+          <Button
+            className="mt-4 w-full justify-center"
+            type="button"
+            onClick={() => void startStudioGuide()}
+            disabled={status === "loading"}
+          >
+            Start Studio guide
+          </Button>
+        </aside>
+      </div>
+
+      {mode === "fallback" && (
+        <button
+          type="button"
+          aria-label={label}
+          onClick={startFallbackGuide}
+          className="absolute bottom-5 right-5 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.22)]"
+          style={{ backgroundColor: accentColor }}
+        >
+          <CursorGlyph size={28} />
+        </button>
+      )}
+
+      {fallbackPointing && (
+        <>
+          <div className="absolute bottom-[92px] right-5 w-72 rounded-[14px] border border-neutral-900/10 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.28)]">
+            Start by previewing the customer's site, then refine the public teaching skill.
+          </div>
+          <div
+            aria-hidden="true"
+            className="absolute left-[112px] top-[236px] -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
+            style={{ color: accentColor }}
+          >
+            <CursorGlyph size={34} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+interface CustomerWebsitePreviewProps {
+  accentColor: string;
+  skillId: string;
+  launcherLabel: string | null;
+}
+
+interface SiteImportPreview {
+  url: string;
+  finalUrl: string;
+  host: string;
+  title: string;
+  description: string;
+  headings: string[];
+  navigation: string[];
+  callsToAction: string[];
+  questions: string[];
+  bodySummary: string;
+}
+
+interface UploadedContextFile {
+  name: string;
+  text: string;
+}
+
+function normalizePreviewUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return "https://example.com";
+  }
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function hostFromUrl(rawUrl: string): string {
+  try {
+    return new URL(normalizePreviewUrl(rawUrl)).host || "your website";
+  } catch {
+    return "your website";
+  }
+}
+
+function base64UrlEncode(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return window
+    .btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function compactList(values: string[], limit: number): string[] {
+  return values.map((value) => value.trim()).filter(Boolean).slice(0, limit);
+}
+
+async function readContextFiles(fileList: FileList | null): Promise<UploadedContextFile[]> {
+  const files = Array.from(fileList ?? []).slice(0, 5);
+  const readableFiles = files.filter((file) =>
+    ["text/plain", "text/markdown", "text/csv", "application/json"].includes(file.type) ||
+    /\.(txt|md|markdown|csv|json)$/i.test(file.name),
+  );
+
+  return Promise.all(
+    readableFiles.map(async (file) => ({
+      name: file.name,
+      text: (await file.text()).slice(0, 5000),
+    })),
+  );
+}
+
+export function CustomerWebsitePreview({ accentColor, skillId, launcherLabel }: CustomerWebsitePreviewProps) {
+  const [siteUrl, setSiteUrl] = useState("");
+  const [context, setContext] = useState("");
+  const [generatedPreview, setGeneratedPreview] = useState<SiteImportPreview | null>(null);
+  const [importStatus, setImportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [importError, setImportError] = useState("");
+  const [widgetStatus, setWidgetStatus] = useState<"ready" | "loading" | "active" | "error">("ready");
+  const [widgetMessage, setWidgetMessage] = useState("Click the Skilly launcher to test the real voice flow.");
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedContextFile[]>([]);
+  const [pointing, setPointing] = useState(false);
+  const [frameLikelyBlocked, setFrameLikelyBlocked] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const customerWidgetReadyRef = useRef(false);
+  const customerWidgetSkillRef = useRef("");
+  const unsubscribersRef = useRef<Array<() => void>>([]);
+  const host = generatedPreview?.host ?? (previewUrl ? hostFromUrl(previewUrl) : hostFromUrl(siteUrl));
+  const label = launcherLabel || "Ask Skilly";
+  const uploadedFileNames = uploadedFiles.map((file) => file.name);
+  const uploadedContextSummary = uploadedFiles
+    .map((file) => `${file.name}: ${file.text.replace(/\s+/g, " ").trim().slice(0, 700)}`)
+    .filter(Boolean)
+    .join(" ");
+
+  function startFallbackPointing() {
+    setPointing(true);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+    timerRef.current = setTimeout(() => {
+      setPointing(false);
+      timerRef.current = null;
+    }, 3000);
+  }
+
+  function clearCustomerWidgetSubscriptions() {
+    unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
+    unsubscribersRef.current = [];
+  }
+
+  function buildPreviewSkillId(surface: "generated" | "live"): string {
+    const targetUrl = normalizePreviewUrl(previewUrl || generatedPreview?.finalUrl || siteUrl);
+    const payload = {
+      host: hostFromUrl(targetUrl).slice(0, 120),
+      url: targetUrl.slice(0, 240),
+      title: (generatedPreview?.title || hostFromUrl(targetUrl)).slice(0, 160),
+      description: (generatedPreview?.description || generatedPreview?.bodySummary || "").slice(0, 700),
+      goal: context.trim().slice(0, 700),
+      headings: compactList(generatedPreview?.headings ?? [], 6),
+      callsToAction: compactList(generatedPreview?.callsToAction ?? [], 5),
+      questions: compactList(generatedPreview?.questions ?? [], 5),
+      files: compactList(uploadedFileNames, 6),
+      uploadedContext: uploadedContextSummary.slice(0, 1400),
+      surface,
+      tenantSkillId: skillId,
+    };
+    return `preview-${base64UrlEncode(JSON.stringify(payload))}`;
+  }
+
+  async function startCustomerWidget(surface: "generated" | "live") {
+    const targetUrl = normalizePreviewUrl(previewUrl || generatedPreview?.finalUrl || siteUrl);
+    const targetHost = hostFromUrl(targetUrl);
+    const previewSkillId = buildPreviewSkillId(surface);
+    const goalParts = [
+      `Preview Skilly on ${targetHost}.`,
+      context.trim() ? `Customer goal: ${context.trim()}` : "Help the visitor understand this page and choose the next action.",
+      generatedPreview?.title ? `Imported page title: ${generatedPreview.title}.` : "",
+      uploadedFileNames.length ? `Uploaded context files: ${uploadedFileNames.join(", ")}.` : "",
+      uploadedContextSummary ? `Uploaded context snippets: ${uploadedContextSummary.slice(0, 1600)}` : "",
+      surface === "live"
+        ? "The customer site is open in Studio's live preview frame; use the current preview context for guidance."
+        : "Use the generated preview content as the page context.",
+    ].filter(Boolean);
+
+    setWidgetStatus("loading");
+    setWidgetMessage("Starting the real Skilly voice preview. Allow microphone access if the browser asks.");
+
+    try {
+      await loadWidgetScript();
+      if (!window.Skilly) {
+        throw new Error("Skilly widget could not load");
+      }
+
+      if (!customerWidgetReadyRef.current || customerWidgetSkillRef.current !== previewSkillId) {
+        window.Skilly.destroy?.();
+        clearCustomerWidgetSubscriptions();
+        window.Skilly.init({
+          key: DASHBOARD_TEST_KEY,
+          skill: previewSkillId,
+          backendUrl: "/api/dashboard/test-widget",
+          coreUrl: CORE_URL,
+          accentColor,
+          launcherLabel: label,
+        });
+        customerWidgetReadyRef.current = true;
+        customerWidgetSkillRef.current = previewSkillId;
+        unsubscribersRef.current.push(
+          window.Skilly.on?.("turn", () => {
+            setWidgetStatus("active");
+            setWidgetMessage("Skilly is listening. Click the Skilly launcher again to stop.");
+          }) ?? (() => {}),
+        );
+        unsubscribersRef.current.push(
+          window.Skilly.on?.("complete", () => {
+            setWidgetStatus("ready");
+            setWidgetMessage("Voice preview stopped. Click the launcher to test it again.");
+          }) ?? (() => {}),
+        );
+        unsubscribersRef.current.push(
+          window.Skilly.on?.("error", (payload) => {
+            const detail =
+              payload && typeof payload === "object" && "message" in payload
+                ? String((payload as { message?: unknown }).message)
+                : "Skilly could not start the voice preview.";
+            setWidgetStatus("error");
+            setWidgetMessage(detail);
+          }) ?? (() => {}),
+        );
+      }
+
+      window.Skilly.start(goalParts.join(" "));
+    } catch (error) {
+      customerWidgetReadyRef.current = false;
+      customerWidgetSkillRef.current = "";
+      clearCustomerWidgetSubscriptions();
+      setWidgetStatus("error");
+      setWidgetMessage(error instanceof Error ? error.message : "Skilly could not start the voice preview.");
+      startFallbackPointing();
+    }
+  }
+
+  async function generatePreview(options: { preserveLivePreview?: boolean } = {}) {
+    const nextPreviewUrl = normalizePreviewUrl(siteUrl);
+    setImportStatus("loading");
+    setImportError("");
+    if (!options.preserveLivePreview) {
+      setPreviewUrl("");
+      setFrameLikelyBlocked(false);
+    }
+    setWidgetMessage("Fallback preview is being generated. Click the Skilly launcher after it appears.");
+
+    try {
+      const response = await fetch("/api/dashboard/site-import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: nextPreviewUrl }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { preview?: SiteImportPreview; error?: string };
+      if (!response.ok || !body.preview) {
+        throw new Error(body.error || "Unable to import this site.");
+      }
+      setGeneratedPreview(body.preview);
+      setImportStatus("success");
+    } catch (error) {
+      const fallbackHost = hostFromUrl(nextPreviewUrl);
+      const fallbackGoal = context.trim();
+      setGeneratedPreview({
+        url: nextPreviewUrl,
+        finalUrl: nextPreviewUrl,
+        host: fallbackHost,
+        title: fallbackHost,
+        description: fallbackGoal
+          ? `Manual preview using your goal: ${fallbackGoal}`
+          : uploadedContextSummary
+            ? `Manual preview using uploaded context: ${uploadedContextSummary.slice(0, 260)}`
+            : "Add a short goal or upload text notes so Skilly can generate a useful first preview for this site.",
+        headings: fallbackGoal ? [fallbackGoal] : uploadedContextSummary ? ["Uploaded context"] : ["Add context to preview this site"],
+        navigation: [],
+        callsToAction: [],
+        questions: [],
+        bodySummary: fallbackGoal || uploadedContextSummary || "The public page could not be imported automatically.",
+      });
+      setImportStatus("error");
+      setImportError(error instanceof Error ? error.message : "Unable to import this site.");
+    }
+  }
+
+  function openLivePreview() {
+    const nextPreviewUrl = normalizePreviewUrl(siteUrl);
+    setPreviewUrl(nextPreviewUrl);
+    setFrameLikelyBlocked(false);
+    setImportError("");
+    setWidgetMessage("Live preview opened. Click the Skilly launcher inside this panel to test voice.");
+    if (frameTimerRef.current) {
+      clearTimeout(frameTimerRef.current);
+    }
+    frameTimerRef.current = setTimeout(() => {
+      setFrameLikelyBlocked(true);
+      void generatePreview({ preserveLivePreview: true });
+      frameTimerRef.current = null;
+    }, 3500);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+      if (frameTimerRef.current) {
+        clearTimeout(frameTimerRef.current);
+      }
+      clearCustomerWidgetSubscriptions();
+      if (customerWidgetReadyRef.current) {
+        window.Skilly?.destroy?.();
+      }
+      customerWidgetReadyRef.current = false;
+      customerWidgetSkillRef.current = "";
+    };
+  }, []);
+
+  const generatedPreviewPanel = (
+    <div className="relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#f7f4ec] text-gray-950">
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[#e2ded4] bg-white px-4 py-3">
+        <div>
+          <strong>{generatedPreview ? generatedPreview.host : "Generated customer preview"}</strong>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            {generatedPreview
+              ? importStatus === "error"
+                ? "Manual preview from URL, notes, and uploaded context."
+                : "Preview generated from website content, notes, and uploaded context."
+              : "Enter a URL and generate a realistic Skilly preview before installation."}
+          </p>
+        </div>
+        <StatusPill
+          tone={importStatus === "success" ? "green" : importStatus === "error" ? "amber" : "neutral"}
+          label={importStatus === "loading" ? "importing" : importStatus === "success" ? "generated" : importStatus === "error" ? "manual context" : "ready"}
+          showDot
+        />
+      </div>
+
+      <div className="min-h-[568px] bg-[#f7f4ec] p-5">
+        {importStatus === "loading" ? (
+          <div className="grid h-[520px] place-items-center text-center">
+            <div>
+              <CursorGlyph size={42} />
+              <h3 className="mt-4 text-2xl font-bold tracking-normal">Importing site content</h3>
+              <p className="mt-3 text-sm text-neutral-600">Reading public page content to build the preview.</p>
+            </div>
+          </div>
+        ) : generatedPreview ? (
+          <div
+            className="mx-auto max-w-4xl overflow-hidden rounded-[14px] border border-[#ded8ce] bg-white shadow-[0_18px_48px_rgba(0,0,0,0.12)]"
+            data-skilly="customer-preview-page"
+            data-skilly-label={`${generatedPreview.host} preview page`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ece7df] px-5 py-3">
+              <div className="font-semibold" data-skilly="customer-preview-title" data-skilly-label={generatedPreview.title}>
+                {generatedPreview.title}
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs font-semibold text-neutral-500">
+                {(generatedPreview.navigation.length
+                  ? generatedPreview.navigation
+                  : importStatus === "error"
+                    ? ["Manual preview", "Add context", "Install snippet"]
+                    : ["Home", "Product", "Support"])
+                  .slice(0, 5)
+                  .map((item) => (
+                    <span key={item}>{item}</span>
+                  ))}
+              </div>
+            </div>
+            <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <section>
+                <div className="text-xs font-bold uppercase text-amber-700">{generatedPreview.host}</div>
+                <h3
+                  className="mt-3 max-w-2xl text-3xl font-bold leading-tight tracking-normal"
+                  data-skilly="customer-preview-heading"
+                  data-skilly-label={generatedPreview.headings[0] ?? generatedPreview.title}
+                >
+                  {generatedPreview.headings[0] ?? generatedPreview.title}
+                </h3>
+                <p
+                  className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600"
+                  data-skilly="customer-preview-description"
+                  data-skilly-label="Website description"
+                >
+                  {generatedPreview.description || generatedPreview.bodySummary}
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {(generatedPreview.callsToAction.length
+                    ? generatedPreview.callsToAction
+                    : importStatus === "error"
+                      ? ["Add context", "Upload docs"]
+                      : ["Get started", "Contact us"])
+                    .slice(0, 3)
+                    .map((cta, index) => (
+                      <button
+                        key={cta}
+                        type="button"
+                        data-skilly={index === 0 ? "customer-preview-primary-cta" : `customer-preview-cta-${index + 1}`}
+                        data-skilly-label={cta}
+                        className={
+                          index === 0
+                            ? "rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
+                            : "rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
+                        }
+                      >
+                        {cta}
+                      </button>
+                    ))}
+                </div>
+                {generatedPreview.headings.length > 1 && (
+                  <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                    {generatedPreview.headings.slice(1, 5).map((heading, index) => (
+                      <div key={heading} className="rounded-[10px] border border-[#ece7df] bg-[#faf8f4] p-3 text-sm font-semibold">
+                        <span data-skilly={`customer-preview-section-${index + 1}`} data-skilly-label={heading}>
+                          {heading}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+              <aside
+                className="rounded-[12px] border border-[#ece7df] bg-[#faf8f4] p-4"
+                data-skilly="customer-preview-context"
+                data-skilly-label="Skilly learning context"
+              >
+                <div className="text-sm font-bold">Skilly will learn from</div>
+                <ul className="mt-3 space-y-2 text-sm text-neutral-600">
+                  <li>
+                    {importStatus === "error"
+                      ? `Manual URL context for ${generatedPreview.host}`
+                      : `Website copy from ${generatedPreview.host}`}
+                  </li>
+                  {context.trim() && <li>Your goal: {context.trim()}</li>}
+                  {uploadedFiles.length > 0 && <li>{uploadedFiles.length} uploaded context file{uploadedFiles.length === 1 ? "" : "s"}</li>}
+                  <li>Tenant skill: <code className="font-mono">{skillId}</code></li>
+                </ul>
+                {generatedPreview.questions.length > 0 && (
+                  <>
+                    <div className="mt-5 text-sm font-bold">Likely questions</div>
+                    <div className="mt-2 space-y-2">
+                      {generatedPreview.questions.slice(0, 3).map((question, index) => (
+                        <div
+                          key={question}
+                          className="rounded-[8px] bg-white px-3 py-2 text-xs text-neutral-700"
+                          data-skilly={`customer-preview-question-${index + 1}`}
+                          data-skilly-label={question}
+                        >
+                          {question}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </aside>
+            </div>
+          </div>
+        ) : (
+          <div className="grid h-[520px] place-items-center text-center">
+            <div className="max-w-md">
+              <CursorGlyph size={42} />
+              <h3 className="mt-4 text-2xl font-bold tracking-normal">Preview the Skilly experience</h3>
+              <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+                Studio generates a representative page from public website content, then overlays Skilly so the customer
+                can review behavior before installing the snippet.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {importError && (
+        <div className="absolute left-5 top-[68px] z-10 max-w-xl rounded-[10px] border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow">
+          {importError} Using manual URL/context preview instead.
+        </div>
+      )}
+
+      <button
+        type="button"
+        aria-label={label}
+        onClick={() => void startCustomerWidget("generated")}
+        className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
+        style={{ backgroundColor: accentColor }}
+      >
+        <CursorGlyph size={28} />
+      </button>
+
+      {pointing && (
+        <>
+          <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
+            On {host}, Skilly would use this preview plus your notes
+            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded context file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
+            {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
+          </div>
+          <div
+            aria-hidden="true"
+            className="absolute left-[52%] top-[44%] z-20 -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
+            style={{ color: accentColor }}
+          >
+            <CursorGlyph size={34} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const livePreviewFrame = previewUrl ? (
+    <div
+      data-skilly="customer-live-preview-frame"
+      data-skilly-label={`${host} live preview frame`}
+      className={
+        fullScreen
+          ? "fixed inset-0 z-50 grid bg-[#0f0f10] text-gray-950"
+          : "relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#111113] text-gray-950"
+      }
+    >
+      <div className="flex h-12 items-center justify-between border-b border-white/10 bg-[#18181a] px-4 text-gray-200">
+        <div>
+          <strong>{host}</strong>
+          <p className="mt-0.5 text-xs text-muted">
+            Optional enhanced preview. Some sites block this for security.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {previewUrl && (
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-[8px] border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-300 transition hover:bg-white/[0.1]"
+            >
+              Open site
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => setFullScreen((value) => !value)}
+            className="rounded-[8px] border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-300 transition hover:bg-white/[0.1]"
+          >
+            {fullScreen ? "Exit full screen" : "Full screen"}
+          </button>
+        </div>
+      </div>
+
+      {!frameLikelyBlocked ? (
+        <iframe
+          key={previewUrl}
+          src={previewUrl}
+          title={`Live preview of ${host}`}
+          className={fullScreen ? "h-[calc(100dvh-48px)] w-full border-0 bg-white" : "h-[568px] w-full border-0 bg-white"}
+          referrerPolicy="no-referrer"
+          sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+          onLoad={() => {
+            if (frameTimerRef.current) {
+              clearTimeout(frameTimerRef.current);
+              frameTimerRef.current = null;
+            }
+          }}
+        />
+      ) : (
+        <div className={fullScreen ? "grid h-[calc(100dvh-48px)] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950" : "grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950"}>
+          <div className="max-w-xl">
+            <CursorGlyph size={42} />
+            <h3 className="mt-4 text-2xl font-bold tracking-normal">This site blocks embedded previews</h3>
+            <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+              No problem. This is normal browser security. Use the generated preview for review, then install the
+              snippet on staging or production for exact live behavior.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-[8px] bg-neutral-950 px-3 py-2 text-sm font-semibold text-white"
+              >
+                Open site in new tab
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setFrameLikelyBlocked(false);
+                  openLivePreview();
+                }}
+                className="rounded-[8px] border border-[#d7d0c3] px-3 py-2 text-sm font-semibold text-neutral-900"
+              >
+                Try iframe again
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        aria-label={label}
+        onClick={() => void startCustomerWidget("live")}
+        className="absolute bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full text-gray-950 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
+        style={{ backgroundColor: accentColor }}
+      >
+        <CursorGlyph size={28} />
+      </button>
+
+      {pointing && (
+        <>
+          <div className="absolute bottom-[92px] right-5 z-20 w-80 rounded-[14px] border border-white/15 bg-neutral-950 p-4 text-sm text-white shadow-[0_18px_55px_rgba(0,0,0,0.34)]">
+            On {host}, Skilly would use this page plus your notes
+            {uploadedFiles.length ? ` and ${uploadedFiles.length} uploaded context file${uploadedFiles.length === 1 ? "" : "s"}` : ""}
+            {context.trim() ? ` to help users: ${context.trim()}` : " to guide users through the next action."}
+          </div>
+          <div
+            aria-hidden="true"
+            className="absolute left-[52%] top-[44%] z-20 -rotate-12 text-gray-950 drop-shadow-[0_12px_20px_rgba(0,0,0,0.24)]"
+            style={{ color: accentColor }}
+          >
+            <CursorGlyph size={34} />
+          </div>
+        </>
+      )}
+    </div>
+  ) : null;
+
+  const initialLivePreviewPanel = (
+    <div className="relative min-h-[620px] overflow-hidden rounded-[16px] border border-line bg-[#111113] text-gray-100">
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-white/10 bg-[#18181a] px-4 py-3">
+        <div>
+          <strong>Live website preview</strong>
+          <p className="mt-0.5 text-xs text-muted">
+            Enter a URL, then open the live preview. Generated preview appears only if embedding is blocked.
+          </p>
+        </div>
+        <StatusPill tone="neutral" label="ready" showDot />
+      </div>
+      <div className="grid h-[568px] place-items-center bg-[#f7f4ec] p-8 text-center text-gray-950">
+        <div className="max-w-md">
+          <CursorGlyph size={42} />
+          <h3 className="mt-4 text-2xl font-bold tracking-normal">Open the live site first</h3>
+          <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+            Studio will try to show the actual customer website here. If the site blocks embedding, Studio will switch
+            to a generated fallback using the URL, imported content, and your notes.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="rounded-[14px] border border-line-soft bg-white/[0.035] p-4">
+        <label className="block text-sm font-bold text-gray-100" htmlFor="customer-preview-url">
+          Website URL
+        </label>
+        <input
+          id="customer-preview-url"
+          type="text"
+          inputMode="url"
+          value={siteUrl}
+          onChange={(event) => setSiteUrl(event.target.value)}
+          placeholder="yourcompany.com or https://app.yourcompany.com"
+          className="mt-2 h-10 w-full rounded-[10px] border border-line bg-black/20 px-3 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 focus:border-amber-500/45"
+        />
+        <p className="mt-1.5 text-xs text-muted">
+          Plain domains are fine. Studio opens the live site first; generated preview is only a fallback.
+        </p>
+
+        <label className="mt-4 block text-sm font-bold text-gray-100" htmlFor="customer-preview-context">
+          What should Skilly help users do on this site?
+        </label>
+        <textarea
+          id="customer-preview-context"
+          value={context}
+          onChange={(event) => setContext(event.target.value)}
+          placeholder="Example: Help new users create their first project, connect billing, and invite a teammate."
+          rows={5}
+          className="mt-2 w-full resize-none rounded-[10px] border border-line bg-black/20 px-3 py-2 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 focus:border-amber-500/45"
+        />
+
+        <label className="mt-4 block text-sm font-bold text-gray-100" htmlFor="customer-preview-docs">
+          Docs or notes
+        </label>
+        <input
+          id="customer-preview-docs"
+          type="file"
+          multiple
+          accept=".txt,.md,.markdown,.csv,.json,text/plain,text/markdown,text/csv,application/json"
+          onChange={(event) => {
+            void readContextFiles(event.currentTarget.files).then((files) => {
+              setUploadedFiles(files);
+              if (files.length) {
+                setWidgetMessage(`${files.length} context file${files.length === 1 ? "" : "s"} loaded into the preview skill.`);
+              }
+            });
+          }}
+          className="mt-2 block w-full text-sm text-muted file:mr-3 file:rounded-[8px] file:border-0 file:bg-white/[0.08] file:px-3 file:py-2 file:text-sm file:font-bold file:text-gray-200 hover:file:bg-white/[0.12]"
+        />
+        <p className="mt-1.5 text-xs text-muted">
+          Text, Markdown, CSV, and JSON files are read into this preview skill. PDFs and Word files need server-side extraction before they are accepted here.
+        </p>
+
+        <Button
+          className="mt-4 w-full justify-center"
+          type="button"
+          variant="primary"
+          onClick={openLivePreview}
+        >
+          Open live preview
+        </Button>
+        <Button
+          className="mt-2 w-full justify-center"
+          type="button"
+          onClick={() => void generatePreview()}
+          disabled={importStatus === "loading"}
+        >
+          {importStatus === "loading" ? "Generating fallback..." : "Use generated fallback"}
+        </Button>
+
+        <div className="mt-4 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
+          Studio tries the live iframe first. If the site blocks embedding, Studio falls back to an imported generated
+          preview; exact in-site pointing still requires the installed snippet on the customer's site.
+        </div>
+        <div className="mt-3 flex items-start gap-2 rounded-[12px] border border-line-soft bg-black/20 p-3 text-xs text-muted">
+          <StatusPill
+            tone={widgetStatus === "active" ? "green" : widgetStatus === "error" ? "red" : widgetStatus === "loading" ? "amber" : "neutral"}
+            label={widgetStatus}
+            showDot
+          />
+          <span>{widgetMessage}</span>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {livePreviewFrame ?? (generatedPreview ? generatedPreviewPanel : initialLivePreviewPanel)}
+        {livePreviewFrame && frameLikelyBlocked && generatedPreviewPanel}
+      </div>
+    </div>
+  );
+}

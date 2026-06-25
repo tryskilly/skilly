@@ -1,1 +1,114 @@
 @import "tailwindcss";
+
+/*
+ * Skilly Web v2 design tokens. Source of truth:
+ * skilly_web_v2_tokens.css + skilly-design-system-v1.0.md. These map the
+ * designer's tokens into Tailwind v4's @theme so utilities like `bg-surface`,
+ * `text-muted`, `border-line`, `text-amber-400` resolve to the v2 palette.
+ */
+@theme {
+  /* Fonts — wired via next/font in layout.tsx (CSS vars --font-sans / --font-mono). */
+  --font-sans: var(--font-dm-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Amber — Skilly's single accent (the cursor color). */
+  --color-amber-50: #fefce8;
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-amber-700: #b45309;
+
+  /* Warm-gray neutrals (intentionally not cool/clinical). */
+  --color-gray-50: #fafaf8;
+  --color-gray-100: #f5f5f0;
+  --color-gray-200: #e5e5e0;
+  --color-gray-300: #d4d4cf;
+  --color-gray-400: #a3a39e;
+  --color-gray-500: #737370;
+  --color-gray-700: #3f3f3d;
+  --color-gray-800: #27272a;
+  --color-gray-900: #1c1c1e;
+  --color-gray-950: #0f0f10;
+
+  /* Semantic. */
+  --color-success: #22c55e;
+  --color-error: #ef4444;
+
+  /* v2 surface/border scale — translucent over the dark canvas. */
+  --color-surface: rgba(255, 255, 255, 0.045);
+  --color-surface-strong: rgba(255, 255, 255, 0.065);
+  --color-line: rgba(255, 255, 255, 0.1);
+  --color-line-soft: rgba(255, 255, 255, 0.07);
+
+  /* Radii (8px grid; spec §1 layout). */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Shell dimensions. */
+  --spacing-sidebar: 248px;
+  --spacing-topbar: 64px;
+}
+
+/*
+ * Ambient canvas: a calm dark surface with two restrained amber/white radial
+ * glows (spec §3 content canvas). Applied to <body> so every route inherits it.
+ */
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(circle at 82% -8%, rgba(245, 158, 11, 0.18), transparent 34rem),
+    radial-gradient(circle at 12% 22%, rgba(255, 255, 255, 0.035), transparent 28rem),
+    var(--color-gray-950);
+  background-attachment: fixed;
+}
+
+.skilly-dashboard-shell {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: clip;
+}
+
+@media (min-width: 1024px) {
+  .skilly-dashboard-shell {
+    display: grid;
+    grid-template-columns: var(--spacing-sidebar) minmax(0, 1fr);
+  }
+}
+
+.skilly-dashboard-main {
+  display: flex;
+  min-width: 0;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.skilly-dashboard-topbar,
+.skilly-dashboard-tenantbar,
+.skilly-dashboard-footer {
+  flex: 0 0 auto;
+}
+
+.skilly-dashboard-topbar {
+  height: var(--spacing-topbar);
+}
+
+.skilly-dashboard-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

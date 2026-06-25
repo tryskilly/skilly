@@ -4,6 +4,7 @@
 
 import { hashKey, isValidKeyFormat } from "./domain/keys";
 import { matchOrigin } from "./domain/origin";
+import { matchAppId } from "./domain/appId";
 import { isOverQuota, remainingSeconds } from "./domain/quota";
 import {
   mintRealtimeToken,
@@ -26,7 +27,10 @@ export type AuthResult = AuthSuccess | AuthFailure;
 
 export interface AuthParams {
   rawKey: string | null;
+  /** Browser-enforced Origin (web request), or null for native clients. */
   origin: string | null;
+  /** Self-reported native app id (iOS bundle id / Android package), or null. */
+  appId?: string | null;
 }
 
 /** Validate the publishable key + origin allowlist for an inbound widget request. */
@@ -43,8 +47,24 @@ export async function authenticateWebRequest(
     return { ok: false, status: 401, error: "unknown or revoked API key" };
   }
 
-  if (!matchOrigin(params.origin, lookup.tenant.allowedOrigins)) {
-    return { ok: false, status: 403, error: "origin not allowed for this key" };
+  // A browser always sends Origin (which it enforces), so a web request is
+  // validated against the origin allowlist. Only when there's NO origin (a
+  // native client) do we consult the app-id allowlist — this prevents a web
+  // caller from bypassing origin checks with a spoofed app-id header.
+  if (params.origin) {
+    const projects = await repo.listProjects(lookup.tenant.id);
+    const projectAllowsOrigin = projects.some((project) => matchOrigin(params.origin!, project.allowedOrigins));
+    if (!projectAllowsOrigin && !matchOrigin(params.origin, lookup.tenant.allowedOrigins)) {
+      return { ok: false, status: 403, error: "origin not allowed for this key" };
+    }
+  } else if (params.appId) {
+    const projects = await repo.listProjects(lookup.tenant.id);
+    const projectAllowsAppId = projects.some((project) => matchAppId(params.appId!, project.allowedAppIds));
+    if (!projectAllowsAppId && !matchAppId(params.appId, lookup.tenant.allowedAppIds)) {
+      return { ok: false, status: 403, error: "app id not allowed for this key" };
+    }
+  } else {
+    return { ok: false, status: 403, error: "missing origin or app id" };
   }
 
   return { ok: true, tenant: lookup.tenant };
@@ -59,6 +79,8 @@ export interface MintParams extends AuthParams {
 export interface MintOutcome {
   status: 200 | 401 | 403 | 429 | 500 | 502;
   body: Record<string, unknown>;
+  /** Internal observability context; route handlers do not expose it to clients. */
+  tenantId?: string;
 }
 
 /** Authenticate → quota-check → mint an ephemeral OpenAI token → record usage. */
@@ -74,12 +96,12 @@ export async function mintTokenForRequest(
   const usageSecondsThisPeriod = await repo.getUsageSecondsThisPeriod(auth.tenant.id);
   const capSeconds = auth.tenant.usageCapSeconds;
   if (isOverQuota({ usageSecondsThisPeriod, capSeconds })) {
-    return { status: 429, body: { error: "monthly usage quota reached" } };
+    return { status: 429, body: { error: "monthly usage quota reached" }, tenantId: auth.tenant.id };
   }
 
   // Server-config check AFTER auth so invalid requests still get 401/403, not 500.
   if (!params.openaiApiKey) {
-    return { status: 500, body: { error: "server is missing OPENAI_API_KEY" } };
+    return { status: 500, body: { error: "server is missing OPENAI_API_KEY" }, tenantId: auth.tenant.id };
   }
 
   let token: EphemeralToken;
@@ -91,7 +113,7 @@ export async function mintTokenForRequest(
     });
   } catch (mintError) {
     const status = mintError instanceof TokenMintError ? 502 : 502;
-    return { status, body: { error: "failed to mint realtime token" } };
+    return { status, body: { error: "failed to mint realtime token" }, tenantId: auth.tenant.id };
   }
 
   // The mint itself is metered as 0s; session seconds are recorded in 8.3/8.6.
@@ -105,5 +127,6 @@ export async function mintTokenForRequest(
       model: token.model,
       remainingSeconds: remainingSeconds({ usageSecondsThisPeriod, capSeconds }),
     },
+    tenantId: auth.tenant.id,
   };
 }

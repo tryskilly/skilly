@@ -5,13 +5,22 @@ import { randomUUID } from "node:crypto";
 import { generateKey, hashKey, keyDisplay, type KeyType } from "../domain/keys";
 import type {
   ApiKeyInfo,
+  DashboardMembership,
+  DashboardMembershipInput,
+  DashboardMembershipLookup,
   KeyLookup,
+  Project,
+  RecentSession,
   Tenant,
   TenantSkill,
+  UsageDimensions,
   UsageEvent,
+  UsageMetrics,
   UsageSummary,
   WebBackendRepo,
+  WidgetConfig,
 } from "./repo";
+import { DEFAULT_WIDGET_CONFIG } from "./repo";
 
 interface SeededKey {
   id: string;
@@ -27,6 +36,7 @@ export interface MemorySeed {
   tenants: Tenant[];
   keys: Array<{ rawKey: string; keyType: KeyType; tenantId: string; revoked?: boolean }>;
   skills: TenantSkill[];
+  memberships?: DashboardMembership[];
 }
 
 /** A demo tenant so the local widget works out of the box. */
@@ -40,14 +50,25 @@ export function defaultSeed(): MemorySeed {
         id: tenantId,
         name: "Acme Inc. (demo)",
         allowedOrigins: ["http://localhost:4399", "http://localhost:4310", "https://*.acme.com"],
+        allowedAppIds: ["com.acme.demo", "app.tryskilly.demo"],
         usageCapSeconds: 10_800, // 3h, mirrors the desktop monthly cap default
+        polarCustomerId: null,
       },
     ],
     keys: [{ rawKey: DEMO_PUBLISHABLE_KEY, keyType: "publishable", tenantId }],
+    memberships: [
+      {
+        workosUserId: "user_01KP21J3GEVH8AKJ31C59Z1KJQ",
+        tenantId,
+        role: "super_admin",
+        email: "admin@tryskilly.app",
+        workosOrganizationId: null,
+      },
+    ],
     skills: [
       {
         tenantId,
-        skillId: "acme-onboarding",
+        skillId: "default",
         content: "# Acme Onboarding\n\nGuide the user through setting up their first project.",
       },
     ],
@@ -58,7 +79,14 @@ export class MemoryRepo implements WebBackendRepo {
   private tenants = new Map<string, Tenant>();
   private keys = new Map<string, SeededKey>();
   private skills = new Map<string, TenantSkill>();
-  private usage: UsageEvent[] = [];
+  private memberships: DashboardMembership[] = [];
+  private projects = new Map<string, Project>();
+  // Monotonic insertion counter so newest-first ordering is stable even when
+  // many events are recorded within the same millisecond (mirrors Postgres
+  // BIGSERIAL + ORDER BY created_at DESC).
+  private usageSequence = 0;
+  private usage: Array<UsageEvent & UsageDimensions & { createdAt: Date; sequence: number }> = [];
+  private widgetConfigs = new Map<string, WidgetConfig>();
 
   constructor(seed: MemorySeed = defaultSeed()) {
     for (const tenant of seed.tenants) {
@@ -80,6 +108,7 @@ export class MemoryRepo implements WebBackendRepo {
     for (const skill of seed.skills) {
       this.skills.set(`${skill.tenantId}:${skill.skillId}`, skill);
     }
+    this.memberships = [...(seed.memberships ?? [])];
   }
 
   async findTenantByKeyHash(keyHash: string): Promise<KeyLookup | null> {
@@ -98,18 +127,306 @@ export class MemoryRepo implements WebBackendRepo {
     return this.skills.get(`${tenantId}:${skillId}`) ?? null;
   }
 
+  async listTenantSkills(tenantId: string): Promise<TenantSkill[]> {
+    return [...this.skills.values()]
+      .filter((skill) => skill.tenantId === tenantId)
+      .sort((left, right) => left.skillId.localeCompare(right.skillId));
+  }
+
+  private projectClone(project: Project): Project {
+    return {
+      ...project,
+      allowedOrigins: [...project.allowedOrigins],
+      allowedAppIds: [...project.allowedAppIds],
+      widgetConfig: { ...project.widgetConfig },
+    };
+  }
+
+  async ensureDefaultProject(tenantId: string): Promise<Project> {
+    const existing = [...this.projects.values()]
+      .filter((project) => project.tenantId === tenantId)
+      .sort((left, right) => (left.slug === "primary" ? -1 : right.slug === "primary" ? 1 : left.name.localeCompare(right.name)))[0];
+    if (existing) {
+      return this.projectClone(existing);
+    }
+
+    const tenant = this.tenants.get(tenantId);
+    if (!tenant) {
+      throw new Error("tenant not found");
+    }
+    const skill =
+      this.skills.get(`${tenantId}:default`) ??
+      [...this.skills.values()]
+        .filter((candidate) => candidate.tenantId === tenantId)
+        .sort((left, right) => left.skillId.localeCompare(right.skillId))[0] ??
+      null;
+    const project: Project = {
+      id: randomUUID(),
+      tenantId,
+      name: "Primary project",
+      slug: "primary",
+      skillId: skill?.skillId ?? "default",
+      skillContent: skill?.content ?? "",
+      allowedOrigins: [...tenant.allowedOrigins],
+      allowedAppIds: [...tenant.allowedAppIds],
+      widgetConfig: this.widgetConfigs.get(tenantId) ?? { ...DEFAULT_WIDGET_CONFIG },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.projects.set(project.id, project);
+    return this.projectClone(project);
+  }
+
+  async listProjects(tenantId: string): Promise<Project[]> {
+    await this.ensureDefaultProject(tenantId);
+    return [...this.projects.values()]
+      .filter((project) => project.tenantId === tenantId)
+      .sort((left, right) => (right.createdAt?.getTime() ?? 0) - (left.createdAt?.getTime() ?? 0))
+      .map((project) => this.projectClone(project));
+  }
+
+  async getProject(tenantId: string, projectId: string): Promise<Project | null> {
+    const project = this.projects.get(projectId);
+    return project?.tenantId === tenantId ? this.projectClone(project) : null;
+  }
+
+  async getProjectBySkillId(tenantId: string, skillId: string): Promise<Project | null> {
+    const project = [...this.projects.values()].find(
+      (candidate) => candidate.tenantId === tenantId && candidate.skillId === skillId,
+    );
+    if (project) {
+      return this.projectClone(project);
+    }
+    const defaultProject = await this.ensureDefaultProject(tenantId);
+    return defaultProject.skillId === skillId ? defaultProject : null;
+  }
+
+  async saveProjectSkill(projectId: string, content: string): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.skillContent = content;
+      project.updatedAt = new Date();
+    }
+  }
+
+  async setProjectOrigins(projectId: string, origins: string[]): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.allowedOrigins = origins;
+      project.updatedAt = new Date();
+    }
+  }
+
+  async setProjectAppIds(projectId: string, appIds: string[]): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.allowedAppIds = appIds;
+      project.updatedAt = new Date();
+    }
+  }
+
+  async saveProjectWidgetConfig(projectId: string, config: WidgetConfig): Promise<void> {
+    const project = this.projects.get(projectId);
+    if (project) {
+      project.widgetConfig = { ...config };
+      project.updatedAt = new Date();
+    }
+  }
+
   async getUsageSecondsThisPeriod(tenantId: string): Promise<number> {
     return this.usage
       .filter((event) => event.tenantId === tenantId)
       .reduce((total, event) => total + event.seconds, 0);
   }
 
-  async recordUsage(event: UsageEvent): Promise<void> {
-    this.usage.push(event);
+  async recordUsage(event: UsageEvent & UsageDimensions): Promise<void> {
+    this.usage.push({
+      ...event,
+      page: event.page ?? null,
+      domain: event.domain ?? null,
+      durationSeconds: event.durationSeconds ?? null,
+      result: event.result ?? null,
+      createdAt: new Date(),
+      sequence: this.usageSequence++,
+    });
+  }
+
+  async listUsageEvents(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<UsageEvent & { createdAt: Date }>> {
+    return this.usage
+      .filter((event) => event.tenantId === tenantId)
+      .slice()
+      .sort((a, b) => b.sequence - a.sequence)
+      .slice(0, limit)
+      .map(({ sequence: _sequence, page: _page, domain: _domain, durationSeconds: _durationSeconds, result: _result, ...event }) => event);
+  }
+
+  async listRecentSessions(tenantId: string, limit: number): Promise<RecentSession[]> {
+    return this.usage
+      .filter((event) => event.tenantId === tenantId && event.kind === "session_seconds")
+      .slice()
+      .sort((a, b) => b.sequence - a.sequence)
+      .slice(0, limit)
+      .map((event) => ({
+        createdAt: event.createdAt,
+        seconds: event.seconds,
+        page: event.page,
+        domain: event.domain,
+        durationSeconds: event.durationSeconds,
+        result: event.result,
+      }));
+  }
+
+  async getUsageMetrics(tenantId: string): Promise<UsageMetrics> {
+    const sessions = this.usage.filter(
+      (event) => event.tenantId === tenantId && event.kind === "session_seconds",
+    );
+    const sessionCount = sessions.length;
+    if (sessionCount === 0) {
+      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0 };
+    }
+    const totalSeconds = sessions.reduce((total, event) => total + event.seconds, 0);
+    const errorCount = sessions.filter(
+      (event) => event.result === "error" || event.result === "mic_denied",
+    ).length;
+    return {
+      sessionCount,
+      avgSessionSeconds: Math.round(totalSeconds / sessionCount),
+      errorRate: errorCount / sessionCount,
+    };
+  }
+
+  async getTopPages(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ page: string; count: number }>> {
+    const counts = new Map<string, number>();
+    for (const event of this.usage) {
+      if (event.tenantId === tenantId && event.kind === "session_seconds" && event.page) {
+        counts.set(event.page, (counts.get(event.page) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([page, count]) => ({ page, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+  }
+
+  async getTopDomains(
+    tenantId: string,
+    limit: number,
+  ): Promise<Array<{ domain: string; count: number }>> {
+    const counts = new Map<string, number>();
+    for (const event of this.usage) {
+      if (event.tenantId === tenantId && event.kind === "session_seconds" && event.domain) {
+        counts.set(event.domain, (counts.get(event.domain) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([domain, count]) => ({ domain, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+  }
+
+  async listTenants(): Promise<Tenant[]> {
+    return [...this.tenants.values()];
   }
 
   async getTenant(tenantId: string): Promise<Tenant | null> {
     return this.tenants.get(tenantId) ?? null;
+  }
+
+  async createTenant(input: {
+    name: string;
+    allowedOrigins?: string[];
+    allowedAppIds?: string[];
+    usageCapSeconds?: number;
+  }): Promise<Tenant> {
+    const tenant: Tenant = {
+      id: randomUUID(),
+      name: input.name,
+      allowedOrigins: input.allowedOrigins ?? [],
+      allowedAppIds: input.allowedAppIds ?? [],
+      usageCapSeconds: input.usageCapSeconds ?? 0,
+      polarCustomerId: null,
+    };
+    this.tenants.set(tenant.id, tenant);
+    return tenant;
+  }
+
+  async updateTenantName(tenantId: string, name: string): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.name = name;
+    }
+  }
+
+  async findDashboardMembership(lookup: DashboardMembershipLookup): Promise<DashboardMembership | null> {
+    const memberships = this.memberships.filter((membership) => membership.workosUserId === lookup.workosUserId);
+    if (lookup.workosOrganizationId) {
+      const organizationMatch = memberships.find(
+        (membership) => membership.workosOrganizationId === lookup.workosOrganizationId,
+      );
+      if (organizationMatch) {
+        return organizationMatch;
+      }
+    }
+    return memberships[0] ?? null;
+  }
+
+  async upsertDashboardMembership(input: DashboardMembershipInput): Promise<DashboardMembership> {
+    const existing = this.memberships.find(
+      (membership) => membership.workosUserId === input.workosUserId && membership.tenantId === input.tenantId,
+    );
+    const membership: DashboardMembership = {
+      workosUserId: input.workosUserId,
+      tenantId: input.tenantId,
+      role: input.role,
+      email: input.email ?? null,
+      workosOrganizationId: input.workosOrganizationId ?? null,
+    };
+
+    if (existing) {
+      Object.assign(existing, membership);
+      return existing;
+    }
+
+    this.memberships.push(membership);
+    return membership;
+  }
+
+  async listDashboardMemberships(tenantId: string): Promise<DashboardMembership[]> {
+    return this.memberships.filter((membership) => membership.tenantId === tenantId);
+  }
+
+  async deleteDashboardMembership(
+    tenantId: string,
+    workosUserId: string,
+  ): Promise<{ removed: boolean; reason?: "last_super_admin" | "not_found" }> {
+    const tenantMemberships = this.memberships.filter(
+      (membership) => membership.tenantId === tenantId,
+    );
+    const target = tenantMemberships.find(
+      (membership) => membership.workosUserId === workosUserId,
+    );
+    if (!target) {
+      return { removed: false, reason: "not_found" };
+    }
+    // Refuse to remove the last super_admin of a tenant — that would orphan it.
+    const otherSuperAdmins = tenantMemberships.filter(
+      (membership) =>
+        membership.role === "super_admin" && membership.workosUserId !== workosUserId,
+    );
+    if (target.role === "super_admin" && otherSuperAdmins.length === 0) {
+      return { removed: false, reason: "last_super_admin" };
+    }
+    this.memberships = this.memberships.filter(
+      (membership) =>
+        !(membership.tenantId === tenantId && membership.workosUserId === workosUserId),
+    );
+    return { removed: true };
   }
 
   async listApiKeys(tenantId: string): Promise<ApiKeyInfo[]> {
@@ -169,5 +486,34 @@ export class MemoryRepo implements WebBackendRepo {
     if (tenant) {
       tenant.usageCapSeconds = capSeconds;
     }
+  }
+
+  async setTenantPolarCustomerId(tenantId: string, polarCustomerId: string): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.polarCustomerId = polarCustomerId;
+    }
+  }
+
+  async setTenantOrigins(tenantId: string, origins: string[]): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.allowedOrigins = origins;
+    }
+  }
+
+  async setTenantAppIds(tenantId: string, appIds: string[]): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (tenant) {
+      tenant.allowedAppIds = appIds;
+    }
+  }
+
+  async getWidgetConfig(tenantId: string): Promise<WidgetConfig> {
+    return this.widgetConfigs.get(tenantId) ?? { ...DEFAULT_WIDGET_CONFIG };
+  }
+
+  async saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void> {
+    this.widgetConfigs.set(tenantId, { ...config });
   }
 }

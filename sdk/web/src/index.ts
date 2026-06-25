@@ -16,7 +16,7 @@
 import { loadCore } from "./core.js";
 import { SkillyWidget } from "./widget.js";
 import { buildDomDigest, type DomDigest, type ElementRegistry } from "./digest.js";
-import { parsePointTags, PointingEngine } from "./pointing.js";
+import { inferPointFromText, parsePointTags, PointingEngine } from "./pointing.js";
 import { fetchSessionToken, fetchTenantSkill, reportSessionUsage } from "./token.js";
 import { buildCompanionInstructions } from "./prompt.js";
 import { RealtimeSession, type RealtimeState } from "./realtime.js";
@@ -33,6 +33,7 @@ class SkillyController {
   private config: SkillyConfig | null = null;
   private widget: SkillyWidget | null = null;
   private pointing: PointingEngine | null = null;
+  private currentDigest: DomDigest | null = null;
   private currentRegistry: ElementRegistry | null = null;
   // Storage is type-erased; the public on()/emit() signatures keep callers type-safe.
   private handlers = new Map<SkillyEventName, Set<(payload: never) => void>>();
@@ -43,11 +44,17 @@ class SkillyController {
   private realtimeSession: RealtimeSession | null = null;
   private liveActive = false;
   private liveSessionStartedAt = 0;
+  private liveSessionGeneration = 0;
   private lastPointedTarget: string | null = null;
+  private identifiedEndUser: { id: string; traits?: Record<string, unknown> } | null = null;
 
   init(config: SkillyConfig): void {
     if (this.widget) {
       console.warn("[skilly] already initialized; call destroy() first to re-init.");
+      return;
+    }
+    if (typeof document !== "undefined" && document.querySelector("[data-skilly-widget]")) {
+      console.warn("[skilly] widget already exists on this page; skipping duplicate init.");
       return;
     }
     if (!config.key) {
@@ -58,7 +65,7 @@ class SkillyController {
     // Voice pipeline is enabled when a backend (token source) is configured.
     this.liveMode = Boolean(config.backendUrl);
 
-    this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT);
+    this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT, config.launcherLabel);
     this.widget.onLauncherActivated = () => this.start();
     this.widget.mount();
     this.pointing = new PointingEngine(this.widget);
@@ -74,6 +81,7 @@ class SkillyController {
    */
   getPageDigest(): DomDigest {
     const { digest, registry } = buildDomDigest();
+    this.currentDigest = digest;
     this.currentRegistry = registry;
     return digest;
   }
@@ -176,6 +184,7 @@ class SkillyController {
     const backendUrl = config.backendUrl;
 
     this.liveActive = true;
+    const generation = ++this.liveSessionGeneration;
     this.liveSessionStartedAt = Date.now();
     this.emit("turn", { goal });
     this.widget.setState("thinking");
@@ -190,24 +199,48 @@ class SkillyController {
           ? fetchTenantSkill({ backendUrl, publishableKey: config.key, skillId: config.skill }).catch(() => null)
           : Promise.resolve(null),
       ]);
+      if (!this.liveActive || generation !== this.liveSessionGeneration) {
+        return;
+      }
 
       const instructions = buildCompanionInstructions({ skillContent, digest });
-      this.realtimeSession = new RealtimeSession({
+      const realtimeSession = new RealtimeSession({
         clientSecret: token.clientSecret,
         model: token.model,
         instructions,
         callbacks: {
-          onStateChange: (state) => this.onRealtimeState(state),
+          onStateChange: (state) => {
+            if (generation === this.liveSessionGeneration) {
+              this.onRealtimeState(state);
+            }
+          },
           onUserTranscript: () => {},
-          onAssistantText: (text) => this.onAssistantText(text),
+          onAssistantText: (text) => {
+            if (generation === this.liveSessionGeneration) {
+              this.onAssistantText(text);
+            }
+          },
           onError: (message) => {
+            if (generation !== this.liveSessionGeneration) {
+              return;
+            }
             this.widget?.setBubbleText(`Sorry — ${message}`);
             this.emit("error", { message });
           },
         },
       });
-      await this.realtimeSession.connect();
+      this.realtimeSession = realtimeSession;
+      await realtimeSession.connect();
+      if (!this.liveActive || generation !== this.liveSessionGeneration) {
+        realtimeSession.close();
+        if (this.realtimeSession === realtimeSession) {
+          this.realtimeSession = null;
+        }
+      }
     } catch (sessionError) {
+      if (generation !== this.liveSessionGeneration) {
+        return;
+      }
       this.liveActive = false;
       const message = sessionError instanceof Error ? sessionError.message : "couldn't start session";
       this.widget.setState("idle");
@@ -239,7 +272,7 @@ class SkillyController {
     const { cleanedText, points } = parsePointTags(fullText);
     this.widget.setBubbleText(cleanedText);
 
-    const point = points[0];
+    const point = points[0] ?? inferPointFromText(cleanedText, this.currentDigest);
     if (point && point.target !== this.lastPointedTarget) {
       this.lastPointedTarget = point.target;
       void this.pointing
@@ -253,6 +286,7 @@ class SkillyController {
   }
 
   private stopLiveSession(): void {
+    this.liveSessionGeneration += 1;
     this.realtimeSession?.close();
     this.realtimeSession = null;
     this.liveActive = false;
@@ -269,6 +303,7 @@ class SkillyController {
         backendUrl: this.config.backendUrl,
         publishableKey: this.config.key,
         seconds: elapsedSeconds,
+        endUserId: this.identifiedEndUser?.id,
       });
     }
 
@@ -291,8 +326,11 @@ class SkillyController {
 
   /** Associate the current end-user with the tenant (analytics — wired in 8.4+). */
   identify(endUserId: string, traits?: Record<string, unknown>): void {
-    void endUserId;
-    void traits;
+    const trimmedId = endUserId.trim();
+    if (!trimmedId) {
+      return;
+    }
+    this.identifiedEndUser = { id: trimmedId, traits };
   }
 
   /** Tear down the widget and clear subscriptions. */
@@ -300,12 +338,15 @@ class SkillyController {
     this.realtimeSession?.close();
     this.realtimeSession = null;
     this.liveActive = false;
+    this.liveSessionGeneration += 1;
     this.pointing?.clear();
     this.pointing = null;
     this.currentRegistry = null;
+    this.currentDigest = null;
     this.widget?.destroy();
     this.widget = null;
     this.config = null;
+    this.identifiedEndUser = null;
     this.handlers.clear();
     this.turnInProgress = false;
   }
@@ -347,6 +388,7 @@ if (embedScript instanceof HTMLScriptElement && embedScript.dataset.skillyKey) {
     skill: embedScript.dataset.skillySkill,
     accentColor: embedScript.dataset.skillyAccent,
     locale: embedScript.dataset.skillyLocale,
+    launcherLabel: embedScript.dataset.skillyLauncher,
     coreUrl: embedScript.dataset.skillyCoreUrl,
     backendUrl: embedScript.dataset.skillyBackendUrl,
   });

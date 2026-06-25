@@ -7,9 +7,23 @@
 // auth is a follow-up; this seam keeps the dashboard code unchanged when it lands.
 
 import { defaultSeed } from "@/db/memoryRepo";
+import { requireDashboardSession } from "./dashboardAuth";
 
-export function getCurrentTenantId(): string {
+export function getDefaultTenantId(): string {
   return process.env.SKILLY_TENANT_ID ?? defaultSeed().tenants[0]!.id;
 }
 
-export const DEFAULT_SKILL_ID = "acme-onboarding";
+export function getCurrentTenantId(): string {
+  return getDefaultTenantId();
+}
+
+export async function getCurrentDashboardTenantId(): Promise<string> {
+  return (await requireDashboardSession()).tenantId;
+}
+
+/**
+ * The default skill id every tenant's teaching SKILL.md is stored under. Neutral
+ * (not named after a demo tenant) so the data-skilly-skill snippet attribute and
+ * DB rows read cleanly in production.
+ */
+export const DEFAULT_SKILL_ID = "default";

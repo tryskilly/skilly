@@ -58,7 +58,9 @@ describe("mintTokenForRequest", () => {
     // Tenant with a 1s cap; pre-record usage so the next mint is blocked.
     const tenantId = "22222222-2222-2222-2222-222222222222";
     const repo = new MemoryRepo({
-      tenants: [{ id: tenantId, name: "Capped", allowedOrigins: [ALLOWED_ORIGIN], usageCapSeconds: 1 }],
+      tenants: [
+        { id: tenantId, name: "Capped", allowedOrigins: [ALLOWED_ORIGIN], allowedAppIds: [], usageCapSeconds: 1, polarCustomerId: null },
+      ],
       keys: [{ rawKey: "pk_test_cappedcappedcappedcapped01", keyType: "publishable", tenantId }],
       skills: [],
     });

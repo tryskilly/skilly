@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import {
   buildCheckoutBody,
+  getBuilderPlans,
   interpretSubscriptionEvent,
+  resolveBuilderPlan,
   verifyWebhookSignature,
 } from "../src/domain/billing";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
@@ -50,6 +52,18 @@ describe("interpretSubscriptionEvent", () => {
     ).toEqual({ tenantId: "t1", capSeconds: 0 });
   });
 
+  test("active uses checkout metadata cap and plan when present", () => {
+    expect(
+      interpretSubscriptionEvent(
+        {
+          type: "subscription.active",
+          data: { metadata: { tenantId: "t1", plan: "studio", planCapSeconds: 90_000 } },
+        },
+        24_000,
+      ),
+    ).toEqual({ tenantId: "t1", capSeconds: 90_000, plan: "studio" });
+  });
+
   test("returns null without a tenant id or for unhandled events", () => {
     expect(interpretSubscriptionEvent({ type: "subscription.active", data: {} }, 36_000)).toBeNull();
     expect(
@@ -60,8 +74,18 @@ describe("interpretSubscriptionEvent", () => {
 
 describe("buildCheckoutBody + cap update", () => {
   test("checkout body carries products[] and tenant metadata", () => {
-    const body = buildCheckoutBody({ productId: "prod_123", tenantId: "t1", successUrl: "https://x/dashboard" });
-    expect(body).toEqual({ products: ["prod_123"], success_url: "https://x/dashboard", metadata: { tenantId: "t1" } });
+    const body = buildCheckoutBody({
+      productId: "prod_123",
+      tenantId: "t1",
+      plan: "studio",
+      planCapSeconds: 90_000,
+      successUrl: "https://x/dashboard",
+    });
+    expect(body).toEqual({
+      products: ["prod_123"],
+      success_url: "https://x/dashboard",
+      metadata: { tenantId: "t1", plan: "studio", planCapSeconds: 90_000 },
+    });
   });
 
   test("setTenantUsageCap changes the usage summary cap", async () => {
@@ -69,5 +93,56 @@ describe("buildCheckoutBody + cap update", () => {
     const tenantId = defaultSeed().tenants[0]!.id;
     await repo.setTenantUsageCap(tenantId, 36_000);
     expect((await repo.getUsageSummary(tenantId)).capSeconds).toBe(36_000);
+  });
+
+  test("setTenantPolarCustomerId persists the customer id on the tenant", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+    expect((await repo.getTenant(tenantId))?.polarCustomerId).toBeNull();
+    await repo.setTenantPolarCustomerId(tenantId, "cust_abc");
+    expect((await repo.getTenant(tenantId))?.polarCustomerId).toBe("cust_abc");
+  });
+});
+
+describe("builder billing plan catalog", () => {
+  test("resolves three beta-safe plans from env", () => {
+    const env = {
+      POLAR_PRODUCT_ID: "starter_prod",
+      POLAR_BUILDER_STUDIO_PRODUCT_ID: "studio_prod",
+      POLAR_BUILDER_SCALE_PRODUCT_ID: "scale_prod",
+    };
+    expect(getBuilderPlans(env).map((plan) => [plan.id, plan.minutes, plan.capSeconds])).toEqual([
+      ["starter", 400, 24_000],
+      ["studio", 1_500, 90_000],
+      ["scale", 5_000, 300_000],
+    ]);
+    expect(resolveBuilderPlan("scale", env)?.productId).toBe("scale_prod");
+    expect(resolveBuilderPlan("unknown", env)?.productId).toBe("starter_prod");
+  });
+});
+
+describe("Polar customer id extraction", () => {
+  test("subscription events carry the top-level customer_id", () => {
+    const update = interpretSubscriptionEvent(
+      { type: "subscription.active", data: { metadata: { tenantId: "t1" }, customer_id: "cust_123" } },
+      36_000,
+    );
+    expect(update?.polarCustomerId).toBe("cust_123");
+  });
+
+  test("falls back to the nested customer.id shape", () => {
+    const update = interpretSubscriptionEvent(
+      { type: "subscription.created", data: { metadata: { tenantId: "t1" }, customer: { id: "cust_456" } } },
+      36_000,
+    );
+    expect(update?.polarCustomerId).toBe("cust_456");
+  });
+
+  test("omits the customer id when the webhook does not carry one", () => {
+    const update = interpretSubscriptionEvent(
+      { type: "subscription.active", data: { metadata: { tenantId: "t1" } } },
+      36_000,
+    );
+    expect(update?.polarCustomerId).toBeUndefined();
   });
 });

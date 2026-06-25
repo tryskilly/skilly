@@ -189,6 +189,21 @@ UniFFI-generated iOS (Swift) and Android (Kotlin) bindings over `core/mobile-sdk
 | `scripts/package-mobile-sdk.sh` / `validate-mobile-sdk-consumers.sh` | Package and end-to-end validate generated SDK consumers. |
 | `.github/workflows/mobile-sdk-artifacts.yml` | Release-triggered packaging/publishing of mobile SDK + FFI tarballs. |
 
+> ⚠ `sdk/ios/generated` + `sdk/android/generated` are the UniFFI **brain** bindings (policy/realtime). The embeddable **companion** SDKs (the iOS/Android analog of `@skilly/web`) are a separate layer on top — see below.
+
+### iOS Companion SDK (`sdk/ios/companion`) — Mobile SDK Phase 9.1
+
+The embeddable Skilly companion for iOS apps: a Swift Package a mobile-app owner adds so their users get the in-app tutor (sees the screen → points → talks). The iOS analog of `@skilly/web`; backed by the same multi-tenant backend (app-id-locked, Phase 9.0) + the `core/mobile-sdk` brain.
+
+| File | Purpose |
+|------|---------|
+| `Package.swift` | Swift Package `SkillyCompanion` (iOS 15+). |
+| `Sources/SkillyCompanion/Skilly.swift` | Public API: `configure`/`start`/`on`/`teardown` + simulated turn lifecycle. |
+| `Sources/SkillyCompanion/SkillyOverlay.swift` | Passthrough overlay window (launcher + bubble + cursor); touches pass through to the host app except the launcher. |
+| `Sources/SkillyCompanion/{SkillyConfig,SkillyEvent}.swift` | Config + event types. |
+
+> 9.1 is the embed skeleton (overlay + simulated lifecycle). Validated agent-side: `xcrun --sdk iphonesimulator swiftc -typecheck` (the whole package type-checks against real UIKit — no `xcodebuild`/TCC). Runtime (overlay appearing, touch passthrough) needs an Xcode build into a host app. Next: **9.2** accessibility-tree UI digest + pointing · **9.3** voice (AVAudioSession + WebRTC). Android mirror is 9.4–9.6.
+
 ### Native Shells (`apps/`) — landed on `develop` (Slice 4)
 
 Platform shell bootstrap binaries that run the shared-core turn-start flow through explicit capability adapters (capture/hotkey/overlay/audio/permissions). See `docs/architecture/{adapter-contracts,phase-7-windows-shell-prd}.md`.
@@ -231,21 +246,85 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 
 > Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (prompt + token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
 
-### Web backend (`apps/web-backend`) — Web SDK Phases 8.4–8.6
+#### Web SDK Session Lifecycle Protection
 
-Multi-tenant control plane + dashboard + billing: **Next.js (App Router) + Tailwind + Postgres**, the successor to the Worker's `/openai/token` + Polar logic for the web SDK. Build via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
+Two user-reported bugs drove hardening in `realtime.ts` and `index.ts`. Understand these patterns before touching session teardown or the toggle flow.
+
+**Bug 1 — Audio keeps playing after widget is toggled off** (`sdk/web/src/realtime.ts`)
+
+Root cause: `HTMLAudioElement.srcObject = null` does not flush already-decoded PCM frames from the browser's playback buffer. Chrome and Safari continue playing the buffered tail after the stream is removed.
+
+Fix: `RealtimeSession` now sets `this.closed = true` at the top of `close()` and calls `this.audioElement.pause()` **before** nulling `srcObject`. Every `await` inside `connect()` is guarded by an early `if (this.closed) return` check so no callback fires after teardown.
+
+```
+close() {
+  const wasClosed = this.closed
+  this.closed = true            // ← flips first; guards every subsequent path
+  audioElement.pause()          // ← flush playback before disconnecting stream
+  audioElement.srcObject = null
+  peerConnection.close()
+  if (!wasClosed) onStateChange("closed")  // ← fires exactly once
+}
+```
+
+`connect()` also checks `this.closed` after acquiring the mic (`getUserMedia`) and after the SDP exchange (`setRemoteDescription`) so a close() during connection tears down cleanly.
+
+**Bug 2 — AI tutor heard twice / two different responses** (`sdk/web/src/index.ts`)
+
+Root cause: `toggleLiveSession` is async. `stopLiveSession()` could be called while the function was suspended at `await Promise.all([fetchSessionToken, fetchTenantSkill])`. At that point `this.realtimeSession` was still `null` (not yet assigned), so `stopLiveSession()` had nothing to close. When the suspended function resumed it created and connected a new `RealtimeSession` — an **orphaned session** the controller no longer tracked. The user could then click again and create a **second** concurrent session, both playing audio simultaneously.
+
+Fix: `SkillyController` maintains a `liveSessionGeneration: number` counter. Every new start increments it; every stop also increments it. All async continuations and all callbacks are generation-gated.
+
+```
+// stopLiveSession() — invalidates any in-flight async before closing
+this.liveSessionGeneration += 1    // ← mismatch kills suspended toggleLiveSession
+this.realtimeSession?.close()
+
+// toggleLiveSession() — captures generation at start, checks after every await
+const generation = ++this.liveSessionGeneration
+...
+await Promise.all([fetchSessionToken, fetchTenantSkill])
+if (!this.liveActive || generation !== this.liveSessionGeneration) return
+
+this.realtimeSession = new RealtimeSession({ callbacks: {
+  onStateChange: (state) => { if (generation === this.liveSessionGeneration) ... },
+  onAssistantText: (text) => { if (generation === this.liveSessionGeneration) ... },
+}})
+await realtimeSession.connect()
+if (!this.liveActive || generation !== this.liveSessionGeneration) {
+  realtimeSession.close()   // ← close any session created during the stop window
+}
+```
+
+**Duplicate init guard** (`sdk/web/src/index.ts`): `init()` checks `document.querySelector("[data-skilly-widget]")` before mounting so double-loading the `<script>` tag doesn't create two concurrent widget instances.
+
+**Rules for future changes to the web SDK voice pipeline:**
+- Never skip the generation guard after any `await` inside `toggleLiveSession`.
+- Never null `audioElement.srcObject` without calling `.pause()` first.
+- `close()` must be idempotent — set `closed = true` at the top and use a `wasClosed` guard on `onStateChange("closed")` so it fires exactly once.
+- Never add new `await` points between `liveActive = true` and the generation capture without adding a corresponding post-await cancellation check.
+
+### Web backend (`apps/web-backend`) — Web SDK Phases 8.4–8.6 + Web v2
+
+Multi-tenant control plane + dashboard + billing + onboarding: **Next.js (App Router) + React + TypeScript + Tailwind v4 + Postgres**, the successor to the Worker's `/openai/token` + Polar logic for the web SDK. Build via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
+
+**Web v2 redesign** (premium SaaS control room per the designer handoff in `skilly_web_v2_premium_handoff/`): tokens via Tailwind v4 `@theme` in `globals.css`, DM Sans + JetBrains Mono via `next/font`, a v2 component library in `src/app/dashboard/v2/` (Button/StatusPill/Panel/Field/Select/Toggle/CodeBlock/DataTable/Metric/ReadinessPanel/AppShell with Lucide nav), a self-serve signup + 4-step onboarding flow, and richer usage dimensions. The old `dashboard/ui.tsx` + `DashboardShell.tsx` were removed.
 
 | File | Purpose |
 |------|---------|
-| `src/domain/{keys,origin,quota,openaiToken,skillValidation,billing}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), usage quota, OpenAI mint, SKILL.md safety scan, Polar Standard-Webhooks verify + event→cap + checkout body. |
-| `src/db/*` | `WebBackendRepo` interface + Postgres (`pg`) + in-memory (seeded demo) impls; `getRepo()` picks by `DATABASE_URL`. Dashboard + billing ops (key CRUD, skill save, usage summary, `setTenantUsageCap`). |
+| `src/domain/{keys,origin,appId,quota,openaiToken,skillValidation,billing}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), **app-id allowlist (incl. `com.acme.*`) for the mobile SDK**, usage quota, OpenAI mint, SKILL.md safety scan, Polar Standard-Webhooks verify + event→cap + customer-id extraction + checkout body. |
+| `src/db/*` | `WebBackendRepo` interface + Postgres (`pg`) + in-memory (seeded demo) impls; `getRepo()` picks by `DATABASE_URL`. Full ops: key CRUD, skill save, usage summary + `listUsageEvents` + v2 `listRecentSessions`/`getUsageMetrics`/`getTopPages`/`getTopDomains`, `setTenantUsageCap` + `setTenantPolarCustomerId`, tenant create/rename, membership upsert/list/delete, widget config get/save. |
+| `src/db/schema.ts` + `db/migrations/*` | Drizzle ORM schema (tenants incl. `polar_customer_id`, api_keys, tenant_skills, **usage_events incl. v2 page/domain/duration_seconds/result**, **dashboard_memberships**, **tenant_widget_configs**) + generated migrations (`bun run db:generate` / `bun run db:migrate`). |
 | `src/tenantService.ts` | Framework-free auth → quota → mint orchestration. |
-| `src/app/api/web/{token,skill,usage,checkout}/route.ts` + `webhooks/polar` | Routes: mint token, serve SKILL.md, meter session seconds, start checkout, Polar webhook (verified → set cap). |
-| `src/app/dashboard/**` | Dashboard UI (Tailwind): usage, **plan + upgrade**, key management, SKILL.md editor (validate-on-save) + server `actions.ts`. |
-| `src/lib/session.ts` | Tenant resolution — dev = seeded demo tenant; prod = WorkOS session (follow-up). |
-| `db/schema.sql` | Postgres schema (tenants, api_keys, tenant_skills, usage_events). |
+| `src/app/api/web/{token,skill,usage,checkout,portal}/route.ts` + `webhooks/polar` | Routes: mint token, serve SKILL.md, meter session seconds (v2: accepts page/domain/duration/result), start checkout, **customer-portal session**, Polar webhook (verified → set cap + persist customer id). |
+| `src/app/api/auth/workos/{start,callback}` + `api/dashboard/{login,logout,setup-db}` | WorkOS AuthKit sign-in + signed state (incl. `intent=signup` for self-serve tenant creation), emergency password fallback, DB bootstrap. |
+| `src/app/dashboard/v2/**` | v2 component library (the building blocks). `AppShell` is the sidebar+topbar; the rest are primitives. Uses the real `/brand` PNGs (designer SVG was reference only). |
+| `src/app/dashboard/**` | Dashboard UI (v2): overview (readiness hero + usage strip + widget health + recent sessions), install, **widget config + 8-state showcase**, origins, keys (one-time reveal), SKILL.md editor (validate-on-save), usage (metrics + top pages/domains), billing, settings, and **super-admin** tenant directory + drill-in member management + sidebar tenant switcher. |
+| `src/app/{login,signup,auth/callback}/**` | v2 split-screen auth: login (Google SSO + email + emergency password), signup (intent=signup → self-serve tenant), callback loading state. |
+| `src/app/onboarding/**` | 4-step onboarding (no sidebar shell): company → install → skill (template-seeded editor) → test. `actions.ts` carries `onboardingCompanyAction`. |
+| `src/lib/{dashboardAuth,workosAuth,session,readiness,requestOrigin,analytics}.ts` | Signed HTTP-only session cookie, WorkOS AuthKit + OAuth state (signin/signup intent), tenant resolution, readiness probe, request-origin helpers, PostHog + GA capture. |
 
-> Env: `OPENAI_API_KEY`, `DATABASE_URL` (optional), `POLAR_{ACCESS_TOKEN,PRODUCT_ID,WEBHOOK_SECRET,PLAN_CAP_SECONDS}`. Validated: `bun test` **27/27**, `tsc` + `next build` clean, and Playwright end-to-end — token (401/403/500/200), dashboard (key reveal, skill validation), and **billing**: meter usage → signed Polar webhook (bad sig **401**) sets the cap → dashboard shows the new plan (`600 min/month`, `2/600 used`). Internal imports are extensionless (Next webpack doesn't resolve `.js`→`.ts`). **The web SDK is now functionally complete (8.0–8.6).**
+> Env: `OPENAI_API_KEY`, `POSTGRES_URL`/`DATABASE_URL` (optional), `POLAR_{ACCESS_TOKEN,PRODUCT_ID,WEBHOOK_SECRET,PLAN_CAP_SECONDS}`, WorkOS `WORKOS_{CLIENT_ID,API_KEY,DASHBOARD_REDIRECT_URI}`, `SKILLY_DASHBOARD_{PASSWORD,SESSION_SECRET,ROLE}`. Validated: `bun test` **68/68**, `tsc` + `next build` clean. The v2 redesign adds self-serve signup + onboarding + richer usage dimensions; the old `dashboard/ui.tsx` + `DashboardShell.tsx` are removed. The web SDK is functionally complete (8.0–8.6); the backend now also serves the mobile SDK (Phase 9.0).
 
 ### Skill Files
 
@@ -377,6 +456,23 @@ git merge upstream/main
 Modified upstream files (4): `leanring_buddyApp.swift`, `CompanionManager.swift`, `MenuBarPanelManager.swift`, `CompanionPanelView.swift`. All changes are additive.
 
 Skilly-only files (not in upstream, safe to ignore during merges): everything in the Auth & Analytics, Billing & Entitlements, and Skill System tables above, plus `RealtimeTelemetry.swift`, `RealtimePricing.swift`, `PanelBodyView.swift`, `SettingsView.swift`, `SkillyNotificationManager.swift`, `AppSettings.swift`, `AppBundleConfiguration.swift`, `AppDetectionMonitor.swift`, `BuddyPushToTalkShortcut.swift`, the `worker/` directory, the `skills/` directory, `docs/`, and `fastlane/`.
+
+## Known Bugs & Protections
+
+A log of user-reported issues and the protection patterns added to prevent regressions. When touching the listed files, re-read the corresponding protection rules.
+
+### Web SDK — Session Lifecycle (`sdk/web/src/realtime.ts`, `sdk/web/src/index.ts`)
+
+| # | Symptom | Root cause | Protection added |
+|---|---------|-----------|-----------------|
+| 1 | Audio keeps playing after widget is toggled off | `HTMLAudioElement.srcObject = null` doesn't flush buffered PCM frames; audio tail plays on in Chrome/Safari | `audioElement.pause()` called before `srcObject = null` in `RealtimeSession.close()`; `closed` flag set at top of `close()` guards all subsequent paths |
+| 2 | AI tutor heard twice with two different responses | `stopLiveSession()` ran while `toggleLiveSession` was suspended at `await Promise.all([...])` — `realtimeSession` was still `null` so nothing was closed; async resumed and created an orphaned session; user click created a second session → two concurrent sessions | `liveSessionGeneration` counter in `SkillyController`; all callbacks and all post-`await` continuations are generation-gated; `stopLiveSession()` increments generation before calling `close()` |
+
+See the **Web SDK Session Lifecycle Protection** section inside `### @skilly/web embed widget` for the full code-level explanation and the rules to follow.
+
+### Duplicate widget on double script load (`sdk/web/src/index.ts`)
+
+`init()` now checks `document.querySelector("[data-skilly-widget]")` before mounting so loading the `<script>` tag twice (e.g. in SPAs that re-render the head) doesn't create two overlapping widget instances.
 
 ## Self-Update Instructions
 

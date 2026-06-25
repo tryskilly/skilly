@@ -23,6 +23,7 @@ export class BackendError extends Error {
 interface ClientOptions {
   backendUrl: string;
   publishableKey: string;
+  endUserId?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -66,7 +67,10 @@ export async function reportSessionUsage(
     await fetchImpl(endpoint(options.backendUrl, "/api/web/usage"), {
       method: "POST",
       headers: { "X-Skilly-Key": options.publishableKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ seconds: Math.max(0, Math.round(options.seconds)) }),
+      body: JSON.stringify({
+        seconds: Math.max(0, Math.round(options.seconds)),
+        endUserId: options.endUserId,
+      }),
     });
   } catch {
     // Metering is best-effort; a failed report must not disrupt the user.

@@ -9,10 +9,9 @@ import { WIDGET_STYLES } from "./styles.js";
 import type { SkillyState } from "./types.js";
 
 // Inline SVGs so the widget has zero asset dependencies.
-const MIC_ICON = /* html */ `
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+const SKILLY_MARK_ICON = /* html */ `
+<svg class="skilly-launcher-mark" viewBox="0 0 1024 1024" aria-hidden="true">
+  <path d="M367 165c0-42 47-67 82-43l440 299c38 26 27 85-18 94l-118 24c-32 7-45 46-22 69l170 169c22 22 22 57 0 79l-77 77c-23 23-60 21-81-4L586 746c-20-24-56-27-80-8L425 801c-34 27-84 3-84-40V216c0-28 10-41 26-51Z" fill="currentColor"/>
 </svg>`;
 
 const CURSOR_ICON = /* html */ `
@@ -24,13 +23,17 @@ export class SkillyWidget {
   private hostElement: HTMLDivElement;
   private shadowRoot: ShadowRoot;
   private launcherButton!: HTMLButtonElement;
+  private launcherLabelButton!: HTMLButtonElement;
   private bubbleElement!: HTMLDivElement;
+  private bubbleMessageElement!: HTMLDivElement;
   private cursorElement!: HTMLDivElement;
+  private idleLauncherLabel: string;
 
   /** Set by the controller; fired when the user activates the companion. */
   public onLauncherActivated: (() => void) | null = null;
 
-  constructor(accentColor: string) {
+  constructor(accentColor: string, launcherLabel?: string) {
+    this.idleLauncherLabel = launcherLabel?.trim() || "Click to ask Skilly";
     this.hostElement = document.createElement("div");
     this.hostElement.setAttribute("data-skilly-widget", "");
     this.shadowRoot = this.hostElement.attachShadow({ mode: "open" });
@@ -51,13 +54,24 @@ export class SkillyWidget {
   }
 
   private renderLauncher(accentColor: string): void {
+    const activate = () => this.onLauncherActivated?.();
+
+    this.launcherLabelButton = document.createElement("button");
+    this.launcherLabelButton.className = "skilly-launcher-label";
+    this.launcherLabelButton.type = "button";
+    this.launcherLabelButton.textContent = this.idleLauncherLabel;
+    this.launcherLabelButton.setAttribute("aria-label", this.idleLauncherLabel);
+    this.launcherLabelButton.addEventListener("click", activate);
+    this.shadowRoot.appendChild(this.launcherLabelButton);
+
     this.launcherButton = document.createElement("button");
+    this.launcherButton.type = "button";
     this.launcherButton.className = "skilly-launcher";
-    this.launcherButton.setAttribute("aria-label", "Open Skilly companion");
+    this.launcherButton.setAttribute("aria-label", this.idleLauncherLabel);
     this.launcherButton.setAttribute("data-state", "idle");
-    this.launcherButton.style.background = accentColor;
-    this.launcherButton.innerHTML = MIC_ICON;
-    this.launcherButton.addEventListener("click", () => this.onLauncherActivated?.());
+    this.launcherButton.style.color = accentColor;
+    this.launcherButton.innerHTML = SKILLY_MARK_ICON;
+    this.launcherButton.addEventListener("click", activate);
     this.shadowRoot.appendChild(this.launcherButton);
   }
 
@@ -66,6 +80,20 @@ export class SkillyWidget {
     this.bubbleElement.className = "skilly-bubble";
     this.bubbleElement.setAttribute("data-visible", "false");
     this.bubbleElement.setAttribute("role", "status");
+
+    this.bubbleMessageElement = document.createElement("div");
+    this.bubbleMessageElement.className = "skilly-bubble-message";
+    this.bubbleElement.appendChild(this.bubbleMessageElement);
+
+    const attributionLink = document.createElement("a");
+    attributionLink.className = "skilly-attribution";
+    attributionLink.href =
+      "https://tryskilly.app?utm_source=skilly_widget&utm_medium=embedded_widget&utm_campaign=powered_by";
+    attributionLink.target = "_blank";
+    attributionLink.rel = "noopener noreferrer";
+    attributionLink.textContent = "Powered by Skilly";
+    this.bubbleElement.appendChild(attributionLink);
+
     this.shadowRoot.appendChild(this.bubbleElement);
   }
 
@@ -80,14 +108,25 @@ export class SkillyWidget {
   /** Reflect the companion state on the launcher (drives the listening pulse). */
   setState(state: SkillyState): void {
     this.launcherButton.setAttribute("data-state", state);
+    this.launcherLabelButton.setAttribute("data-state", state);
+    const label =
+      state === "idle"
+        ? this.idleLauncherLabel
+        : state === "thinking"
+          ? "Starting…"
+          : "Click to stop";
+    this.launcherLabelButton.textContent = label;
+    this.launcherLabelButton.setAttribute("aria-label", label);
+    this.launcherButton.setAttribute("aria-label", label);
   }
 
   /** Show a message in the response bubble (empty string hides it). */
   setBubbleText(text: string): void {
     if (text) {
-      this.bubbleElement.textContent = text;
+      this.bubbleMessageElement.textContent = text;
       this.bubbleElement.setAttribute("data-visible", "true");
     } else {
+      this.bubbleMessageElement.textContent = "";
       this.bubbleElement.setAttribute("data-visible", "false");
     }
   }

@@ -28,6 +28,8 @@ export interface SkillyConfig {
   skill?: string;
   /** Accent color for the companion UI. Defaults to Skilly blue. */
   accentColor?: string;
+  /** Short launcher prompt shown next to the floating icon. */
+  launcherLabel?: string;
   /** BCP-47 locale hint for the companion (e.g. "en", "ar"). */
   locale?: string;
   /**

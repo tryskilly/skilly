@@ -7,6 +7,7 @@
 // along a bezier arc to it, and re-anchor on scroll/resize so it stays pinned.
 
 import type { ElementRegistry } from "./digest.js";
+import type { DomDigest } from "./digest.js";
 import type { SkillyWidget } from "./widget.js";
 
 export interface PointTag {
@@ -38,8 +39,72 @@ export function parsePointTags(text: string): { cleanedText: string; points: Poi
   return { cleanedText, points };
 }
 
+const DEFAULT_TARGET_ALIASES: Record<string, string[]> = {
+  "primary-cta": ["download", "get started", "start", "try", "cta", "button"],
+  "demo-video": ["demo", "video", "watch"],
+  features: ["feature", "capability", "what it does"],
+  "how-it-works": ["how it works", "steps", "setup"],
+  skills: ["skill", "curriculum", "course"],
+  pricing: ["pricing", "price", "cost", "plan", "billing"],
+  faq: ["faq", "question", "safe", "cancel"],
+  waitlist: ["waitlist", "coming soon", "windows", "linux", "mobile"],
+  download: ["download", "install", "mac"],
+};
+
+/**
+ * Best-effort fallback for live voice sessions. Audio transcript streams do not
+ * always preserve non-spoken [POINT] tags, so infer a target when the assistant
+ * clearly mentions a known annotated page element.
+ */
+export function inferPointFromText(text: string, digest?: DomDigest | null): PointTag | null {
+  if (!digest || digest.elements.length === 0) {
+    return null;
+  }
+
+  const haystack = normalizeForMatch(text);
+  if (!haystack) {
+    return null;
+  }
+
+  let best: { target: string; label: string; score: number } | null = null;
+  for (const element of digest.elements) {
+    const aliases = candidateAliases(element.id, element.label);
+    for (const alias of aliases) {
+      if (alias.length < 4 || !haystack.includes(alias)) {
+        continue;
+      }
+      const score = alias.length + (element.id === alias ? 8 : 0);
+      if (!best || score > best.score) {
+        best = { target: element.id, label: element.label || element.id, score };
+      }
+    }
+  }
+
+  return best ? { target: best.target, label: best.label } : null;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeForMatch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function candidateAliases(id: string, label: string): string[] {
+  const rawAliases = [
+    id,
+    id.replace(/[-_]+/g, " "),
+    label,
+    label.replace(/[-_]+/g, " "),
+    ...(DEFAULT_TARGET_ALIASES[id] ?? []),
+  ];
+  return Array.from(new Set(rawAliases.map(normalizeForMatch).filter(Boolean)));
 }
 
 /** Point the cursor at the element's center, clamped to the visible viewport. */
