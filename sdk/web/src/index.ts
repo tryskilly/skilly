@@ -44,12 +44,17 @@ class SkillyController {
   private realtimeSession: RealtimeSession | null = null;
   private liveActive = false;
   private liveSessionStartedAt = 0;
+  private liveSessionGeneration = 0;
   private lastPointedTarget: string | null = null;
   private identifiedEndUser: { id: string; traits?: Record<string, unknown> } | null = null;
 
   init(config: SkillyConfig): void {
     if (this.widget) {
       console.warn("[skilly] already initialized; call destroy() first to re-init.");
+      return;
+    }
+    if (typeof document !== "undefined" && document.querySelector("[data-skilly-widget]")) {
+      console.warn("[skilly] widget already exists on this page; skipping duplicate init.");
       return;
     }
     if (!config.key) {
@@ -179,6 +184,7 @@ class SkillyController {
     const backendUrl = config.backendUrl;
 
     this.liveActive = true;
+    const generation = ++this.liveSessionGeneration;
     this.liveSessionStartedAt = Date.now();
     this.emit("turn", { goal });
     this.widget.setState("thinking");
@@ -193,24 +199,48 @@ class SkillyController {
           ? fetchTenantSkill({ backendUrl, publishableKey: config.key, skillId: config.skill }).catch(() => null)
           : Promise.resolve(null),
       ]);
+      if (!this.liveActive || generation !== this.liveSessionGeneration) {
+        return;
+      }
 
       const instructions = buildCompanionInstructions({ skillContent, digest });
-      this.realtimeSession = new RealtimeSession({
+      const realtimeSession = new RealtimeSession({
         clientSecret: token.clientSecret,
         model: token.model,
         instructions,
         callbacks: {
-          onStateChange: (state) => this.onRealtimeState(state),
+          onStateChange: (state) => {
+            if (generation === this.liveSessionGeneration) {
+              this.onRealtimeState(state);
+            }
+          },
           onUserTranscript: () => {},
-          onAssistantText: (text) => this.onAssistantText(text),
+          onAssistantText: (text) => {
+            if (generation === this.liveSessionGeneration) {
+              this.onAssistantText(text);
+            }
+          },
           onError: (message) => {
+            if (generation !== this.liveSessionGeneration) {
+              return;
+            }
             this.widget?.setBubbleText(`Sorry — ${message}`);
             this.emit("error", { message });
           },
         },
       });
-      await this.realtimeSession.connect();
+      this.realtimeSession = realtimeSession;
+      await realtimeSession.connect();
+      if (!this.liveActive || generation !== this.liveSessionGeneration) {
+        realtimeSession.close();
+        if (this.realtimeSession === realtimeSession) {
+          this.realtimeSession = null;
+        }
+      }
     } catch (sessionError) {
+      if (generation !== this.liveSessionGeneration) {
+        return;
+      }
       this.liveActive = false;
       const message = sessionError instanceof Error ? sessionError.message : "couldn't start session";
       this.widget.setState("idle");
@@ -256,6 +286,7 @@ class SkillyController {
   }
 
   private stopLiveSession(): void {
+    this.liveSessionGeneration += 1;
     this.realtimeSession?.close();
     this.realtimeSession = null;
     this.liveActive = false;
@@ -307,6 +338,7 @@ class SkillyController {
     this.realtimeSession?.close();
     this.realtimeSession = null;
     this.liveActive = false;
+    this.liveSessionGeneration += 1;
     this.pointing?.clear();
     this.pointing = null;
     this.currentRegistry = null;

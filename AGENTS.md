@@ -246,6 +246,64 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 
 > Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (prompt + token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
 
+#### Web SDK Session Lifecycle Protection
+
+Two user-reported bugs drove hardening in `realtime.ts` and `index.ts`. Understand these patterns before touching session teardown or the toggle flow.
+
+**Bug 1 — Audio keeps playing after widget is toggled off** (`sdk/web/src/realtime.ts`)
+
+Root cause: `HTMLAudioElement.srcObject = null` does not flush already-decoded PCM frames from the browser's playback buffer. Chrome and Safari continue playing the buffered tail after the stream is removed.
+
+Fix: `RealtimeSession` now sets `this.closed = true` at the top of `close()` and calls `this.audioElement.pause()` **before** nulling `srcObject`. Every `await` inside `connect()` is guarded by an early `if (this.closed) return` check so no callback fires after teardown.
+
+```
+close() {
+  const wasClosed = this.closed
+  this.closed = true            // ← flips first; guards every subsequent path
+  audioElement.pause()          // ← flush playback before disconnecting stream
+  audioElement.srcObject = null
+  peerConnection.close()
+  if (!wasClosed) onStateChange("closed")  // ← fires exactly once
+}
+```
+
+`connect()` also checks `this.closed` after acquiring the mic (`getUserMedia`) and after the SDP exchange (`setRemoteDescription`) so a close() during connection tears down cleanly.
+
+**Bug 2 — AI tutor heard twice / two different responses** (`sdk/web/src/index.ts`)
+
+Root cause: `toggleLiveSession` is async. `stopLiveSession()` could be called while the function was suspended at `await Promise.all([fetchSessionToken, fetchTenantSkill])`. At that point `this.realtimeSession` was still `null` (not yet assigned), so `stopLiveSession()` had nothing to close. When the suspended function resumed it created and connected a new `RealtimeSession` — an **orphaned session** the controller no longer tracked. The user could then click again and create a **second** concurrent session, both playing audio simultaneously.
+
+Fix: `SkillyController` maintains a `liveSessionGeneration: number` counter. Every new start increments it; every stop also increments it. All async continuations and all callbacks are generation-gated.
+
+```
+// stopLiveSession() — invalidates any in-flight async before closing
+this.liveSessionGeneration += 1    // ← mismatch kills suspended toggleLiveSession
+this.realtimeSession?.close()
+
+// toggleLiveSession() — captures generation at start, checks after every await
+const generation = ++this.liveSessionGeneration
+...
+await Promise.all([fetchSessionToken, fetchTenantSkill])
+if (!this.liveActive || generation !== this.liveSessionGeneration) return
+
+this.realtimeSession = new RealtimeSession({ callbacks: {
+  onStateChange: (state) => { if (generation === this.liveSessionGeneration) ... },
+  onAssistantText: (text) => { if (generation === this.liveSessionGeneration) ... },
+}})
+await realtimeSession.connect()
+if (!this.liveActive || generation !== this.liveSessionGeneration) {
+  realtimeSession.close()   // ← close any session created during the stop window
+}
+```
+
+**Duplicate init guard** (`sdk/web/src/index.ts`): `init()` checks `document.querySelector("[data-skilly-widget]")` before mounting so double-loading the `<script>` tag doesn't create two concurrent widget instances.
+
+**Rules for future changes to the web SDK voice pipeline:**
+- Never skip the generation guard after any `await` inside `toggleLiveSession`.
+- Never null `audioElement.srcObject` without calling `.pause()` first.
+- `close()` must be idempotent — set `closed = true` at the top and use a `wasClosed` guard on `onStateChange("closed")` so it fires exactly once.
+- Never add new `await` points between `liveActive = true` and the generation capture without adding a corresponding post-await cancellation check.
+
 ### Web backend (`apps/web-backend`) — Web SDK Phases 8.4–8.6 + Web v2
 
 Multi-tenant control plane + dashboard + billing + onboarding: **Next.js (App Router) + React + TypeScript + Tailwind v4 + Postgres**, the successor to the Worker's `/openai/token` + Polar logic for the web SDK. Build via `bun install && bun run build` (the team's standard stack). Excluded from the Cargo workspace (it's a Node app).
@@ -398,6 +456,23 @@ git merge upstream/main
 Modified upstream files (4): `leanring_buddyApp.swift`, `CompanionManager.swift`, `MenuBarPanelManager.swift`, `CompanionPanelView.swift`. All changes are additive.
 
 Skilly-only files (not in upstream, safe to ignore during merges): everything in the Auth & Analytics, Billing & Entitlements, and Skill System tables above, plus `RealtimeTelemetry.swift`, `RealtimePricing.swift`, `PanelBodyView.swift`, `SettingsView.swift`, `SkillyNotificationManager.swift`, `AppSettings.swift`, `AppBundleConfiguration.swift`, `AppDetectionMonitor.swift`, `BuddyPushToTalkShortcut.swift`, the `worker/` directory, the `skills/` directory, `docs/`, and `fastlane/`.
+
+## Known Bugs & Protections
+
+A log of user-reported issues and the protection patterns added to prevent regressions. When touching the listed files, re-read the corresponding protection rules.
+
+### Web SDK — Session Lifecycle (`sdk/web/src/realtime.ts`, `sdk/web/src/index.ts`)
+
+| # | Symptom | Root cause | Protection added |
+|---|---------|-----------|-----------------|
+| 1 | Audio keeps playing after widget is toggled off | `HTMLAudioElement.srcObject = null` doesn't flush buffered PCM frames; audio tail plays on in Chrome/Safari | `audioElement.pause()` called before `srcObject = null` in `RealtimeSession.close()`; `closed` flag set at top of `close()` guards all subsequent paths |
+| 2 | AI tutor heard twice with two different responses | `stopLiveSession()` ran while `toggleLiveSession` was suspended at `await Promise.all([...])` — `realtimeSession` was still `null` so nothing was closed; async resumed and created an orphaned session; user click created a second session → two concurrent sessions | `liveSessionGeneration` counter in `SkillyController`; all callbacks and all post-`await` continuations are generation-gated; `stopLiveSession()` increments generation before calling `close()` |
+
+See the **Web SDK Session Lifecycle Protection** section inside `### @skilly/web embed widget` for the full code-level explanation and the rules to follow.
+
+### Duplicate widget on double script load (`sdk/web/src/index.ts`)
+
+`init()` now checks `document.querySelector("[data-skilly-widget]")` before mounting so loading the `<script>` tag twice (e.g. in SPAs that re-render the head) doesn't create two overlapping widget instances.
 
 ## Self-Update Instructions
 

@@ -36,12 +36,16 @@ export class RealtimeSession {
   private audioElement: HTMLAudioElement | null = null;
   private microphoneStream: MediaStream | null = null;
   private assistantText = "";
+  private closed = false;
 
   constructor(private readonly config: RealtimeConfig) {}
 
   /** Establish the WebRTC session: mic up, model voice down, events over the data channel. */
   async connect(): Promise<void> {
     const { callbacks } = this.config;
+    if (this.closed) {
+      return;
+    }
     callbacks.onStateChange("connecting");
     try {
       const peerConnection = new RTCPeerConnection();
@@ -58,6 +62,10 @@ export class RealtimeSession {
 
       // Capture the mic and send it up.
       this.microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (this.closed) {
+        this.close();
+        return;
+      }
       for (const track of this.microphoneStream.getTracks()) {
         peerConnection.addTrack(track, this.microphoneStream);
       }
@@ -66,6 +74,9 @@ export class RealtimeSession {
       const dataChannel = peerConnection.createDataChannel("oai-events");
       this.dataChannel = dataChannel;
       dataChannel.onopen = () => {
+        if (this.closed) {
+          return;
+        }
         this.sendSessionUpdate();
         callbacks.onStateChange("live");
       };
@@ -88,16 +99,23 @@ export class RealtimeSession {
         throw new Error(`Realtime SDP exchange failed (${sdpResponse.status})`);
       }
       const answerSdp = await sdpResponse.text();
+      if (this.closed) {
+        return;
+      }
       await peerConnection.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (connectError) {
-      callbacks.onStateChange("error");
-      callbacks.onError(connectError instanceof Error ? connectError.message : "connect failed");
+      if (!this.closed) {
+        callbacks.onStateChange("error");
+        callbacks.onError(connectError instanceof Error ? connectError.message : "connect failed");
+      }
       this.close();
     }
   }
 
   /** Tear down the session and release the mic. */
   close(): void {
+    const wasClosed = this.closed;
+    this.closed = true;
     this.dataChannel?.close();
     this.dataChannel = null;
     for (const track of this.microphoneStream?.getTracks() ?? []) {
@@ -107,13 +125,19 @@ export class RealtimeSession {
     this.peerConnection?.close();
     this.peerConnection = null;
     if (this.audioElement) {
+      this.audioElement.pause();
       this.audioElement.srcObject = null;
       this.audioElement = null;
     }
-    this.config.callbacks.onStateChange("closed");
+    if (!wasClosed) {
+      this.config.callbacks.onStateChange("closed");
+    }
   }
 
   private sendSessionUpdate(): void {
+    if (this.closed) {
+      return;
+    }
     this.dataChannel?.send(
       JSON.stringify({
         type: "session.update",
@@ -137,6 +161,9 @@ export class RealtimeSession {
   }
 
   private handleServerEvent(raw: string): void {
+    if (this.closed) {
+      return;
+    }
     let event: { type?: string; delta?: string; transcript?: string; error?: { message?: string } };
     try {
       event = JSON.parse(raw);
