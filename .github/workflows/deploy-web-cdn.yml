@@ -48,4 +48,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: 4d48fa5b55609ca8e75fa6c011a82b3f
-          command: pages deploy sdk/web-cdn-public/ --project-name=skilly-web-cdn --branch=main
+          command: pages deploy sdk/web-cdn-public/ --project-name=skilly-web-cdn --branch=develop
