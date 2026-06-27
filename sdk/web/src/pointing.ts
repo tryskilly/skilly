@@ -178,6 +178,8 @@ export class PointingEngine {
     const point = anchorPoint(element);
     this.widget.showCursor();
     await this.fly(point.x, point.y);
+    // After landing, pin the bubble near the cursor so the text stays adjacent to it.
+    this.widget.setBubbleAnchor(point.x, point.y);
     this.attachReanchor(element);
     return { x: point.x, y: point.y, label, element };
   }
@@ -195,6 +197,7 @@ export class PointingEngine {
     }
     this.activeElement = null;
     this.widget.hideCursor();
+    this.widget.clearBubbleAnchor();
   }
 
   /** Animate the cursor from its current spot to the target along a bezier arc. */
@@ -245,6 +248,7 @@ export class PointingEngine {
       this.currentX = point.x;
       this.currentY = point.y;
       this.widget.setCursorPosition(point.x, point.y);
+      this.widget.setBubbleAnchor(point.x, point.y);
     };
     this.reanchorListener = handler;
     window.addEventListener("scroll", handler, { passive: true });
