@@ -40,4 +40,10 @@ export interface SkillyConfig {
   coreUrl?: string;
   /** Backend base URL that mints runtime tokens + serves the tenant skill. */
   backendUrl?: string;
+  /**
+   * Controls where the response bubble appears when the cursor is pointing.
+   * "follow" (default) — bubble floats near the cursor tip after it lands.
+   * "fixed" — bubble stays above the launcher in the bottom-right corner.
+   */
+  bubbleMode?: "follow" | "fixed";
 }
