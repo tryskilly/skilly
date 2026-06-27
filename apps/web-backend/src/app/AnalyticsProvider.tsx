@@ -21,7 +21,34 @@ const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posth
 // Module-level identity state so all trackClientEvent() calls share one distinct_id.
 let _resolvedDistinctId: string | null = null;
 
+// Read the PostHog SDK's distinct_id from the cross-subdomain cookie the
+// marketing site (tryskilly.app) writes on `.tryskilly.app`. This makes a
+// visitor who browsed the marketing site and then signed up here the SAME
+// person in PostHog, so the marketing -> signup funnel connects as one user.
+// (localStorage is per-origin and would NOT carry across subdomains.)
+function readSharedPosthogDistinctId(): string | null {
+  if (!POSTHOG_KEY) {
+    return null;
+  }
+  try {
+    const name = `ph_${POSTHOG_KEY}_posthog`;
+    const match = document.cookie.split("; ").find((entry) => entry.startsWith(`${name}=`));
+    if (!match) {
+      return null;
+    }
+    const parsed = JSON.parse(decodeURIComponent(match.slice(name.length + 1))) as { distinct_id?: string };
+    return parsed.distinct_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function getAnonymousDistinctId(): string {
+  // Prefer the marketing site's cross-subdomain distinct_id so the funnel stitches.
+  const shared = readSharedPosthogDistinctId();
+  if (shared) {
+    return shared;
+  }
   const key = "skilly_web_distinct_id";
   const existing = window.localStorage.getItem(key);
   if (existing) {

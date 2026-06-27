@@ -41,7 +41,7 @@ export async function captureServerEvent(
     source_surface: properties.source_surface ?? "web_backend",
   });
 
-  await Promise.allSettled([
+  void Promise.allSettled([
     capturePostHogEvent(event, cleaned, String(distinctId)),
     captureGaEvent(event, cleaned, String(distinctId)),
   ]);
