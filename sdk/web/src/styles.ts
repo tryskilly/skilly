@@ -84,11 +84,11 @@ export const WIDGET_STYLES = /* css */ `
   100% { transform: scale(1.5); opacity: 0; }
 }
 
-/* Response bubble — defaults above the launcher; JS repositions it near the cursor. */
+/* Response bubble — always positioned via JS transform near the user's mouse. */
 .skilly-bubble {
   position: fixed;
-  right: 20px;
-  bottom: 88px;
+  left: 0;
+  top: 0;
   max-width: 320px;
   padding: 14px 16px;
   border-radius: 16px;
@@ -99,13 +99,13 @@ export const WIDGET_STYLES = /* css */ `
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease, left 0.25s ease, top 0.25s ease;
+  transition: opacity 0.2s ease;
   z-index: 2147483647;
+  will-change: transform;
 }
 .skilly-bubble[data-visible="true"] {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
 }
 .skilly-bubble-message {
   color: #F2F2F7;
@@ -155,8 +155,6 @@ export const WIDGET_STYLES = /* css */ `
     padding-inline: 11px;
   }
   .skilly-bubble {
-    right: 16px;
-    bottom: 84px;
     max-width: calc(100vw - 32px);
   }
   .skilly-cursor {

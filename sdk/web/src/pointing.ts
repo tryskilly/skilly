@@ -122,13 +122,11 @@ export class PointingEngine {
   private activeElement: HTMLElement | null = null;
   private reanchorListener: (() => void) | null = null;
   private animationFrame = 0;
-  private bubbleFollowsCursor: boolean;
 
-  constructor(private widget: SkillyWidget, options?: { bubbleMode?: "follow" | "fixed" }) {
+  constructor(private widget: SkillyWidget) {
     // Start near the launcher (bottom-right), like the desktop cursor's home.
     this.currentX = window.innerWidth - 44;
     this.currentY = window.innerHeight - 44;
-    this.bubbleFollowsCursor = (options?.bubbleMode ?? "follow") === "follow";
   }
 
   /**
@@ -180,9 +178,6 @@ export class PointingEngine {
     const point = anchorPoint(element);
     this.widget.showCursor();
     await this.fly(point.x, point.y);
-    if (this.bubbleFollowsCursor) {
-      this.widget.setBubbleNearCursor(point.x, point.y);
-    }
     this.attachReanchor(element);
     return { x: point.x, y: point.y, label, element };
   }
@@ -200,9 +195,6 @@ export class PointingEngine {
     }
     this.activeElement = null;
     this.widget.hideCursor();
-    if (this.bubbleFollowsCursor) {
-      this.widget.resetBubblePosition();
-    }
   }
 
   /** Animate the cursor from its current spot to the target along a bezier arc. */
@@ -253,9 +245,6 @@ export class PointingEngine {
       this.currentX = point.x;
       this.currentY = point.y;
       this.widget.setCursorPosition(point.x, point.y);
-      if (this.bubbleFollowsCursor) {
-        this.widget.setBubbleNearCursor(point.x, point.y);
-      }
     };
     this.reanchorListener = handler;
     window.addEventListener("scroll", handler, { passive: true });
