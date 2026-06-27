@@ -29,6 +29,12 @@ export class SkillyWidget {
   private cursorElement!: HTMLDivElement;
   private idleLauncherLabel: string;
 
+  // Tracks the user's real mouse position so the bubble follows it (like the
+  // Mac CompanionResponseOverlay which repositions near NSEvent.mouseLocation).
+  private lastMouseX = window.innerWidth - 60;
+  private lastMouseY = window.innerHeight - 60;
+  private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+
   /** Set by the controller; fired when the user activates the companion. */
   public onLauncherActivated: (() => void) | null = null;
 
@@ -46,6 +52,16 @@ export class SkillyWidget {
     this.renderLauncher(accentColor);
     this.renderBubble();
     this.renderCursor();
+
+    // Always track the mouse so we have a fresh position the moment the bubble appears.
+    this.mouseMoveHandler = (e: MouseEvent) => {
+      this.lastMouseX = e.clientX;
+      this.lastMouseY = e.clientY;
+      if (this.bubbleElement.getAttribute("data-visible") === "true") {
+        this.repositionBubbleNearMouse();
+      }
+    };
+    document.addEventListener("mousemove", this.mouseMoveHandler, { passive: true });
   }
 
   /** Append the widget to the host page. */
@@ -124,11 +140,45 @@ export class SkillyWidget {
   setBubbleText(text: string): void {
     if (text) {
       this.bubbleMessageElement.textContent = text;
+      // Position near the current mouse before revealing so it never flashes at (0,0).
+      this.repositionBubbleNearMouse();
       this.bubbleElement.setAttribute("data-visible", "true");
     } else {
       this.bubbleMessageElement.textContent = "";
       this.bubbleElement.setAttribute("data-visible", "false");
     }
+  }
+
+  /**
+   * Reposition the bubble near the user's real mouse cursor — mirrors the Mac
+   * CompanionResponseOverlay which calls repositionPanelNearCursor() at 60fps.
+   * Offsets match the Mac constants: 22px right, 6px below.
+   * Flips left when near the right edge; flips above when near the bottom.
+   */
+  private repositionBubbleNearMouse(): void {
+    const bubbleWidth = Math.min(320, window.innerWidth - 32);
+    const bubbleHeight = this.bubbleElement.offsetHeight || 80;
+    const offsetX = 22;
+    const offsetY = 6;
+    const edge = 16;
+
+    let x = this.lastMouseX + offsetX;
+    let y = this.lastMouseY + offsetY;
+
+    // Flip left if the bubble would go off the right edge.
+    if (x + bubbleWidth > window.innerWidth - edge) {
+      x = this.lastMouseX - offsetX - bubbleWidth;
+    }
+    // Flip above if the bubble would go below the bottom edge.
+    if (y + bubbleHeight > window.innerHeight - edge) {
+      y = this.lastMouseY - offsetY - bubbleHeight;
+    }
+
+    // Final clamp so it never leaves the viewport.
+    x = Math.max(edge, Math.min(window.innerWidth - bubbleWidth - edge, x));
+    y = Math.max(edge, Math.min(window.innerHeight - bubbleHeight - edge, y));
+
+    this.bubbleElement.style.transform = `translate(${x}px, ${y}px)`;
   }
 
   /** Make the cursor visible (positioning is driven by the PointingEngine). */
@@ -150,44 +200,12 @@ export class SkillyWidget {
     this.cursorElement.setAttribute("data-visible", "false");
   }
 
-  /**
-   * Reposition the response bubble near the cursor tip after it lands on a target.
-   * Offsets to the right and above the cursor, clamped so the bubble stays on screen.
-   */
-  setBubbleNearCursor(cursorX: number, cursorY: number): void {
-    const bubbleWidth = 320;
-    const bubbleHeight = this.bubbleElement.offsetHeight || 90;
-    const gap = 18;
-    const edge = 16;
-
-    let x = cursorX + gap;
-    let y = cursorY - bubbleHeight - gap;
-
-    // Clamp horizontally.
-    x = Math.max(edge, Math.min(window.innerWidth - bubbleWidth - edge, x));
-    // If it would go above the viewport, flip below the cursor instead.
-    if (y < edge) {
-      y = cursorY + gap;
-    }
-    // Clamp vertically so it never overflows the bottom either.
-    y = Math.min(window.innerHeight - bubbleHeight - edge, y);
-
-    this.bubbleElement.style.left = `${x}px`;
-    this.bubbleElement.style.top = `${y}px`;
-    this.bubbleElement.style.right = "";
-    this.bubbleElement.style.bottom = "";
-  }
-
-  /** Return the bubble to its default position above the launcher (bottom-right). */
-  resetBubblePosition(): void {
-    this.bubbleElement.style.left = "";
-    this.bubbleElement.style.top = "";
-    this.bubbleElement.style.right = "20px";
-    this.bubbleElement.style.bottom = "88px";
-  }
-
   /** Remove the widget and its shadow root from the page. */
   destroy(): void {
+    if (this.mouseMoveHandler) {
+      document.removeEventListener("mousemove", this.mouseMoveHandler);
+      this.mouseMoveHandler = null;
+    }
     this.hostElement.remove();
   }
 }

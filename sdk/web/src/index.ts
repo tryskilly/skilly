@@ -68,7 +68,7 @@ class SkillyController {
     this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT, config.launcherLabel);
     this.widget.onLauncherActivated = () => this.start();
     this.widget.mount();
-    this.pointing = new PointingEngine(this.widget, { bubbleMode: config.bubbleMode });
+    this.pointing = new PointingEngine(this.widget);
 
     // Begin loading the shared WASM core in the background (optional).
     void loadCore(config.coreUrl);
