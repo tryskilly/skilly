@@ -29,11 +29,13 @@ export class SkillyWidget {
   private cursorElement!: HTMLDivElement;
   private idleLauncherLabel: string;
 
-  // Tracks the user's real mouse position so the bubble follows it (like the
-  // Mac CompanionResponseOverlay which repositions near NSEvent.mouseLocation).
+  // Tracks the user's real mouse position as a fallback position for the bubble.
   private lastMouseX = window.innerWidth - 60;
   private lastMouseY = window.innerHeight - 60;
   private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+  // When the AI cursor is pointing at a target, the bubble snaps there instead of the mouse.
+  private pointingAnchorX: number | null = null;
+  private pointingAnchorY: number | null = null;
 
   /** Set by the controller; fired when the user activates the companion. */
   public onLauncherActivated: (() => void) | null = null;
@@ -53,12 +55,13 @@ export class SkillyWidget {
     this.renderBubble();
     this.renderCursor();
 
-    // Always track the mouse so we have a fresh position the moment the bubble appears.
+    // Always track the mouse so we have a fresh fallback position for the bubble.
     this.mouseMoveHandler = (e: MouseEvent) => {
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
-      if (this.bubbleElement.getAttribute("data-visible") === "true") {
-        this.repositionBubbleNearMouse();
+      // Only follow the mouse when the AI cursor isn't anchored to a target.
+      if (this.pointingAnchorX === null && this.bubbleElement.getAttribute("data-visible") === "true") {
+        this.repositionBubble(e.clientX, e.clientY);
       }
     };
     document.addEventListener("mousemove", this.mouseMoveHandler, { passive: true });
@@ -140,8 +143,10 @@ export class SkillyWidget {
   setBubbleText(text: string): void {
     if (text) {
       this.bubbleMessageElement.textContent = text;
-      // Position near the current mouse before revealing so it never flashes at (0,0).
-      this.repositionBubbleNearMouse();
+      // Use the pointing anchor if set, otherwise fall back to the last mouse position.
+      const anchorX = this.pointingAnchorX ?? this.lastMouseX;
+      const anchorY = this.pointingAnchorY ?? this.lastMouseY;
+      this.repositionBubble(anchorX, anchorY);
       this.bubbleElement.setAttribute("data-visible", "true");
     } else {
       this.bubbleMessageElement.textContent = "";
@@ -150,31 +155,47 @@ export class SkillyWidget {
   }
 
   /**
-   * Reposition the bubble near the user's real mouse cursor — mirrors the Mac
-   * CompanionResponseOverlay which calls repositionPanelNearCursor() at 60fps.
-   * Offsets match the Mac constants: 22px right, 6px below.
-   * Flips left when near the right edge; flips above when near the bottom.
+   * Pin the bubble near the AI cursor's landing position. Called by PointingEngine
+   * after the cursor animation completes. Overrides mouse-following until cleared.
    */
-  private repositionBubbleNearMouse(): void {
+  setBubbleAnchor(cursorX: number, cursorY: number): void {
+    this.pointingAnchorX = cursorX;
+    this.pointingAnchorY = cursorY;
+    if (this.bubbleElement.getAttribute("data-visible") === "true") {
+      this.repositionBubble(cursorX, cursorY);
+    }
+  }
+
+  /** Release the pointing anchor — bubble resumes following the user's mouse. */
+  clearBubbleAnchor(): void {
+    this.pointingAnchorX = null;
+    this.pointingAnchorY = null;
+    if (this.bubbleElement.getAttribute("data-visible") === "true") {
+      this.repositionBubble(this.lastMouseX, this.lastMouseY);
+    }
+  }
+
+  /**
+   * Core positioning: offset 22px right + 6px below the anchor (Mac constants),
+   * flipping left near the right edge and above near the bottom edge.
+   */
+  private repositionBubble(anchorX: number, anchorY: number): void {
     const bubbleWidth = Math.min(320, window.innerWidth - 32);
     const bubbleHeight = this.bubbleElement.offsetHeight || 80;
     const offsetX = 22;
     const offsetY = 6;
     const edge = 16;
 
-    let x = this.lastMouseX + offsetX;
-    let y = this.lastMouseY + offsetY;
+    let x = anchorX + offsetX;
+    let y = anchorY + offsetY;
 
-    // Flip left if the bubble would go off the right edge.
     if (x + bubbleWidth > window.innerWidth - edge) {
-      x = this.lastMouseX - offsetX - bubbleWidth;
+      x = anchorX - offsetX - bubbleWidth;
     }
-    // Flip above if the bubble would go below the bottom edge.
     if (y + bubbleHeight > window.innerHeight - edge) {
-      y = this.lastMouseY - offsetY - bubbleHeight;
+      y = anchorY - offsetY - bubbleHeight;
     }
 
-    // Final clamp so it never leaves the viewport.
     x = Math.max(edge, Math.min(window.innerWidth - bubbleWidth - edge, x));
     y = Math.max(edge, Math.min(window.innerHeight - bubbleHeight - edge, y));
 
