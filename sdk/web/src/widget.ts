@@ -29,13 +29,11 @@ export class SkillyWidget {
   private cursorElement!: HTMLDivElement;
   private idleLauncherLabel: string;
 
-  // Tracks the user's real mouse position as a fallback position for the bubble.
-  private lastMouseX = window.innerWidth - 60;
-  private lastMouseY = window.innerHeight - 60;
-  private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
-  // When the AI cursor is pointing at a target, the bubble snaps there instead of the mouse.
-  private pointingAnchorX: number | null = null;
-  private pointingAnchorY: number | null = null;
+  // Current Skilly cursor position. The bubble is always positioned relative to
+  // this — updated every animation frame during flight and on re-anchor.
+  // Default: near the launcher button (bottom-right corner).
+  private skillyX = window.innerWidth - 44;
+  private skillyY = window.innerHeight - 44;
 
   /** Set by the controller; fired when the user activates the companion. */
   public onLauncherActivated: (() => void) | null = null;
@@ -54,17 +52,6 @@ export class SkillyWidget {
     this.renderLauncher(accentColor);
     this.renderBubble();
     this.renderCursor();
-
-    // Always track the mouse so we have a fresh fallback position for the bubble.
-    this.mouseMoveHandler = (e: MouseEvent) => {
-      this.lastMouseX = e.clientX;
-      this.lastMouseY = e.clientY;
-      // Only follow the mouse when the AI cursor isn't anchored to a target.
-      if (this.pointingAnchorX === null && this.bubbleElement.getAttribute("data-visible") === "true") {
-        this.repositionBubble(e.clientX, e.clientY);
-      }
-    };
-    document.addEventListener("mousemove", this.mouseMoveHandler, { passive: true });
   }
 
   /** Append the widget to the host page. */
@@ -143,10 +130,7 @@ export class SkillyWidget {
   setBubbleText(text: string): void {
     if (text) {
       this.bubbleMessageElement.textContent = text;
-      // Use the pointing anchor if set, otherwise fall back to the last mouse position.
-      const anchorX = this.pointingAnchorX ?? this.lastMouseX;
-      const anchorY = this.pointingAnchorY ?? this.lastMouseY;
-      this.repositionBubble(anchorX, anchorY);
+      this.repositionBubble();
       this.bubbleElement.setAttribute("data-visible", "true");
     } else {
       this.bubbleMessageElement.textContent = "";
@@ -155,45 +139,38 @@ export class SkillyWidget {
   }
 
   /**
-   * Pin the bubble near the AI cursor's landing position. Called by PointingEngine
-   * after the cursor animation completes. Overrides mouse-following until cleared.
+   * Update the Skilly cursor position and reposition the bubble to match.
+   * Called by PointingEngine on every animation frame during flight and after
+   * re-anchoring on scroll/resize — the bubble is always attached to this cursor.
    */
-  setBubbleAnchor(cursorX: number, cursorY: number): void {
-    this.pointingAnchorX = cursorX;
-    this.pointingAnchorY = cursorY;
+  setSkillyPosition(x: number, y: number): void {
+    this.skillyX = x;
+    this.skillyY = y;
     if (this.bubbleElement.getAttribute("data-visible") === "true") {
-      this.repositionBubble(cursorX, cursorY);
-    }
-  }
-
-  /** Release the pointing anchor — bubble resumes following the user's mouse. */
-  clearBubbleAnchor(): void {
-    this.pointingAnchorX = null;
-    this.pointingAnchorY = null;
-    if (this.bubbleElement.getAttribute("data-visible") === "true") {
-      this.repositionBubble(this.lastMouseX, this.lastMouseY);
+      this.repositionBubble();
     }
   }
 
   /**
-   * Core positioning: offset 22px right + 6px below the anchor (Mac constants),
-   * flipping left near the right edge and above near the bottom edge.
+   * Position the bubble adjacent to the current Skilly cursor.
+   * Offset 22px right + 6px below the cursor tip; flips left when near the
+   * right edge and above when near the bottom edge.
    */
-  private repositionBubble(anchorX: number, anchorY: number): void {
+  private repositionBubble(): void {
     const bubbleWidth = Math.min(320, window.innerWidth - 32);
     const bubbleHeight = this.bubbleElement.offsetHeight || 80;
     const offsetX = 22;
     const offsetY = 6;
     const edge = 16;
 
-    let x = anchorX + offsetX;
-    let y = anchorY + offsetY;
+    let x = this.skillyX + offsetX;
+    let y = this.skillyY + offsetY;
 
     if (x + bubbleWidth > window.innerWidth - edge) {
-      x = anchorX - offsetX - bubbleWidth;
+      x = this.skillyX - offsetX - bubbleWidth;
     }
     if (y + bubbleHeight > window.innerHeight - edge) {
-      y = anchorY - offsetY - bubbleHeight;
+      y = this.skillyY - offsetY - bubbleHeight;
     }
 
     x = Math.max(edge, Math.min(window.innerWidth - bubbleWidth - edge, x));
@@ -208,13 +185,13 @@ export class SkillyWidget {
   }
 
   /**
-   * Set the cursor's viewport position instantly. The PointingEngine calls this
-   * per animation frame to fly the cursor along a bezier arc (Phase 8.2), so the
-   * element itself has no CSS transform transition. Offset by a few px so the
-   * cursor's tip — not its top-left corner — lands on the target.
+   * Set the Skilly cursor's viewport position and update the bubble.
+   * The PointingEngine calls this per animation frame to fly the cursor along
+   * a bezier arc — the bubble follows in real time.
    */
   setCursorPosition(viewportX: number, viewportY: number): void {
     this.cursorElement.style.transform = `translate(${viewportX - 3}px, ${viewportY - 3}px)`;
+    this.setSkillyPosition(viewportX, viewportY);
   }
 
   hideCursor(): void {
@@ -223,10 +200,6 @@ export class SkillyWidget {
 
   /** Remove the widget and its shadow root from the page. */
   destroy(): void {
-    if (this.mouseMoveHandler) {
-      document.removeEventListener("mousemove", this.mouseMoveHandler);
-      this.mouseMoveHandler = null;
-    }
     this.hostElement.remove();
   }
 }
