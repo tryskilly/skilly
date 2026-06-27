@@ -84,7 +84,7 @@ export const WIDGET_STYLES = /* css */ `
   100% { transform: scale(1.5); opacity: 0; }
 }
 
-/* Response bubble that floats above the launcher. */
+/* Response bubble — defaults above the launcher; JS repositions it near the cursor. */
 .skilly-bubble {
   position: fixed;
   right: 20px;
@@ -98,9 +98,8 @@ export const WIDGET_STYLES = /* css */ `
   line-height: 1.45;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   opacity: 0;
-  transform: translateY(8px);
   pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.2s ease, left 0.25s ease, top 0.25s ease;
   z-index: 2147483647;
 }
 .skilly-bubble[data-visible="true"] {
@@ -123,21 +122,26 @@ export const WIDGET_STYLES = /* css */ `
   text-decoration: underline;
 }
 
-/* Blue cursor companion that flies to and points at host UI (animation = Phase 8.2). */
+/* Skilly cursor companion that flies to and points at host UI (animation = Phase 8.2). */
 .skilly-cursor {
   position: fixed;
   top: 0;
   left: 0;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   pointer-events: none;
   opacity: 0;
+  color: var(--skilly-accent);
   transition: opacity 0.2s ease;
   z-index: 2147483647;
   will-change: transform;
 }
 .skilly-cursor[data-visible="true"] { opacity: 1; }
-.skilly-cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3)); }
+.skilly-cursor-mark {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+}
 
 @media (max-width: 480px) {
   .skilly-launcher {
@@ -154,6 +158,10 @@ export const WIDGET_STYLES = /* css */ `
     right: 16px;
     bottom: 84px;
     max-width: calc(100vw - 32px);
+  }
+  .skilly-cursor {
+    width: 26px;
+    height: 26px;
   }
 }
 `;

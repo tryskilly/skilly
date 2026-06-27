@@ -15,8 +15,8 @@ const SKILLY_MARK_ICON = /* html */ `
 </svg>`;
 
 const CURSOR_ICON = /* html */ `
-<svg viewBox="0 0 24 24" fill="#2F6BFF" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">
-  <path d="M5 3l14 7-6 2-2 6-6-15z"/>
+<svg class="skilly-cursor-mark" viewBox="0 0 1024 1024" aria-hidden="true">
+  <path d="M367 165c0-42 47-67 82-43l440 299c38 26 27 85-18 94l-118 24c-32 7-45 46-22 69l170 169c22 22 22 57 0 79l-77 77c-23 23-60 21-81-4L586 746c-20-24-56-27-80-8L425 801c-34 27-84 3-84-40V216c0-28 10-41 26-51Z" fill="currentColor"/>
 </svg>`;
 
 export class SkillyWidget {
@@ -148,6 +148,42 @@ export class SkillyWidget {
 
   hideCursor(): void {
     this.cursorElement.setAttribute("data-visible", "false");
+  }
+
+  /**
+   * Reposition the response bubble near the cursor tip after it lands on a target.
+   * Offsets to the right and above the cursor, clamped so the bubble stays on screen.
+   */
+  setBubbleNearCursor(cursorX: number, cursorY: number): void {
+    const bubbleWidth = 320;
+    const bubbleHeight = this.bubbleElement.offsetHeight || 90;
+    const gap = 18;
+    const edge = 16;
+
+    let x = cursorX + gap;
+    let y = cursorY - bubbleHeight - gap;
+
+    // Clamp horizontally.
+    x = Math.max(edge, Math.min(window.innerWidth - bubbleWidth - edge, x));
+    // If it would go above the viewport, flip below the cursor instead.
+    if (y < edge) {
+      y = cursorY + gap;
+    }
+    // Clamp vertically so it never overflows the bottom either.
+    y = Math.min(window.innerHeight - bubbleHeight - edge, y);
+
+    this.bubbleElement.style.left = `${x}px`;
+    this.bubbleElement.style.top = `${y}px`;
+    this.bubbleElement.style.right = "";
+    this.bubbleElement.style.bottom = "";
+  }
+
+  /** Return the bubble to its default position above the launcher (bottom-right). */
+  resetBubblePosition(): void {
+    this.bubbleElement.style.left = "";
+    this.bubbleElement.style.top = "";
+    this.bubbleElement.style.right = "20px";
+    this.bubbleElement.style.bottom = "88px";
   }
 
   /** Remove the widget and its shadow root from the page. */
