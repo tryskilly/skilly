@@ -71,10 +71,12 @@ export async function revokeKeyAction(formData: FormData): Promise<void> {
 /** Register a web origin allowed to use the widget publishable key. */
 export async function addOriginAction(formData: FormData): Promise<void> {
   await requireDashboardSession();
-  const origin = String(formData.get("origin") ?? "").trim();
-  if (!origin) {
+  const rawOrigin = String(formData.get("origin") ?? "").trim();
+  if (!rawOrigin) {
     return;
   }
+  // Auto-prepend https:// if the user omitted the scheme (e.g. "tryskilly.app" → "https://tryskilly.app").
+  const origin = /^https?:\/\//i.test(rawOrigin) ? rawOrigin : `https://${rawOrigin}`;
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
   const [{ project }, tenant] = await Promise.all([getDashboardProjectSelection(repo), repo.getTenant(tenantId)]);
