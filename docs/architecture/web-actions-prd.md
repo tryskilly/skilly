@@ -162,6 +162,12 @@ Guardrails (all v1, none deferred):
    changes; MIT fork is the floor.
 5. **Fill semantics on exotic editors** (rich text, canvas apps) — out of scope; executor
    refuses non-form-control targets in 10.0, revisit in 10.2.
+6. **Metering is honor-system** (flagged again by 10.1 cross-review) — `/api/web/usage` trusts
+   repeatable client reports for seconds AND action counts; a script on an allowed origin can
+   inflate both. Known, pre-existing trust model; the fix is cross-cutting (session-id-tied,
+   idempotent reports anchored to the token mint) and is tracked as backend hardening, not an
+   actions-only patch. Action counts touch no billing path; seconds already gate quota, so
+   harden both together.
 
 ## 12. Build-vs-buy decision record
 

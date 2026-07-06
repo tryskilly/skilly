@@ -8,6 +8,7 @@ export interface SessionToken {
   clientSecret: string;
   model: string;
   expiresAt: number | null;
+  actionsEnabled: boolean;
 }
 
 export class BackendError extends Error {
@@ -31,6 +32,20 @@ function endpoint(backendUrl: string, path: string): string {
   return `${backendUrl.replace(/\/$/, "")}${path}`;
 }
 
+export function buildSessionUsagePayload(options: {
+  seconds: number;
+  actionsExecuted?: number;
+  actionsRefused?: number;
+  endUserId?: string;
+}): Record<string, number | string | undefined> {
+  return {
+    seconds: Math.max(0, Math.round(options.seconds)),
+    actionsExecuted: Math.max(0, Math.round(options.actionsExecuted ?? 0)),
+    actionsRefused: Math.max(0, Math.round(options.actionsRefused ?? 0)),
+    endUserId: options.endUserId,
+  };
+}
+
 /** POST /api/web/token → ephemeral Realtime client secret for this tenant. */
 export async function fetchSessionToken(options: ClientOptions): Promise<SessionToken> {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -47,6 +62,7 @@ export async function fetchSessionToken(options: ClientOptions): Promise<Session
     clientSecret?: string;
     model?: string;
     expiresAt?: number | null;
+    actionsEnabled?: boolean;
   };
   if (!payload.clientSecret) {
     throw new BackendError("token response missing clientSecret", response.status);
@@ -55,22 +71,20 @@ export async function fetchSessionToken(options: ClientOptions): Promise<Session
     clientSecret: payload.clientSecret,
     model: payload.model ?? "gpt-realtime",
     expiresAt: payload.expiresAt ?? null,
+    actionsEnabled: payload.actionsEnabled === true,
   };
 }
 
 /** POST /api/web/usage → meter the session's seconds (best-effort; never throws). */
 export async function reportSessionUsage(
-  options: ClientOptions & { seconds: number },
+  options: ClientOptions & { seconds: number; actionsExecuted?: number; actionsRefused?: number },
 ): Promise<void> {
   const fetchImpl = options.fetchImpl ?? fetch;
   try {
     await fetchImpl(endpoint(options.backendUrl, "/api/web/usage"), {
       method: "POST",
       headers: { "X-Skilly-Key": options.publishableKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        seconds: Math.max(0, Math.round(options.seconds)),
-        endUserId: options.endUserId,
-      }),
+      body: JSON.stringify(buildSessionUsagePayload(options)),
     });
   } catch {
     // Metering is best-effort; a failed report must not disrupt the user.

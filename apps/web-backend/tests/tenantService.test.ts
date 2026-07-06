@@ -54,6 +54,27 @@ describe("mintTokenForRequest", () => {
     expect(await repo.getUsageSecondsThisPeriod(defaultSeed().tenants[0]!.id)).toBe(0); // token_mint = 0s
   });
 
+  test("includes actionsEnabled from the tenant widget config", async () => {
+    const repo = new MemoryRepo();
+    const tenantId = defaultSeed().tenants[0]!.id;
+    await repo.saveWidgetConfig(tenantId, {
+      accentColor: "#f59e0b",
+      locale: "en",
+      launcherLabel: null,
+      actionsEnabled: true,
+    });
+
+    const outcome = await mintTokenForRequest(repo, {
+      rawKey: DEMO_PUBLISHABLE_KEY,
+      origin: ALLOWED_ORIGIN,
+      openaiApiKey: "sk-test",
+      fetchImpl: okFetch,
+    });
+
+    expect(outcome.status).toBe(200);
+    expect(outcome.body.actionsEnabled).toBe(true);
+  });
+
   test("returns 429 when the tenant is over its quota", async () => {
     // Tenant with a 1s cap; pre-record usage so the next mint is blocked.
     const tenantId = "22222222-2222-2222-2222-222222222222";

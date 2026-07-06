@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { saveWidgetConfigAction, type WidgetConfigState } from "../actions";
-import { Button, Field, Select } from "../v2";
+import { Button, Field, Select, Toggle } from "../v2";
 
 const LOCALES: Array<{ value: string; label: string }> = [
   { value: "en", label: "English" },
@@ -24,10 +24,12 @@ export function WidgetConfigForm({
   initialAccentColor,
   initialLocale,
   initialLauncherLabel,
+  initialActionsEnabled,
 }: {
   initialAccentColor: string;
   initialLocale: string;
   initialLauncherLabel: string;
+  initialActionsEnabled: boolean;
 }) {
   const [state, save, pending] = useActionState<WidgetConfigState, FormData>(saveWidgetConfigAction, {});
   const [accent, setAccent] = useState(state.accentColor ?? initialAccentColor);
@@ -59,6 +61,16 @@ export function WidgetConfigForm({
         placeholder="Ask Skilly"
         helper="Personalizes the floating button. Up to 24 characters."
       />
+
+      <div className="flex items-start justify-between gap-4 rounded-[12px] border border-line-soft bg-white/[0.035] p-4">
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-gray-100">Actions</div>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            Let Skilly click and fill on your pages. Every action targets your annotated elements or asks the visitor to confirm.
+          </p>
+        </div>
+        <Toggle name="actionsEnabled" defaultOn={state.actionsEnabled ?? initialActionsEnabled} />
+      </div>
 
       <div className="flex items-center gap-3">
         <Button variant="primary" analyticsEvent="dashboard_widget_config_save_clicked" analyticsLabel="Save widget config" disabled={pending}>

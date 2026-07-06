@@ -87,6 +87,7 @@ export const usageEvents = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
     seconds: integer("seconds").notNull().default(0),
+    count: integer("count"),
     // v2 richer dimensions (nullable — additive; old rows + token_mint events
     // simply leave them null). Populated by session_seconds events from the SDK.
     page: text("page"),
@@ -109,6 +110,7 @@ export const tenantWidgetConfigs = pgTable(
     accentColor: text("accent_color").notNull().default("#f59e0b"),
     locale: text("locale").notNull().default("en"),
     launcherLabel: text("launcher_label"),
+    actionsEnabled: boolean("actions_enabled").notNull().default(false),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
 );

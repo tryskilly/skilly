@@ -108,6 +108,29 @@ export default async function InstallPage() {
           </PanelBody>
         </Panel>
       </div>
+
+      <Panel>
+        <PanelHeader
+          title="Action annotations"
+          description="Actions are off by default and can be enabled in Widget settings when you are ready."
+        />
+        <PanelBody>
+          <div className="divide-y divide-line-soft text-sm text-muted">
+            <div className="grid gap-2 py-3 md:grid-cols-[220px_1fr] md:items-center">
+              <code className="font-mono text-gray-200">data-skilly</code>
+              <p className="text-xs leading-5">Marks a page element as an annotated target and pre-approved surface for safe actions.</p>
+            </div>
+            <div className="grid gap-2 py-3 md:grid-cols-[220px_1fr] md:items-center">
+              <code className="font-mono text-gray-200">data-skilly-no-act</code>
+              <p className="text-xs leading-5">Prevents Skilly from acting on that element or anything inside it.</p>
+            </div>
+            <div className="grid gap-2 py-3 md:grid-cols-[220px_1fr] md:items-center">
+              <span className="font-bold text-gray-200">Widget settings</span>
+              <p className="text-xs leading-5">Turn Actions on from Studio; unannotated or sensitive targets still ask the visitor to confirm.</p>
+            </div>
+          </div>
+        </PanelBody>
+      </Panel>
     </div>
   );
 }

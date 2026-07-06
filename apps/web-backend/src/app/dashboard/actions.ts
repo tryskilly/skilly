@@ -217,6 +217,7 @@ export interface WidgetConfigState {
   accentColor?: string;
   locale?: string;
   launcherLabel?: string;
+  actionsEnabled?: boolean;
   error?: string;
 }
 
@@ -231,6 +232,7 @@ export async function saveWidgetConfigAction(
   const accentColor = sanitizeAccentColor(String(formData.get("accentColor") ?? "").trim());
   const locale = String(formData.get("locale") ?? "en").trim();
   const launcherLabel = String(formData.get("launcherLabel") ?? "").trim() || null;
+  const actionsEnabled = formData.get("actionsEnabled") === "true";
   if (!accentColor) {
     return { error: "Accent color must be a hex color like #f59e0b." };
   }
@@ -241,15 +243,16 @@ export async function saveWidgetConfigAction(
   try {
     const repo = getRepo();
     const { project } = await getDashboardProjectSelection(repo);
-    await repo.saveProjectWidgetConfig(project.id, { accentColor, locale, launcherLabel });
-    await repo.saveWidgetConfig(tenantId, { accentColor, locale, launcherLabel });
+    await repo.saveProjectWidgetConfig(project.id, { accentColor, locale, launcherLabel, actionsEnabled });
+    await repo.saveWidgetConfig(tenantId, { accentColor, locale, launcherLabel, actionsEnabled });
     void captureDashboardEvent("dashboard_widget_config_saved", {
       tenant_id: tenantId,
       locale,
+      actions_enabled: actionsEnabled,
       source_surface: "web_dashboard",
     });
     revalidatePath("/dashboard", "layout");
-    return { ok: true, accentColor, locale, launcherLabel: launcherLabel ?? "" };
+    return { ok: true, accentColor, locale, launcherLabel: launcherLabel ?? "", actionsEnabled };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "failed to save widget config" };
   }

@@ -94,6 +94,7 @@ export async function mintTokenForRequest(
   }
 
   const usageSecondsThisPeriod = await repo.getUsageSecondsThisPeriod(auth.tenant.id);
+  const widgetConfig = await repo.getWidgetConfig(auth.tenant.id);
   const capSeconds = auth.tenant.usageCapSeconds;
   if (isOverQuota({ usageSecondsThisPeriod, capSeconds })) {
     return { status: 429, body: { error: "monthly usage quota reached" }, tenantId: auth.tenant.id };
@@ -125,6 +126,7 @@ export async function mintTokenForRequest(
       clientSecret: token.clientSecret,
       expiresAt: token.expiresAt,
       model: token.model,
+      actionsEnabled: widgetConfig.actionsEnabled,
       remainingSeconds: remainingSeconds({ usageSecondsThisPeriod, capSeconds }),
     },
     tenantId: auth.tenant.id,

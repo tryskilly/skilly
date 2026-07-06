@@ -47,6 +47,8 @@ class SkillyController {
   private liveActive = false;
   private liveSessionStartedAt = 0;
   private liveSessionGeneration = 0;
+  private liveActionsExecuted = 0;
+  private liveActionsRefused = 0;
   private lastPointedTarget: string | null = null;
   private identifiedEndUser: { id: string; traits?: Record<string, unknown> } | null = null;
 
@@ -188,6 +190,8 @@ class SkillyController {
     this.liveActive = true;
     const generation = ++this.liveSessionGeneration;
     this.liveSessionStartedAt = Date.now();
+    this.liveActionsExecuted = 0;
+    this.liveActionsRefused = 0;
     this.emit("turn", { goal });
     this.widget.setState("thinking");
     this.widget.setBubbleText("Connecting…");
@@ -206,8 +210,12 @@ class SkillyController {
       }
 
       const instructions = buildCompanionInstructions({ skillContent, digest });
+      const actionsEnabled = resolveLiveActionsEnabled({
+        serverActionsEnabled: token.actionsEnabled,
+        localActions: config.actions,
+      });
       const actionExecutor =
-        config.actions && this.pointing
+        actionsEnabled && this.pointing
           ? new ActionExecutor({
               getRegistry: () => this.currentRegistry,
               pointing: this.pointing,
@@ -220,7 +228,7 @@ class SkillyController {
         clientSecret: token.clientSecret,
         model: token.model,
         instructions,
-        actions: config.actions === true,
+        actions: actionsEnabled,
         callbacks: {
           onStateChange: (state) => {
             if (generation === this.liveSessionGeneration) {
@@ -326,6 +334,7 @@ class SkillyController {
     }
 
     const result = await this.executeActionToolCall(call, actionExecutor);
+    this.recordActionResult(result);
     if (!this.liveActive || generation !== this.liveSessionGeneration || this.realtimeSession !== realtimeSession) {
       return;
     }
@@ -368,12 +377,18 @@ class SkillyController {
 
     // Meter the session's seconds (best-effort, Phase 8.6).
     const elapsedSeconds = this.liveSessionStartedAt ? (Date.now() - this.liveSessionStartedAt) / 1000 : 0;
+    const actionsExecuted = this.liveActionsExecuted;
+    const actionsRefused = this.liveActionsRefused;
     this.liveSessionStartedAt = 0;
+    this.liveActionsExecuted = 0;
+    this.liveActionsRefused = 0;
     if (this.config?.backendUrl && elapsedSeconds > 0) {
       void reportSessionUsage({
         backendUrl: this.config.backendUrl,
         publishableKey: this.config.key,
         seconds: elapsedSeconds,
+        actionsExecuted,
+        actionsRefused,
         endUserId: this.identifiedEndUser?.id,
       });
     }
@@ -412,6 +427,8 @@ class SkillyController {
     this.actionExecutor = null;
     this.liveActive = false;
     this.liveSessionGeneration += 1;
+    this.liveActionsExecuted = 0;
+    this.liveActionsRefused = 0;
     this.pointing?.clear();
     this.pointing = null;
     this.currentRegistry = null;
@@ -433,6 +450,21 @@ class SkillyController {
       }
     });
   }
+
+  private recordActionResult(result: ActionResult): void {
+    if (result.ok) {
+      this.liveActionsExecuted += 1;
+    } else {
+      this.liveActionsRefused += 1;
+    }
+  }
+}
+
+export function resolveLiveActionsEnabled(options: {
+  serverActionsEnabled: boolean;
+  localActions?: boolean;
+}): boolean {
+  return options.serverActionsEnabled && options.localActions !== false;
 }
 
 const controller = new SkillyController();
@@ -455,7 +487,11 @@ export type { DomDigest, DigestElement } from "./digest.js";
 // Auto-init from `<script data-skilly-key="..." data-skilly-skill="...">`.
 // Only runs in the script-embed (IIFE) path, where `currentScript` is set.
 const embedScript = typeof document !== "undefined" ? document.currentScript : null;
-if (embedScript instanceof HTMLScriptElement && embedScript.dataset.skillyKey) {
+if (
+  typeof HTMLScriptElement !== "undefined" &&
+  embedScript instanceof HTMLScriptElement &&
+  embedScript.dataset.skillyKey
+) {
   controller.init({
     key: embedScript.dataset.skillyKey,
     skill: embedScript.dataset.skillySkill,
@@ -464,6 +500,9 @@ if (embedScript instanceof HTMLScriptElement && embedScript.dataset.skillyKey) {
     launcherLabel: embedScript.dataset.skillyLauncher,
     coreUrl: embedScript.dataset.skillyCoreUrl,
     backendUrl: embedScript.dataset.skillyBackendUrl,
-    actions: embedScript.dataset.skillyActions === "true",
+    actions:
+      embedScript.dataset.skillyActions === undefined
+        ? undefined
+        : embedScript.dataset.skillyActions === "true",
   });
 }

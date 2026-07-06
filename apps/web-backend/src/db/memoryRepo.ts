@@ -138,7 +138,7 @@ export class MemoryRepo implements WebBackendRepo {
       ...project,
       allowedOrigins: [...project.allowedOrigins],
       allowedAppIds: [...project.allowedAppIds],
-      widgetConfig: { ...project.widgetConfig },
+      widgetConfig: { ...DEFAULT_WIDGET_CONFIG, ...project.widgetConfig },
     };
   }
 
@@ -169,7 +169,7 @@ export class MemoryRepo implements WebBackendRepo {
       skillContent: skill?.content ?? "",
       allowedOrigins: [...tenant.allowedOrigins],
       allowedAppIds: [...tenant.allowedAppIds],
-      widgetConfig: this.widgetConfigs.get(tenantId) ?? { ...DEFAULT_WIDGET_CONFIG },
+      widgetConfig: { ...DEFAULT_WIDGET_CONFIG, ...(this.widgetConfigs.get(tenantId) ?? {}) },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -242,6 +242,7 @@ export class MemoryRepo implements WebBackendRepo {
   async recordUsage(event: UsageEvent & UsageDimensions): Promise<void> {
     this.usage.push({
       ...event,
+      count: event.count ?? null,
       page: event.page ?? null,
       domain: event.domain ?? null,
       durationSeconds: event.durationSeconds ?? null,
@@ -285,16 +286,23 @@ export class MemoryRepo implements WebBackendRepo {
     );
     const sessionCount = sessions.length;
     if (sessionCount === 0) {
-      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0 };
+      const totalActions = this.usage
+        .filter((event) => event.tenantId === tenantId && event.kind === "action")
+        .reduce((total, event) => total + (event.count ?? 0), 0);
+      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0, totalActions };
     }
     const totalSeconds = sessions.reduce((total, event) => total + event.seconds, 0);
     const errorCount = sessions.filter(
       (event) => event.result === "error" || event.result === "mic_denied",
     ).length;
+    const totalActions = this.usage
+      .filter((event) => event.tenantId === tenantId && event.kind === "action")
+      .reduce((total, event) => total + (event.count ?? 0), 0);
     return {
       sessionCount,
       avgSessionSeconds: Math.round(totalSeconds / sessionCount),
       errorRate: errorCount / sessionCount,
+      totalActions,
     };
   }
 
@@ -510,10 +518,10 @@ export class MemoryRepo implements WebBackendRepo {
   }
 
   async getWidgetConfig(tenantId: string): Promise<WidgetConfig> {
-    return this.widgetConfigs.get(tenantId) ?? { ...DEFAULT_WIDGET_CONFIG };
+    return { ...DEFAULT_WIDGET_CONFIG, ...(this.widgetConfigs.get(tenantId) ?? {}) };
   }
 
   async saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void> {
-    this.widgetConfigs.set(tenantId, { ...config });
+    this.widgetConfigs.set(tenantId, { ...DEFAULT_WIDGET_CONFIG, ...config });
   }
 }

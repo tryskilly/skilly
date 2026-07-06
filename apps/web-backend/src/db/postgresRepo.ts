@@ -39,6 +39,7 @@ export class PostgresRepo implements WebBackendRepo {
     accent_color: string;
     locale: string;
     launcher_label: string | null;
+    actions_enabled?: boolean;
     created_at?: Date;
     updated_at?: Date;
   }): Project {
@@ -55,6 +56,7 @@ export class PostgresRepo implements WebBackendRepo {
         accentColor: row.accent_color,
         locale: row.locale,
         launcherLabel: row.launcher_label,
+        actionsEnabled: row.actions_enabled ?? false,
       },
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -140,7 +142,9 @@ export class PostgresRepo implements WebBackendRepo {
       [tenantId],
     );
     if (existing.rows[0]) {
-      return this.projectFromRow(existing.rows[0]);
+      const project = this.projectFromRow(existing.rows[0]);
+      project.widgetConfig.actionsEnabled = (await this.getWidgetConfig(tenantId)).actionsEnabled;
+      return project;
     }
 
     const tenant = await this.getTenant(tenantId);
@@ -309,12 +313,13 @@ export class PostgresRepo implements WebBackendRepo {
 
   async recordUsage(event: UsageEvent & UsageDimensions): Promise<void> {
     await this.pool.query(
-      `INSERT INTO usage_events (tenant_id, kind, seconds, page, domain, duration_seconds, result)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO usage_events (tenant_id, kind, seconds, count, page, domain, duration_seconds, result)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         event.tenantId,
         event.kind,
         event.seconds,
+        event.count ?? null,
         event.page ?? null,
         event.domain ?? null,
         event.durationSeconds ?? null,
@@ -331,9 +336,10 @@ export class PostgresRepo implements WebBackendRepo {
       tenant_id: string;
       kind: string;
       seconds: number;
+      count: number | null;
       created_at: Date;
     }>(
-      `SELECT tenant_id, kind, seconds, created_at
+      `SELECT tenant_id, kind, seconds, count, created_at
          FROM usage_events
         WHERE tenant_id = $1
         ORDER BY created_at DESC
@@ -344,6 +350,7 @@ export class PostgresRepo implements WebBackendRepo {
       tenantId: row.tenant_id,
       kind: row.kind as UsageEvent["kind"],
       seconds: row.seconds,
+      count: row.count,
       createdAt: row.created_at,
     }));
   }
@@ -379,25 +386,28 @@ export class PostgresRepo implements WebBackendRepo {
       session_count: string;
       avg_seconds: string | null;
       error_count: string;
+      total_actions: string;
     }>(
       `SELECT
-         COUNT(*)::text AS session_count,
-         COALESCE(AVG(seconds), 0)::text AS avg_seconds,
-         COUNT(*) FILTER (WHERE result IN ('error', 'mic_denied'))::text AS error_count
+         COUNT(*) FILTER (WHERE kind = 'session_seconds')::text AS session_count,
+         COALESCE(AVG(seconds) FILTER (WHERE kind = 'session_seconds'), 0)::text AS avg_seconds,
+         COUNT(*) FILTER (WHERE kind = 'session_seconds' AND result IN ('error', 'mic_denied'))::text AS error_count,
+         COALESCE(SUM(count) FILTER (WHERE kind = 'action'), 0)::text AS total_actions
          FROM usage_events
-        WHERE tenant_id = $1 AND kind = 'session_seconds'
+        WHERE tenant_id = $1
           AND created_at >= date_trunc('month', now())`,
       [tenantId],
     );
     const row = result.rows[0];
     if (!row || Number(row.session_count) === 0) {
-      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0 };
+      return { sessionCount: 0, avgSessionSeconds: 0, errorRate: 0, totalActions: Number(row?.total_actions ?? 0) };
     }
     const sessionCount = Number(row.session_count);
     return {
       sessionCount,
       avgSessionSeconds: Math.round(Number(row.avg_seconds ?? 0)),
       errorRate: Number(row.error_count) / sessionCount,
+      totalActions: Number(row.total_actions),
     };
   }
 
@@ -724,25 +734,32 @@ export class PostgresRepo implements WebBackendRepo {
       accent_color: string;
       locale: string;
       launcher_label: string | null;
-    }>(`SELECT accent_color, locale, launcher_label FROM tenant_widget_configs WHERE tenant_id = $1`, [
+      actions_enabled: boolean;
+    }>(`SELECT accent_color, locale, launcher_label, actions_enabled FROM tenant_widget_configs WHERE tenant_id = $1`, [
       tenantId,
     ]);
     const row = result.rows[0];
     return row
-      ? { accentColor: row.accent_color, locale: row.locale, launcherLabel: row.launcher_label }
+      ? {
+          accentColor: row.accent_color,
+          locale: row.locale,
+          launcherLabel: row.launcher_label,
+          actionsEnabled: row.actions_enabled,
+        }
       : { ...DEFAULT_WIDGET_CONFIG };
   }
 
   async saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void> {
     await this.pool.query(
-      `INSERT INTO tenant_widget_configs (tenant_id, accent_color, locale, launcher_label)
-         VALUES ($1, $2, $3, $4)
+      `INSERT INTO tenant_widget_configs (tenant_id, accent_color, locale, launcher_label, actions_enabled)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (tenant_id) DO UPDATE SET
            accent_color = EXCLUDED.accent_color,
            locale = EXCLUDED.locale,
            launcher_label = EXCLUDED.launcher_label,
+           actions_enabled = EXCLUDED.actions_enabled,
            updated_at = now()`,
-      [tenantId, config.accentColor, config.locale, config.launcherLabel],
+      [tenantId, config.accentColor, config.locale, config.launcherLabel, config.actionsEnabled],
     );
   }
 }

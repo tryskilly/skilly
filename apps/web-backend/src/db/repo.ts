@@ -43,8 +43,9 @@ export interface Project {
 
 export interface UsageEvent {
   tenantId: string;
-  kind: "token_mint" | "session_seconds";
+  kind: "token_mint" | "session_seconds" | "action";
   seconds: number;
+  count?: number | null;
 }
 
 /** Outcome of a voice session, recorded on session_seconds events. */
@@ -69,6 +70,7 @@ export interface UsageMetrics {
   sessionCount: number;
   avgSessionSeconds: number;
   errorRate: number; // 0..1 fraction of sessions that ended in error/mic_denied
+  totalActions: number;
 }
 
 /** Display-safe key metadata for the dashboard (never includes the raw key). */
@@ -90,12 +92,14 @@ export interface WidgetConfig {
   accentColor: string;
   locale: string;
   launcherLabel: string | null;
+  actionsEnabled: boolean;
 }
 
 export const DEFAULT_WIDGET_CONFIG: WidgetConfig = {
   accentColor: "#f59e0b",
   locale: "en",
   launcherLabel: null,
+  actionsEnabled: false,
 };
 
 export interface DashboardMembership {

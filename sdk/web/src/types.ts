@@ -41,8 +41,8 @@ export interface SkillyConfig {
   /** Backend base URL that mints runtime tokens + serves the tenant skill. */
   backendUrl?: string;
   /**
-   * Enables the perform_action tool. Default false. Phase 10.1 moves this to the
-   * tenant widget config; for 10.0 it is a local init option only.
+   * Enables demo-mode actions. In live mode the server widget config enables
+   * actions, while `false` remains a hard local kill-switch.
    */
   actions?: boolean;
   /**

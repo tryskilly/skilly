@@ -43,6 +43,13 @@
       "when": 1782124544505,
       "tag": "0005_tricky_unicorn",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783375477422,
+      "tag": "0006_bright_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }
