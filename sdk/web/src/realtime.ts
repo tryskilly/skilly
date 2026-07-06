@@ -16,6 +16,10 @@ export interface RealtimeCallbacks {
   onUserTranscript: (text: string) => void;
   /** The assistant's response text so far (accumulated; may contain [POINT] tags). */
   onAssistantText: (fullText: string) => void;
+  /** A new model response started; used to reset per-turn client-side guards. */
+  onResponseCreated?: () => void;
+  /** The model asked the client to execute a local action tool. */
+  onActionToolCall?: (call: RealtimeActionToolCall) => void;
   onError: (message: string) => void;
 }
 
@@ -26,9 +30,55 @@ export interface RealtimeConfig {
   callbacks: RealtimeCallbacks;
   realtimeBaseUrl?: string;
   fetchImpl?: typeof fetch;
+  actions?: boolean;
+}
+
+export interface RealtimeActionToolCall {
+  callId: string;
+  name: "perform_action";
+  argumentsJson: string;
 }
 
 const DEFAULT_REALTIME_URL = "https://api.openai.com/v1/realtime/calls";
+
+export const PERFORM_ACTION_TOOL = {
+  type: "function",
+  name: "perform_action",
+  description:
+    "Perform a single UI action on the page for the user. Only call this when the user asked you to do the step for them. Set destructive=true if the action deletes, sends, pays for, or irreversibly changes something.",
+  parameters: {
+    type: "object",
+    properties: {
+      action: { type: "string", enum: ["click", "fill"] },
+      element_id: { type: "string", description: "The id of the element from the page digest" },
+      value: { type: "string", description: "Text to fill (fill action only)" },
+      destructive: { type: "boolean" },
+    },
+    required: ["action", "element_id", "destructive"],
+  },
+} as const;
+
+export function buildSessionUpdatePayload(config: Pick<RealtimeConfig, "model" | "instructions" | "actions">): object {
+  const session: Record<string, unknown> = {
+    type: "realtime",
+    model: config.model,
+    instructions: config.instructions,
+    output_modalities: ["audio"],
+    audio: {
+      input: {
+        transcription: { model: "gpt-4o-mini-transcribe" },
+        turn_detection: { type: "server_vad" },
+      },
+      output: {
+        format: { type: "audio/pcm", rate: 24000 },
+      },
+    },
+  };
+  if (config.actions) {
+    session.tools = [PERFORM_ACTION_TOOL];
+  }
+  return { type: "session.update", session };
+}
 
 export class RealtimeSession {
   private peerConnection: RTCPeerConnection | null = null;
@@ -37,6 +87,7 @@ export class RealtimeSession {
   private microphoneStream: MediaStream | null = null;
   private assistantText = "";
   private closed = false;
+  private handledToolCallIds = new Set<string>();
 
   constructor(private readonly config: RealtimeConfig) {}
 
@@ -134,37 +185,44 @@ export class RealtimeSession {
     }
   }
 
+  sendFunctionCallOutput(callId: string, output: string): void {
+    if (this.closed || this.dataChannel?.readyState !== "open") {
+      return;
+    }
+    this.dataChannel.send(
+      JSON.stringify({
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output,
+        },
+      }),
+    );
+    this.dataChannel.send(JSON.stringify({ type: "response.create" }));
+  }
+
   private sendSessionUpdate(): void {
     if (this.closed) {
       return;
     }
-    this.dataChannel?.send(
-      JSON.stringify({
-        type: "session.update",
-        session: {
-          type: "realtime",
-          model: this.config.model,
-          instructions: this.config.instructions,
-          output_modalities: ["audio"],
-          audio: {
-            input: {
-              transcription: { model: "gpt-4o-mini-transcribe" },
-              turn_detection: { type: "server_vad" },
-            },
-            output: {
-              format: { type: "audio/pcm", rate: 24000 },
-            },
-          },
-        },
-      }),
-    );
+    this.dataChannel?.send(JSON.stringify(buildSessionUpdatePayload(this.config)));
   }
 
   private handleServerEvent(raw: string): void {
     if (this.closed) {
       return;
     }
-    let event: { type?: string; delta?: string; transcript?: string; error?: { message?: string } };
+    let event: {
+      type?: string;
+      delta?: string;
+      transcript?: string;
+      call_id?: string;
+      name?: string;
+      arguments?: string;
+      response?: { output?: Array<Record<string, unknown>> };
+      error?: { message?: string };
+    };
     try {
       event = JSON.parse(raw);
     } catch {
@@ -174,6 +232,8 @@ export class RealtimeSession {
     switch (event.type) {
       case "response.created":
         this.assistantText = "";
+        this.handledToolCallIds.clear();
+        this.config.callbacks.onResponseCreated?.();
         break;
       // Accept the GA transcript/text delta events (names have shifted across
       // versions; handle the common set tolerantly).
@@ -188,11 +248,45 @@ export class RealtimeSession {
           this.config.callbacks.onUserTranscript(event.transcript);
         }
         break;
+      case "response.function_call_arguments.done":
+        this.forwardActionToolCall(event);
+        break;
+      case "response.done":
+        this.forwardDoneFunctionCallItems(event.response?.output ?? []);
+        break;
       case "error":
         this.config.callbacks.onError(event.error?.message ?? "realtime error");
         break;
       default:
         break;
+    }
+  }
+
+  private forwardActionToolCall(event: { call_id?: string; name?: string; arguments?: string }): void {
+    if (event.name !== "perform_action" || !event.call_id || typeof event.arguments !== "string") {
+      return;
+    }
+    if (this.handledToolCallIds.has(event.call_id)) {
+      return;
+    }
+    this.handledToolCallIds.add(event.call_id);
+    this.config.callbacks.onActionToolCall?.({
+      callId: event.call_id,
+      name: "perform_action",
+      argumentsJson: event.arguments,
+    });
+  }
+
+  private forwardDoneFunctionCallItems(items: Array<Record<string, unknown>>): void {
+    for (const item of items) {
+      if (item.type !== "function_call" || item.name !== "perform_action") {
+        continue;
+      }
+      this.forwardActionToolCall({
+        call_id: typeof item.call_id === "string" ? item.call_id : undefined,
+        name: "perform_action",
+        arguments: typeof item.arguments === "string" ? item.arguments : undefined,
+      });
     }
   }
 }

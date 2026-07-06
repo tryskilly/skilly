@@ -19,7 +19,8 @@ import { buildDomDigest, type DomDigest, type ElementRegistry } from "./digest.j
 import { inferPointFromText, parsePointTags, PointingEngine } from "./pointing.js";
 import { fetchSessionToken, fetchTenantSkill, reportSessionUsage } from "./token.js";
 import { buildCompanionInstructions } from "./prompt.js";
-import { RealtimeSession, type RealtimeState } from "./realtime.js";
+import { RealtimeSession, type RealtimeActionToolCall, type RealtimeState } from "./realtime.js";
+import { ActionExecutor, parseActionRequest, type ActionResult } from "./actions.js";
 import type {
   SkillyConfig,
   SkillyEventHandler,
@@ -42,6 +43,7 @@ class SkillyController {
   // Live (8.3) vs. simulated (no backend) mode.
   private liveMode = false;
   private realtimeSession: RealtimeSession | null = null;
+  private actionExecutor: ActionExecutor | null = null;
   private liveActive = false;
   private liveSessionStartedAt = 0;
   private liveSessionGeneration = 0;
@@ -204,20 +206,41 @@ class SkillyController {
       }
 
       const instructions = buildCompanionInstructions({ skillContent, digest });
+      const actionExecutor =
+        config.actions && this.pointing
+          ? new ActionExecutor({
+              getRegistry: () => this.currentRegistry,
+              pointing: this.pointing,
+              confirm: ({ elementLabel }) => this.widget?.showActionConfirmation(elementLabel) ?? Promise.resolve(false),
+              isSessionActive: () => this.liveActive && generation === this.liveSessionGeneration,
+            })
+          : null;
+      this.actionExecutor = actionExecutor;
       const realtimeSession = new RealtimeSession({
         clientSecret: token.clientSecret,
         model: token.model,
         instructions,
+        actions: config.actions === true,
         callbacks: {
           onStateChange: (state) => {
             if (generation === this.liveSessionGeneration) {
               this.onRealtimeState(state);
             }
           },
-          onUserTranscript: () => {},
+          onUserTranscript: () => {
+            if (generation === this.liveSessionGeneration) {
+              actionExecutor?.resetTurnLimit();
+            }
+          },
+          onResponseCreated: () => {},
           onAssistantText: (text) => {
             if (generation === this.liveSessionGeneration) {
-              this.onAssistantText(text);
+              this.onAssistantText(text, generation);
+            }
+          },
+          onActionToolCall: (call) => {
+            if (generation === this.liveSessionGeneration) {
+              void this.onActionToolCall(call, generation, realtimeSession, actionExecutor);
             }
           },
           onError: (message) => {
@@ -235,6 +258,10 @@ class SkillyController {
         realtimeSession.close();
         if (this.realtimeSession === realtimeSession) {
           this.realtimeSession = null;
+        }
+        if (this.actionExecutor === actionExecutor) {
+          actionExecutor?.close();
+          this.actionExecutor = null;
         }
       }
     } catch (sessionError) {
@@ -264,7 +291,7 @@ class SkillyController {
   }
 
   /** Each assistant text update: show it, and drive any new [POINT] tag. */
-  private onAssistantText(fullText: string): void {
+  private onAssistantText(fullText: string, generation?: number): void {
     if (!this.widget || !this.pointing) {
       return;
     }
@@ -278,6 +305,9 @@ class SkillyController {
       void this.pointing
         .pointAt(point.target, point.label, this.currentRegistry ?? undefined)
         .then((resolved) => {
+          if (generation !== undefined && generation !== this.liveSessionGeneration) {
+            return;
+          }
           if (resolved) {
             this.emit("point", { selector: point.target, label: resolved.label });
           }
@@ -285,8 +315,49 @@ class SkillyController {
     }
   }
 
+  private async onActionToolCall(
+    call: RealtimeActionToolCall,
+    generation: number,
+    realtimeSession: RealtimeSession,
+    actionExecutor: ActionExecutor | null,
+  ): Promise<void> {
+    if (!this.liveActive || generation !== this.liveSessionGeneration || !actionExecutor) {
+      return;
+    }
+
+    const result = await this.executeActionToolCall(call, actionExecutor);
+    if (!this.liveActive || generation !== this.liveSessionGeneration || this.realtimeSession !== realtimeSession) {
+      return;
+    }
+    realtimeSession.sendFunctionCallOutput(call.callId, JSON.stringify(result));
+  }
+
+  private async executeActionToolCall(
+    call: RealtimeActionToolCall,
+    actionExecutor: ActionExecutor,
+  ): Promise<ActionResult> {
+    let parsedArguments: unknown;
+    try {
+      parsedArguments = JSON.parse(call.argumentsJson);
+    } catch {
+      return { ok: false, error: "unsupported_target" };
+    }
+    const request = parseActionRequest(parsedArguments);
+    if (!request) {
+      return { ok: false, error: "unsupported_target" };
+    }
+    try {
+      return await actionExecutor.execute(request);
+    } catch {
+      return { ok: false, error: "unsupported_target" };
+    }
+  }
+
   private stopLiveSession(): void {
     this.liveSessionGeneration += 1;
+    this.actionExecutor?.close();
+    this.actionExecutor = null;
+    this.widget?.cancelActionConfirmation();
     this.realtimeSession?.close();
     this.realtimeSession = null;
     this.liveActive = false;
@@ -337,6 +408,8 @@ class SkillyController {
   destroy(): void {
     this.realtimeSession?.close();
     this.realtimeSession = null;
+    this.actionExecutor?.close();
+    this.actionExecutor = null;
     this.liveActive = false;
     this.liveSessionGeneration += 1;
     this.pointing?.clear();
@@ -391,5 +464,6 @@ if (embedScript instanceof HTMLScriptElement && embedScript.dataset.skillyKey) {
     launcherLabel: embedScript.dataset.skillyLauncher,
     coreUrl: embedScript.dataset.skillyCoreUrl,
     backendUrl: embedScript.dataset.skillyBackendUrl,
+    actions: embedScript.dataset.skillyActions === "true",
   });
 }

@@ -143,6 +143,58 @@ export const WIDGET_STYLES = /* css */ `
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
 }
 
+.skilly-confirm {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(28, 28, 30, 0.98);
+  color: #F9FAFB;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+  transition: opacity 0.16s ease;
+  z-index: 2147483647;
+  will-change: transform;
+}
+.skilly-confirm[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.skilly-confirm-copy {
+  color: #F9FAFB;
+  font: 600 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.skilly-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.skilly-confirm-button {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #F9FAFB;
+  cursor: pointer;
+  font: 700 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.skilly-confirm-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.skilly-confirm-primary {
+  border-color: transparent;
+  background: var(--skilly-accent);
+  color: #fff;
+}
+.skilly-confirm-primary:hover {
+  filter: brightness(1.05);
+}
+
 @media (max-width: 480px) {
   .skilly-launcher {
     right: 16px;
@@ -160,6 +212,9 @@ export const WIDGET_STYLES = /* css */ `
   .skilly-cursor {
     width: 26px;
     height: 26px;
+  }
+  .skilly-confirm {
+    width: calc(100vw - 32px);
   }
 }
 `;

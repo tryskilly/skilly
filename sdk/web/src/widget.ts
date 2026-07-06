@@ -27,6 +27,8 @@ export class SkillyWidget {
   private bubbleElement!: HTMLDivElement;
   private bubbleMessageElement!: HTMLDivElement;
   private cursorElement!: HTMLDivElement;
+  private confirmElement!: HTMLDivElement;
+  private pendingConfirm: { resolve: (confirmed: boolean) => void; timeoutId: number } | null = null;
   private idleLauncherLabel: string;
 
   // Current Skilly cursor position. The bubble is always positioned relative to
@@ -52,6 +54,7 @@ export class SkillyWidget {
     this.renderLauncher(accentColor);
     this.renderBubble();
     this.renderCursor();
+    this.renderConfirmChip();
   }
 
   /** Append the widget to the host page. */
@@ -111,6 +114,26 @@ export class SkillyWidget {
     this.shadowRoot.appendChild(this.cursorElement);
   }
 
+  private renderConfirmChip(): void {
+    this.confirmElement = document.createElement("div");
+    this.confirmElement.className = "skilly-confirm";
+    this.confirmElement.setAttribute("data-visible", "false");
+    this.confirmElement.innerHTML = /* html */ `
+      <div class="skilly-confirm-copy"></div>
+      <div class="skilly-confirm-actions">
+        <button class="skilly-confirm-button skilly-confirm-primary" type="button">Confirm</button>
+        <button class="skilly-confirm-button" type="button">Cancel</button>
+      </div>
+    `;
+    this.confirmElement
+      .querySelector<HTMLButtonElement>(".skilly-confirm-primary")
+      ?.addEventListener("click", () => this.finishActionConfirmation(true));
+    this.confirmElement
+      .querySelectorAll<HTMLButtonElement>(".skilly-confirm-button")[1]
+      ?.addEventListener("click", () => this.finishActionConfirmation(false));
+    this.shadowRoot.appendChild(this.confirmElement);
+  }
+
   /** Reflect the companion state on the launcher (drives the listening pulse). */
   setState(state: SkillyState): void {
     this.launcherButton.setAttribute("data-state", state);
@@ -148,6 +171,9 @@ export class SkillyWidget {
     this.skillyY = y;
     if (this.bubbleElement.getAttribute("data-visible") === "true") {
       this.repositionBubble();
+    }
+    if (this.confirmElement.getAttribute("data-visible") === "true") {
+      this.repositionConfirmChip();
     }
   }
 
@@ -198,8 +224,57 @@ export class SkillyWidget {
     this.cursorElement.setAttribute("data-visible", "false");
   }
 
+  showActionConfirmation(label: string): Promise<boolean> {
+    this.finishActionConfirmation(false);
+    const copy = this.confirmElement.querySelector<HTMLDivElement>(".skilly-confirm-copy");
+    if (copy) {
+      copy.textContent = `Let Skilly act on "${label}"?`;
+    }
+    this.repositionConfirmChip();
+    this.confirmElement.setAttribute("data-visible", "true");
+    return new Promise((resolve) => {
+      const timeoutId = window.setTimeout(() => this.finishActionConfirmation(false), 10_000);
+      this.pendingConfirm = { resolve, timeoutId };
+    });
+  }
+
+  cancelActionConfirmation(): void {
+    this.finishActionConfirmation(false);
+  }
+
+  private finishActionConfirmation(confirmed: boolean): void {
+    const pendingConfirm = this.pendingConfirm;
+    this.pendingConfirm = null;
+    this.confirmElement?.setAttribute("data-visible", "false");
+    if (!pendingConfirm) {
+      return;
+    }
+    window.clearTimeout(pendingConfirm.timeoutId);
+    pendingConfirm.resolve(confirmed);
+  }
+
+  private repositionConfirmChip(): void {
+    const chipWidth = Math.min(300, window.innerWidth - 32);
+    const chipHeight = this.confirmElement.offsetHeight || 76;
+    const edge = 16;
+    let x = this.skillyX + 22;
+    let y = this.skillyY + 42;
+
+    if (x + chipWidth > window.innerWidth - edge) {
+      x = this.skillyX - chipWidth - 22;
+    }
+    if (y + chipHeight > window.innerHeight - edge) {
+      y = this.skillyY - chipHeight - 16;
+    }
+
+    x = Math.max(edge, Math.min(window.innerWidth - chipWidth - edge, x));
+    y = Math.max(edge, Math.min(window.innerHeight - chipHeight - edge, y));
+    this.confirmElement.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
   /** Remove the widget and its shadow root from the page. */
   destroy(): void {
+    this.cancelActionConfirmation();
     this.hostElement.remove();
   }
 }
