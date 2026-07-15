@@ -1,7 +1,7 @@
 // MARK: - Skilly
 
 import Testing
-@testable import leanring_buddy
+@testable import Skilly
 
 // MARK: - SkillValidationTests
 

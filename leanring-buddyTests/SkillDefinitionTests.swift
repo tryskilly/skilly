@@ -1,7 +1,8 @@
 // MARK: - Skilly
 
+import Foundation
 import Testing
-@testable import leanring_buddy
+@testable import Skilly
 
 // MARK: - Test Fixtures
 

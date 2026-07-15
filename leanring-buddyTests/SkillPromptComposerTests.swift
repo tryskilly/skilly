@@ -1,7 +1,7 @@
 // MARK: - Skilly
 
 import Testing
-@testable import leanring_buddy
+@testable import Skilly
 
 struct SkillPromptComposerTests {
 
@@ -99,7 +99,8 @@ struct SkillPromptComposerTests {
     // MARK: Test 6
 
     @Test func composedPromptShowsCompletedStages() throws {
-        let (skill, var progress) = try makeSkillAndProgress()
+        let (skill, initialProgress) = try makeSkillAndProgress()
+        var progress = initialProgress
 
         // Simulate having completed stage 1 and advanced to stage 2.
         let firstStageId = skill.curriculumStages[0].id
@@ -146,7 +147,8 @@ struct SkillPromptComposerTests {
     // MARK: Test 8
 
     @Test func promptCacheInvalidatesOnStageChange() throws {
-        let (skill, var progress) = try makeSkillAndProgress()
+        let (skill, initialProgress) = try makeSkillAndProgress()
+        var progress = initialProgress
         var promptCache = PromptCache()
 
         // Compose a prompt for stage 1.
