@@ -90,6 +90,8 @@ final class EntitlementManager: ObservableObject {
         AppSettings.shared.workerBaseURL
     }
 
+    private let userDefaults = UserDefaults.standard
+
     private init() {}
 
     // MARK: - Fetch
@@ -122,10 +124,47 @@ final class EntitlementManager: ObservableObject {
 
             if case .active = status {
                 TrialTracker.shared.recordConversionToPaid()
+                trackSubscriptionActivatedIfNeeded(userId: userId)
             }
         } catch {
             // Network failure: leave existing status unchanged
         }
+    }
+
+    // MARK: - Skilly — v2.1: the paid-conversion event was never wired up.
+    //
+    // SkillyAnalytics.trackSubscriptionActivated() existed since launch but had
+    // ZERO callers: startPostCheckoutPolling() detected the active subscription
+    // and only did a `#if DEBUG print`, so in a release build the moment a
+    // customer paid emitted nothing. skilly_subscription_activated had never
+    // fired once (PostHog, 120d, checked 2026-07-16) — which also meant the
+    // weekly "checkout_started without subscription_activated" grep could never
+    // return anything but 100% unconverted.
+    //
+    // Fired from refresh() because that is the one path every activation routes
+    // through: app launch, checkout return, and the 5s post-checkout poll all
+    // call it. TrialTracker.recordConversionToPaid() deliberately stays as-is —
+    // it is gated on hasRecordedTrialStarted because trial_converted_to_paid is
+    // specifically a *trial* metric. This event is not: someone who pays without
+    // ever starting a trial is still an activation.
+
+    /// Fires `skilly_subscription_activated` exactly once per user.
+    private func trackSubscriptionActivatedIfNeeded(userId: String) {
+        guard Self.claimActivationLatch(userDefaults: userDefaults, userId: userId) else { return }
+        SkillyAnalytics.trackSubscriptionActivated(userId: userId)
+    }
+
+    /// Returns `true` exactly once per (defaults, userId); the caller then fires.
+    ///
+    /// refresh() runs on every launch and every 5s while polling, so without a
+    /// *persisted* latch this event would re-fire forever. Keyed per user (same
+    /// shape as TrialTracker's milestone flags) so a different account signing in
+    /// on the same Mac still records its own activation.
+    static func claimActivationLatch(userDefaults: UserDefaults, userId: String) -> Bool {
+        let key = "entitlement_milestone_activated_\(userId)"
+        guard !userDefaults.bool(forKey: key) else { return false }
+        userDefaults.set(true, forKey: key)
+        return true
     }
 
     // MARK: - Apply Record
