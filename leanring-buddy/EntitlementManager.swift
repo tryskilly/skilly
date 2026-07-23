@@ -53,8 +53,23 @@ struct EntitlementRecord: Codable {
     }()
 
     /// Parse an ISO 8601 date string, trying with and without fractional seconds.
-    private static func parseISO8601(_ string: String) -> Date? {
-        iso8601Formatter.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+    ///
+    /// Foundation's ISO8601DateFormatter only accepts up to millisecond (3-digit)
+    /// fractional seconds and returns nil on more. Polar emits `current_period_end`
+    /// with MICROSECOND precision (e.g. "2026-08-23T12:06:03.691165Z"), which made
+    /// an active subscription parse to nil -> read as .none -> the paying user was
+    /// locked out. The worker now normalises to milliseconds, but we truncate here
+    /// too so no upstream date-precision change can ever gate access again.
+    static func parseISO8601(_ string: String) -> Date? {
+        if let date = iso8601Formatter.date(from: string) ?? ISO8601DateFormatter().date(from: string) {
+            return date
+        }
+        // Truncate sub-millisecond fractional digits (4+ -> 3), then retry.
+        let truncated = string.replacingOccurrences(
+            of: #"\.(\d{3})\d+"#, with: ".$1", options: .regularExpression
+        )
+        guard truncated != string else { return nil }
+        return iso8601Formatter.date(from: truncated) ?? ISO8601DateFormatter().date(from: truncated)
     }
 
     var parsedStatus: EntitlementStatus {

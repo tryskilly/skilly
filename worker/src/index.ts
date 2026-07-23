@@ -678,6 +678,20 @@ interface EntitlementData {
   plan?: string;
 }
 
+/// Normalise an ISO date to millisecond precision before it enters the
+/// entitlement record. Polar sends `current_period_end` with MICROSECOND
+/// precision (e.g. "2026-08-23T12:06:03.691165Z"), and Apple's
+/// ISO8601DateFormatter (used by the Mac app to gate access) returns nil on
+/// 6-digit fractional seconds — so an active subscription was read as .none
+/// and the paying user was locked out. `new Date(...).toISOString()` always
+/// emits exactly 3 fractional digits, which the app parses. Empty/unparseable
+/// input passes through unchanged.
+function toMillisIso(value: string | null | undefined): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
 interface PolarWebhookEvent {
   type: string;
   data: {
@@ -834,7 +848,7 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
         user_id: userId,
         status: "active",
         period_start: new Date().toISOString(),
-        period_end: event.data.current_period_end ?? "",
+        period_end: toMillisIso(event.data.current_period_end),
         plan: "beta_19",
       };
       break;
@@ -844,7 +858,7 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
       record = {
         user_id: userId,
         status: "canceled",
-        period_end: event.data.current_period_end ?? "",
+        period_end: toMillisIso(event.data.current_period_end),
         plan: "beta_19",
       };
       break;
@@ -855,7 +869,7 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
         user_id: userId,
         status: existing?.status ?? "active",
         period_start: existing?.period_start ?? new Date().toISOString(),
-        period_end: event.data.current_period_end ?? "",
+        period_end: toMillisIso(event.data.current_period_end),
         plan: "beta_19",
       };
       break;
