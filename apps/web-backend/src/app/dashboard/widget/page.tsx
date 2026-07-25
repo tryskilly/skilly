@@ -67,6 +67,7 @@ export default async function WidgetPage() {
               initialLocale={config.locale}
               initialLauncherLabel={config.launcherLabel ?? ""}
               initialActionsEnabled={config.actionsEnabled}
+              initialGuestSessionCapSeconds={config.guestSessionCapSeconds}
             />
           </PanelBody>
         </Panel>

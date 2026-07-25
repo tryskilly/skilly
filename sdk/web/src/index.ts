@@ -47,6 +47,7 @@ class SkillyController {
   private liveActive = false;
   private liveSessionStartedAt = 0;
   private liveSessionGeneration = 0;
+  private liveSessionCapTimer: number | null = null;
   private liveActionsExecuted = 0;
   private liveActionsRefused = 0;
   private lastPointedTarget: string | null = null;
@@ -208,6 +209,7 @@ class SkillyController {
       if (!this.liveActive || generation !== this.liveSessionGeneration) {
         return;
       }
+      this.scheduleGuestSessionCap(token.guestSessionCapSeconds, generation);
 
       const instructions = buildCompanionInstructions({ skillContent, digest });
       const actionsEnabled = resolveLiveActionsEnabled({
@@ -364,6 +366,7 @@ class SkillyController {
 
   private stopLiveSession(): void {
     this.liveSessionGeneration += 1;
+    this.clearGuestSessionCapTimer();
     this.actionExecutor?.close();
     this.actionExecutor = null;
     this.widget?.cancelActionConfirmation();
@@ -427,6 +430,7 @@ class SkillyController {
     this.actionExecutor = null;
     this.liveActive = false;
     this.liveSessionGeneration += 1;
+    this.clearGuestSessionCapTimer();
     this.liveActionsExecuted = 0;
     this.liveActionsRefused = 0;
     this.pointing?.clear();
@@ -456,6 +460,27 @@ class SkillyController {
       this.liveActionsExecuted += 1;
     } else {
       this.liveActionsRefused += 1;
+    }
+  }
+
+  private scheduleGuestSessionCap(capSeconds: number, generation: number): void {
+    this.clearGuestSessionCapTimer();
+    if (!Number.isFinite(capSeconds) || capSeconds <= 0) {
+      return;
+    }
+    this.liveSessionCapTimer = window.setTimeout(() => {
+      if (!this.liveActive || generation !== this.liveSessionGeneration) {
+        return;
+      }
+      this.widget?.setBubbleText("Session limit reached.");
+      this.stopLiveSession();
+    }, Math.round(capSeconds) * 1000);
+  }
+
+  private clearGuestSessionCapTimer(): void {
+    if (this.liveSessionCapTimer) {
+      window.clearTimeout(this.liveSessionCapTimer);
+      this.liveSessionCapTimer = null;
     }
   }
 }

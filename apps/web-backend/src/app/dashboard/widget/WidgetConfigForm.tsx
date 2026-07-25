@@ -25,14 +25,18 @@ export function WidgetConfigForm({
   initialLocale,
   initialLauncherLabel,
   initialActionsEnabled,
+  initialGuestSessionCapSeconds,
 }: {
   initialAccentColor: string;
   initialLocale: string;
   initialLauncherLabel: string;
   initialActionsEnabled: boolean;
+  initialGuestSessionCapSeconds: number;
 }) {
   const [state, save, pending] = useActionState<WidgetConfigState, FormData>(saveWidgetConfigAction, {});
   const [accent, setAccent] = useState(state.accentColor ?? initialAccentColor);
+  const guestCapMinutes =
+    state.guestSessionCapMinutes ?? Math.round(Math.max(0, initialGuestSessionCapSeconds) / 60);
 
   return (
     <form action={save} className="grid gap-5">
@@ -60,6 +64,15 @@ export function WidgetConfigForm({
         defaultValue={initialLauncherLabel}
         placeholder="Ask Skilly"
         helper="Personalizes the floating button. Up to 24 characters."
+      />
+
+      <Field
+        name="guestSessionCapMinutes"
+        label="Guest session cap"
+        type="number"
+        min={0}
+        defaultValue={guestCapMinutes}
+        helper="Stops each anonymous voice session after this many minutes. Use 0 for no per-session cap."
       />
 
       <div className="flex items-start justify-between gap-4 rounded-[12px] border border-line-soft bg-white/[0.035] p-4">

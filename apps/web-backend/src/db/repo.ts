@@ -93,6 +93,8 @@ export interface WidgetConfig {
   locale: string;
   launcherLabel: string | null;
   actionsEnabled: boolean;
+  /** Per live voice session cap for anonymous/demo visitors. 0 = uncapped. */
+  guestSessionCapSeconds: number;
 }
 
 export const DEFAULT_WIDGET_CONFIG: WidgetConfig = {
@@ -100,6 +102,7 @@ export const DEFAULT_WIDGET_CONFIG: WidgetConfig = {
   locale: "en",
   launcherLabel: null,
   actionsEnabled: false,
+  guestSessionCapSeconds: 0,
 };
 
 export interface DashboardMembership {

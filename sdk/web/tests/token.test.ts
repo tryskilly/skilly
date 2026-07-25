@@ -9,20 +9,28 @@ describe("fetchSessionToken", () => {
   test("parses a successful token response", async () => {
     const fetchImpl = async () =>
       new Response(
-        JSON.stringify({ clientSecret: "ek_abc", model: "gpt-realtime", expiresAt: 123, actionsEnabled: true }),
+        JSON.stringify({
+          clientSecret: "ek_abc",
+          model: "gpt-realtime",
+          expiresAt: 123,
+          actionsEnabled: true,
+          guestSessionCapSeconds: 90,
+        }),
         { status: 200 },
       );
     const token = await fetchSessionToken({ backendUrl: BACKEND, publishableKey: KEY, fetchImpl: fetchImpl as typeof fetch });
     expect(token.clientSecret).toBe("ek_abc");
     expect(token.model).toBe("gpt-realtime");
     expect(token.actionsEnabled).toBe(true);
+    expect(token.guestSessionCapSeconds).toBe(90);
   });
 
-  test("defaults actionsEnabled to false for older backends", async () => {
+  test("defaults optional server flags for older backends", async () => {
     const fetchImpl = async () =>
       new Response(JSON.stringify({ clientSecret: "ek_abc", model: "gpt-realtime" }), { status: 200 });
     const token = await fetchSessionToken({ backendUrl: BACKEND, publishableKey: KEY, fetchImpl: fetchImpl as typeof fetch });
     expect(token.actionsEnabled).toBe(false);
+    expect(token.guestSessionCapSeconds).toBe(0);
   });
 
   test("throws BackendError with the status on failure", async () => {

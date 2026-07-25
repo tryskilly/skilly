@@ -127,6 +127,7 @@ export async function mintTokenForRequest(
       expiresAt: token.expiresAt,
       model: token.model,
       actionsEnabled: widgetConfig.actionsEnabled,
+      guestSessionCapSeconds: widgetConfig.guestSessionCapSeconds,
       remainingSeconds: remainingSeconds({ usageSecondsThisPeriod, capSeconds }),
     },
     tenantId: auth.tenant.id,

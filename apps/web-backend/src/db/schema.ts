@@ -111,6 +111,7 @@ export const tenantWidgetConfigs = pgTable(
     locale: text("locale").notNull().default("en"),
     launcherLabel: text("launcher_label"),
     actionsEnabled: boolean("actions_enabled").notNull().default(false),
+    guestSessionCapSeconds: integer("guest_session_cap_seconds").notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
 );

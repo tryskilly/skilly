@@ -218,6 +218,7 @@ export interface WidgetConfigState {
   locale?: string;
   launcherLabel?: string;
   actionsEnabled?: boolean;
+  guestSessionCapMinutes?: number;
   error?: string;
 }
 
@@ -233,29 +234,55 @@ export async function saveWidgetConfigAction(
   const locale = String(formData.get("locale") ?? "en").trim();
   const launcherLabel = String(formData.get("launcherLabel") ?? "").trim() || null;
   const actionsEnabled = formData.get("actionsEnabled") === "true";
+  const guestSessionCapMinutes = parseNonNegativeInteger(String(formData.get("guestSessionCapMinutes") ?? "0"));
   if (!accentColor) {
     return { error: "Accent color must be a hex color like #f59e0b." };
   }
   if (!SUPPORTED_LOCALES.has(locale)) {
     return { error: `Unsupported locale. Pick one of: ${[...SUPPORTED_LOCALES].join(", ")}.` };
   }
+  if (guestSessionCapMinutes === null) {
+    return { error: "Guest session cap must be 0 or a whole number of minutes." };
+  }
   const tenantId = await getCurrentDashboardTenantId();
   try {
     const repo = getRepo();
     const { project } = await getDashboardProjectSelection(repo);
-    await repo.saveProjectWidgetConfig(project.id, { accentColor, locale, launcherLabel, actionsEnabled });
-    await repo.saveWidgetConfig(tenantId, { accentColor, locale, launcherLabel, actionsEnabled });
+    const guestSessionCapSeconds = guestSessionCapMinutes * 60;
+    await repo.saveProjectWidgetConfig(project.id, {
+      accentColor,
+      locale,
+      launcherLabel,
+      actionsEnabled,
+      guestSessionCapSeconds,
+    });
+    await repo.saveWidgetConfig(tenantId, {
+      accentColor,
+      locale,
+      launcherLabel,
+      actionsEnabled,
+      guestSessionCapSeconds,
+    });
     void captureDashboardEvent("dashboard_widget_config_saved", {
       tenant_id: tenantId,
       locale,
       actions_enabled: actionsEnabled,
+      guest_session_cap_seconds: guestSessionCapSeconds,
       source_surface: "web_dashboard",
     });
     revalidatePath("/dashboard", "layout");
-    return { ok: true, accentColor, locale, launcherLabel: launcherLabel ?? "", actionsEnabled };
+    return { ok: true, accentColor, locale, launcherLabel: launcherLabel ?? "", actionsEnabled, guestSessionCapMinutes };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "failed to save widget config" };
   }
+}
+
+function parseNonNegativeInteger(value: string): number | null {
+  if (!/^\d+$/.test(value.trim())) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 /** Accept only well-formed #rrggbb hex colors to keep the snippet safe. */

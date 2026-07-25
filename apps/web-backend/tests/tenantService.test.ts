@@ -62,6 +62,7 @@ describe("mintTokenForRequest", () => {
       locale: "en",
       launcherLabel: null,
       actionsEnabled: true,
+      guestSessionCapSeconds: 120,
     });
 
     const outcome = await mintTokenForRequest(repo, {
@@ -73,6 +74,7 @@ describe("mintTokenForRequest", () => {
 
     expect(outcome.status).toBe(200);
     expect(outcome.body.actionsEnabled).toBe(true);
+    expect(outcome.body.guestSessionCapSeconds).toBe(120);
   });
 
   test("returns 429 when the tenant is over its quota", async () => {

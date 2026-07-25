@@ -26,6 +26,7 @@ interface Env {
   WORKOS_REDIRECT_URI: string;
   SESSION_TOKEN_SECRET: string;
   OPENAI_API_KEY: string;
+  OPENAI_API_KEY_MAC?: string;
   POLAR_API_KEY: string;
   POLAR_WEBHOOK_SECRET: string;
   POLAR_BETA_PRODUCT_ID: string;
@@ -38,6 +39,7 @@ interface Env {
 }
 
 const OPENAI_REALTIME_MODEL = "gpt-realtime";
+const OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
 const SESSION_TOKEN_TTL_SECONDS = 60 * 60 * 12;
 const POLAR_WEBHOOK_MAX_SKEW_SECONDS = 60 * 5;
 
@@ -46,6 +48,12 @@ interface AuthenticatedSession {
   email: string;
   issuedAt: number;
   expiresAt: number;
+}
+
+interface OpenAIRealtimeToken {
+  clientSecret: string;
+  expiresAt: number;
+  model: string;
 }
 
 export default {
@@ -638,23 +646,24 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
  * The raw OpenAI API key never leaves the Worker.
  */
 async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedSession): Promise<Response> {
-  if (!env.OPENAI_API_KEY) {
+  const openAIAPIKey = env.OPENAI_API_KEY_MAC || env.OPENAI_API_KEY;
+  if (!openAIAPIKey) {
     return new Response(
       JSON.stringify({ error: "OpenAI API key not configured" }),
       { status: 500, headers: { "content-type": "application/json" } }
     );
   }
 
-  // Return the API key directly for WebSocket auth. The endpoint is
-  // protected by session token authentication so only signed-in users
-  // can access it. Ephemeral client secrets (POST /v1/realtime/client_secrets)
-  // are the ideal approach but don't yet support all Realtime models.
+  const token = await mintOpenAIRealtimeToken(openAIAPIKey);
+  if ("error" in token) {
+    return new Response(
+      JSON.stringify(token),
+      { status: 502, headers: { "content-type": "application/json" } }
+    );
+  }
+
   return new Response(
-    JSON.stringify({
-      clientSecret: env.OPENAI_API_KEY,
-      expiresAt: Math.floor(Date.now() / 1000) + 3600,
-      model: OPENAI_REALTIME_MODEL,
-    }),
+    JSON.stringify(token),
     {
       status: 200,
       headers: {
@@ -663,6 +672,55 @@ async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedS
       },
     }
   );
+}
+
+async function mintOpenAIRealtimeToken(apiKey: string): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
+  let mint: Response;
+  try {
+    // Mint a short-lived ephemeral client secret so the raw OPENAI_API_KEY never
+    // leaves the Worker. The app connects its Realtime WebSocket with this
+    // secret as the Bearer — identical to the BYOK path in the macOS app.
+    mint = await fetch(OPENAI_CLIENT_SECRETS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ session: { type: "realtime", model: OPENAI_REALTIME_MODEL } }),
+    });
+  } catch (error) {
+    return { error: "OpenAI client_secrets request failed", detail: String(error) };
+  }
+
+  if (!mint.ok) {
+    return {
+      error: `OpenAI client_secrets returned ${mint.status}`,
+      detail: await mint.text(),
+    };
+  }
+
+  // GA endpoint returns { value, expires_at }; tolerate the older nested shape.
+  let payload: {
+    value?: string;
+    client_secret?: { value?: string; expires_at?: number };
+    expires_at?: number;
+  };
+  try {
+    payload = await mint.json();
+  } catch (error) {
+    return { error: "OpenAI response was not valid JSON", detail: String(error) };
+  }
+
+  const clientSecret = payload.value ?? payload.client_secret?.value;
+  if (!clientSecret) {
+    return { error: "OpenAI response missing client secret" };
+  }
+
+  return {
+    clientSecret,
+    expiresAt: payload.expires_at ?? payload.client_secret?.expires_at ?? Math.floor(Date.now() / 1000) + 3600,
+    model: OPENAI_REALTIME_MODEL,
+  };
 }
 
 interface CheckoutPayload {

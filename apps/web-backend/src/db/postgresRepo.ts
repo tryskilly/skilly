@@ -57,6 +57,7 @@ export class PostgresRepo implements WebBackendRepo {
         locale: row.locale,
         launcherLabel: row.launcher_label,
         actionsEnabled: row.actions_enabled ?? false,
+        guestSessionCapSeconds: 0,
       },
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -143,7 +144,9 @@ export class PostgresRepo implements WebBackendRepo {
     );
     if (existing.rows[0]) {
       const project = this.projectFromRow(existing.rows[0]);
-      project.widgetConfig.actionsEnabled = (await this.getWidgetConfig(tenantId)).actionsEnabled;
+      const widgetConfig = await this.getWidgetConfig(tenantId);
+      project.widgetConfig.actionsEnabled = widgetConfig.actionsEnabled;
+      project.widgetConfig.guestSessionCapSeconds = widgetConfig.guestSessionCapSeconds;
       return project;
     }
 
@@ -730,14 +733,7 @@ export class PostgresRepo implements WebBackendRepo {
   }
 
   async getWidgetConfig(tenantId: string): Promise<WidgetConfig> {
-    const result = await this.pool.query<{
-      accent_color: string;
-      locale: string;
-      launcher_label: string | null;
-      actions_enabled: boolean;
-    }>(`SELECT accent_color, locale, launcher_label, actions_enabled FROM tenant_widget_configs WHERE tenant_id = $1`, [
-      tenantId,
-    ]);
+    const result = await this.queryWidgetConfig(tenantId);
     const row = result.rows[0];
     return row
       ? {
@@ -745,21 +741,89 @@ export class PostgresRepo implements WebBackendRepo {
           locale: row.locale,
           launcherLabel: row.launcher_label,
           actionsEnabled: row.actions_enabled,
+          guestSessionCapSeconds: row.guest_session_cap_seconds,
         }
       : { ...DEFAULT_WIDGET_CONFIG };
   }
 
   async saveWidgetConfig(tenantId: string, config: WidgetConfig): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO tenant_widget_configs (tenant_id, accent_color, locale, launcher_label, actions_enabled)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (tenant_id) DO UPDATE SET
-           accent_color = EXCLUDED.accent_color,
-           locale = EXCLUDED.locale,
-           launcher_label = EXCLUDED.launcher_label,
-           actions_enabled = EXCLUDED.actions_enabled,
-           updated_at = now()`,
-      [tenantId, config.accentColor, config.locale, config.launcherLabel, config.actionsEnabled],
-    );
+    try {
+      await this.pool.query(
+        `INSERT INTO tenant_widget_configs
+           (tenant_id, accent_color, locale, launcher_label, actions_enabled, guest_session_cap_seconds)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (tenant_id) DO UPDATE SET
+             accent_color = EXCLUDED.accent_color,
+             locale = EXCLUDED.locale,
+             launcher_label = EXCLUDED.launcher_label,
+             actions_enabled = EXCLUDED.actions_enabled,
+             guest_session_cap_seconds = EXCLUDED.guest_session_cap_seconds,
+             updated_at = now()`,
+        [
+          tenantId,
+          config.accentColor,
+          config.locale,
+          config.launcherLabel,
+          config.actionsEnabled,
+          config.guestSessionCapSeconds,
+        ],
+      );
+    } catch (error) {
+      if (!isUndefinedColumnError(error)) {
+        throw error;
+      }
+      await this.pool.query(
+        `INSERT INTO tenant_widget_configs (tenant_id, accent_color, locale, launcher_label, actions_enabled)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (tenant_id) DO UPDATE SET
+             accent_color = EXCLUDED.accent_color,
+             locale = EXCLUDED.locale,
+             launcher_label = EXCLUDED.launcher_label,
+             actions_enabled = EXCLUDED.actions_enabled,
+             updated_at = now()`,
+        [tenantId, config.accentColor, config.locale, config.launcherLabel, config.actionsEnabled],
+      );
+    }
   }
+
+  private async queryWidgetConfig(tenantId: string): Promise<{
+    rows: Array<{
+      accent_color: string;
+      locale: string;
+      launcher_label: string | null;
+      actions_enabled: boolean;
+      guest_session_cap_seconds: number;
+    }>;
+  }> {
+    try {
+      return await this.pool.query(
+        `SELECT accent_color, locale, launcher_label, actions_enabled, guest_session_cap_seconds
+           FROM tenant_widget_configs
+          WHERE tenant_id = $1`,
+        [tenantId],
+      );
+    } catch (error) {
+      if (!isUndefinedColumnError(error)) {
+        throw error;
+      }
+      const fallback = await this.pool.query<{
+        accent_color: string;
+        locale: string;
+        launcher_label: string | null;
+        actions_enabled: boolean;
+      }>(`SELECT accent_color, locale, launcher_label, actions_enabled FROM tenant_widget_configs WHERE tenant_id = $1`, [
+        tenantId,
+      ]);
+      return {
+        rows: fallback.rows.map((row) => ({
+          ...row,
+          guest_session_cap_seconds: 0,
+        })),
+      };
+    }
+  }
+}
+
+function isUndefinedColumnError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "42703");
 }

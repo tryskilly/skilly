@@ -9,6 +9,7 @@ export interface SessionToken {
   model: string;
   expiresAt: number | null;
   actionsEnabled: boolean;
+  guestSessionCapSeconds: number;
 }
 
 export class BackendError extends Error {
@@ -63,6 +64,7 @@ export async function fetchSessionToken(options: ClientOptions): Promise<Session
     model?: string;
     expiresAt?: number | null;
     actionsEnabled?: boolean;
+    guestSessionCapSeconds?: number;
   };
   if (!payload.clientSecret) {
     throw new BackendError("token response missing clientSecret", response.status);
@@ -72,6 +74,10 @@ export async function fetchSessionToken(options: ClientOptions): Promise<Session
     model: payload.model ?? "gpt-realtime",
     expiresAt: payload.expiresAt ?? null,
     actionsEnabled: payload.actionsEnabled === true,
+    guestSessionCapSeconds:
+      typeof payload.guestSessionCapSeconds === "number" && payload.guestSessionCapSeconds > 0
+        ? Math.round(payload.guestSessionCapSeconds)
+        : 0,
   };
 }
 
