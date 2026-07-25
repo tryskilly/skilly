@@ -40,7 +40,7 @@ enum EntitlementStatus: Sendable {
 // MARK: - Entitlement Record (from Worker KV)
 
 struct EntitlementRecord: Codable {
-    let user_id: String
+    let user_id: String?
     let status: String
     let period_start: String?
     let period_end: String?
@@ -123,17 +123,7 @@ final class EntitlementManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            guard let url = URL(string: "\(workerBaseURL)/entitlement?user_id=\(userId)") else { return }
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: forContentType)
-            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
-                status = .none
-                return
-            }
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let record = try JSONDecoder().decode(EntitlementRecord.self, from: data)
+            let record = try await fetchEntitlementRecord(userId: userId)
 
             applyEntitlementRecord(record)
 
@@ -144,6 +134,37 @@ final class EntitlementManager: ObservableObject {
         } catch {
             // Network failure: leave existing status unchanged
         }
+    }
+
+    private func fetchEntitlementRecord(userId: String) async throws -> EntitlementRecord {
+        if AppSettings.shared.useStudioMacBackend,
+           let studioURL = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/entitlement?user_id=\(userId)"),
+           let studioRecord = try? await fetchEntitlementRecord(from: studioURL) {
+            if studioRecord.status != "none" {
+                return studioRecord
+            }
+        }
+
+        guard let workerURL = URL(string: "\(workerBaseURL)/entitlement?user_id=\(userId)") else {
+            throw URLError(.badURL)
+        }
+        return try await fetchEntitlementRecord(from: workerURL)
+    }
+
+    private func fetchEntitlementRecord(from url: URL) async throws -> EntitlementRecord {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: forContentType)
+        guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+            throw URLError(.userAuthenticationRequired)
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(EntitlementRecord.self, from: data)
     }
 
     // MARK: - Skilly — v2.1: the paid-conversion event was never wired up.

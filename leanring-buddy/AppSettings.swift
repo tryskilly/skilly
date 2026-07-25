@@ -24,6 +24,20 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(workerBaseURL, forKey: "workerBaseURL") }
     }
 
+    /// Base URL for Studio's Mac compatibility APIs. This is separate from
+    /// workerBaseURL because WorkOS auth and Polar checkout still live on the
+    /// Worker during the migration.
+    @Published var studioBackendBaseURL: String {
+        didSet { UserDefaults.standard.set(studioBackendBaseURL, forKey: "studioBackendBaseURL") }
+    }
+
+    /// When enabled, the Mac app tries Studio's Mac API routes first for
+    /// Realtime token minting, entitlement reads, and usage telemetry. Every
+    /// customer-critical path keeps Worker fallback.
+    @Published var useStudioMacBackend: Bool {
+        didSet { UserDefaults.standard.set(useStudioMacBackend, forKey: "useStudioMacBackend") }
+    }
+
     /// PostHog analytics API key. Set to empty string to disable analytics entirely.
     @Published var postHogAPIKey: String {
         didSet { UserDefaults.standard.set(postHogAPIKey, forKey: "postHogAPIKey") }
@@ -159,6 +173,9 @@ final class AppSettings: ObservableObject {
         // Skilly — Configurable endpoints
         self.workerBaseURL = UserDefaults.standard.string(forKey: "workerBaseURL")
             ?? "https://skilly-proxy.eng-mohamedszaied.workers.dev"
+        self.studioBackendBaseURL = UserDefaults.standard.string(forKey: "studioBackendBaseURL")
+            ?? "https://studio.tryskilly.app"
+        self.useStudioMacBackend = UserDefaults.standard.bool(forKey: "useStudioMacBackend")
 
         // BYOK — load user-supplied OpenAI key if previously saved.
         self.openAIAPIKey = UserDefaults.standard.string(forKey: "openAIAPIKey") ?? ""

@@ -109,6 +109,29 @@ final class UsageTracker: ObservableObject {
         if previousUsed < Self.maxSecondsPerPeriod && secondsUsed >= Self.maxSecondsPerPeriod {
             SkillyAnalytics.trackUsageCapHit(userId: userId)
         }
+
+        reportStudioMacUsageIfEnabled(seconds: seconds)
+    }
+
+    private func reportStudioMacUsageIfEnabled(seconds: TimeInterval) {
+        guard AppSettings.shared.useStudioMacBackend,
+              AuthManager.shared.isAuthenticated,
+              let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/usage") else {
+            return
+        }
+
+        Task {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else { return }
+            let body: [String: Any] = [
+                "seconds": max(0, Int(seconds.rounded())),
+                "result": "completed",
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            _ = try? await URLSession.shared.data(for: request)
+        }
     }
 
     /// Call each time a turn is blocked due to cap.

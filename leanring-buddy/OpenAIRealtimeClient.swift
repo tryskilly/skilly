@@ -137,6 +137,11 @@ final class OpenAIRealtimeClient: ObservableObject {
             return tokenResponse
         }
 
+        if let studioToken = await fetchStudioMacTokenIfEnabled() {
+            cachedToken = studioToken
+            return studioToken
+        }
+
         let url = URL(string: "\(AppSettings.shared.workerBaseURL)/openai/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -178,6 +183,44 @@ final class OpenAIRealtimeClient: ObservableObject {
         let tokenResponse = try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
         cachedToken = tokenResponse
         return tokenResponse
+    }
+
+    private func fetchStudioMacTokenIfEnabled() async -> OpenAITokenResponse? {
+        guard AppSettings.shared.useStudioMacBackend,
+              let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/openai/token") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+            return nil
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard statusCode == 200 else {
+                let body = String(data: data, encoding: .utf8) ?? "unknown"
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "studio_mac_token_fetch",
+                    httpStatus: statusCode,
+                    errorCode: "studio_token_fallback_to_worker",
+                    errorMessage: body,
+                    surface: "user_ptt"
+                )
+                return nil
+            }
+            return try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
+        } catch {
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "studio_mac_token_fetch",
+                errorCode: "studio_token_exception_fallback_to_worker",
+                errorMessage: String(describing: error),
+                surface: "user_ptt"
+            )
+            return nil
+        }
     }
 
     // MARK: - Skilly — BYOK direct session mint
