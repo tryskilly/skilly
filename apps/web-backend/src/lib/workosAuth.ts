@@ -41,6 +41,17 @@ export interface WorkOSAuthResult {
 
 export type WorkOSAuthMethod = "email" | "google";
 
+export class WorkOSUpstreamError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: string,
+  ) {
+    super(message);
+    this.name = "WorkOSUpstreamError";
+  }
+}
+
 export function isWorkOSAuthConfigured(): boolean {
   return Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_DASHBOARD_REDIRECT_URI);
 }
@@ -272,7 +283,7 @@ export async function exchangeWorkOSCode(code: string): Promise<WorkOSAuthResult
   });
 
   if (!response.ok) {
-    throw new Error(`WorkOS authenticate failed with ${response.status}`);
+    throw await workOSUpstreamError("WorkOS authenticate failed", response);
   }
 
   const data = (await response.json()) as Record<string, unknown>;
@@ -293,7 +304,7 @@ export async function sendWorkOSMagicAuthCode(email: string): Promise<void> {
   });
 
   if (!response.ok) {
-    throw new Error(`WorkOS Magic Auth create failed with ${response.status}`);
+    throw await workOSUpstreamError("WorkOS Magic Auth create failed", response);
   }
 }
 
@@ -314,11 +325,46 @@ export async function exchangeWorkOSMagicAuthCode(email: string, code: string): 
   });
 
   if (!response.ok) {
-    throw new Error(`WorkOS Magic Auth authenticate failed with ${response.status}`);
+    throw await workOSUpstreamError("WorkOS Magic Auth authenticate failed", response);
   }
 
   const data = (await response.json()) as Record<string, unknown>;
   return parseWorkOSAuthenticateResult(data);
+}
+
+async function workOSUpstreamError(message: string, response: Response): Promise<WorkOSUpstreamError> {
+  const body = await response.text().catch(() => "");
+  return new WorkOSUpstreamError(`${message} with ${response.status}: ${sanitizeWorkOSBody(body)}`, response.status, body);
+}
+
+function sanitizeWorkOSBody(body: string): string {
+  if (!body) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    return JSON.stringify(redactWorkOSSecrets(parsed)).slice(0, 600);
+  } catch {
+    return body.slice(0, 600);
+  }
+}
+
+function redactWorkOSSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactWorkOSSecrets);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const redacted: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (/token|secret|code|key/i.test(key)) {
+      redacted[key] = "[redacted]";
+    } else {
+      redacted[key] = redactWorkOSSecrets(entry);
+    }
+  }
+  return redacted;
 }
 
 export async function resolveDashboardMembership(
