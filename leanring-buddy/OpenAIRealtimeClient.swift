@@ -800,6 +800,23 @@ final class OpenAIRealtimeClient: ObservableObject {
                 #if DEBUG
                 print("⚠️ OpenAI Realtime error: \(errorMessage)")
                 #endif
+                // MARK: - Skilly — v2.1 telemetry for OpenAI session rejections.
+                // This case used to only print in DEBUG, so session-level
+                // rejections were invisible in PostHog — the blind spot that hid
+                // the shared-key credit outage (2026-07-23) AND the earlier
+                // beta_api_shape_disabled outage that left 17 users with zero
+                // messages for 14 days. `code` carries the actionable reason,
+                // e.g. "insufficient_quota" when the hosted OpenAI credit runs
+                // out. Client-side, so it survives the backend migration.
+                let errorCode = (errorObj["code"] as? String)
+                    ?? (errorObj["type"] as? String)
+                    ?? "openai_realtime_error"
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "openai_realtime_session",
+                    errorCode: errorCode,
+                    errorMessage: errorMessage,
+                    surface: "user_ptt"
+                )
                 eventPublisher.send(.error(errorMessage))
             }
 
