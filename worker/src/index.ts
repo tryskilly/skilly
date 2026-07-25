@@ -646,15 +646,14 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
  * The raw OpenAI API key never leaves the Worker.
  */
 async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedSession): Promise<Response> {
-  const openAIAPIKey = env.OPENAI_API_KEY_MAC || env.OPENAI_API_KEY;
-  if (!openAIAPIKey) {
+  if (!env.OPENAI_API_KEY_MAC && !env.OPENAI_API_KEY) {
     return new Response(
       JSON.stringify({ error: "OpenAI API key not configured" }),
       { status: 500, headers: { "content-type": "application/json" } }
     );
   }
 
-  const token = await mintOpenAIRealtimeToken(openAIAPIKey);
+  const token = await mintOpenAIRealtimeTokenWithFallback(env);
   if ("error" in token) {
     return new Response(
       JSON.stringify(token),
@@ -672,6 +671,21 @@ async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedS
       },
     }
   );
+}
+
+async function mintOpenAIRealtimeTokenWithFallback(env: Env): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
+  if (env.OPENAI_API_KEY_MAC) {
+    const macToken = await mintOpenAIRealtimeToken(env.OPENAI_API_KEY_MAC);
+    if (!("error" in macToken)) {
+      return macToken;
+    }
+    if (env.OPENAI_API_KEY) {
+      console.error("[/openai/token] OPENAI_API_KEY_MAC mint failed; falling back to OPENAI_API_KEY");
+    } else {
+      return macToken;
+    }
+  }
+  return mintOpenAIRealtimeToken(env.OPENAI_API_KEY);
 }
 
 async function mintOpenAIRealtimeToken(apiKey: string): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
