@@ -112,7 +112,14 @@ final class UsageTracker: ObservableObject {
 
     }
 
-    func reportStudioMacUsage(seconds: TimeInterval, result: String) {
+    func reportStudioMacUsage(
+        seconds: TimeInterval,
+        result: String,
+        source: String,
+        model: String?,
+        usage: RealtimeUsage?,
+        estimatedCostUsd: Double?
+    ) {
         guard AuthManager.shared.isAuthenticated,
               let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/usage") else {
             return
@@ -123,10 +130,37 @@ final class UsageTracker: ObservableObject {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else { return }
-            let body: [String: Any] = [
+            var body: [String: Any] = [
                 "seconds": max(0, Int(seconds.rounded())),
                 "result": result,
+                "source": source,
             ]
+            if let model {
+                body["model"] = model
+            }
+            if let usage {
+                if let audioInputTokens = usage.audio_input_tokens {
+                    body["audioInputTokens"] = audioInputTokens
+                }
+                if let audioOutputTokens = usage.audio_output_tokens {
+                    body["audioOutputTokens"] = audioOutputTokens
+                }
+                if let textInputTokens = usage.text_input_tokens {
+                    body["textInputTokens"] = textInputTokens
+                }
+                if let textOutputTokens = usage.text_output_tokens {
+                    body["textOutputTokens"] = textOutputTokens
+                }
+                if let cachedInputTokens = usage.cached_input_tokens {
+                    body["cachedInputTokens"] = cachedInputTokens
+                }
+                if let totalTokens = usage.total_tokens {
+                    body["totalTokens"] = totalTokens
+                }
+            }
+            if let estimatedCostUsd {
+                body["estimatedCostUsd"] = String(format: "%.8f", estimatedCostUsd)
+            }
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
             _ = try? await URLSession.shared.data(for: request)
         }

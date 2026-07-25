@@ -64,6 +64,13 @@
       "when": 1784997120000,
       "tag": "0008_mac_backend_parity",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785012600000,
+      "tag": "0009_mac_byok_telemetry",
+      "breakpoints": true
     }
   ]
 }

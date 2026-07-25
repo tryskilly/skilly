@@ -24,7 +24,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   await captureServerEvent("mac_entitlement_checked", {
     workos_user_id: session.userId,
     status: record?.status ?? "none",
+    entitlement_type: record?.entitlement_type ?? undefined,
     source_surface: "studio_backend",
   });
-  return NextResponse.json(record ?? { user_id: session.userId, status: "none", period_start: null, period_end: null, plan: null });
+  return NextResponse.json(
+    record ?? {
+      user_id: session.userId,
+      status: "none",
+      entitlement_type: null,
+      period_start: null,
+      period_end: null,
+      plan: null,
+      polar_customer_id: null,
+    },
+  );
 }
