@@ -3,14 +3,14 @@
 // voice path once the app starts reporting to Studio.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { authenticateMacRequest, recordMacUsage } from "@/lib/macSession";
+import { authenticateMacRequestWithWorkerFallback, recordMacUsage } from "@/lib/macSession";
 import { captureServerEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const session = authenticateMacRequest(request);
+  const session = await authenticateMacRequestWithWorkerFallback(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

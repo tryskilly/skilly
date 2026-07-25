@@ -20,17 +20,19 @@ export interface MacEntitlementRecord {
 const MAC_SESSION_ISSUER = "skilly-proxy";
 const MAC_SESSION_AUDIENCE = "skilly-desktop";
 const MAC_USAGE_MAX_SECONDS = 3600;
+const DEFAULT_WORKER_BASE_URL = "https://skilly-proxy.eng-mohamedszaied.workers.dev";
 
-function sessionSecret(): string {
+function sessionSecret(): string | null {
   const secret = process.env.SESSION_TOKEN_SECRET;
   if (!secret) {
-    throw new Error("SESSION_TOKEN_SECRET is required for Mac session verification");
+    return null;
   }
   return secret;
 }
 
-function signPayload(payload: string): string {
-  return createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
+function signPayload(payload: string): string | null {
+  const secret = sessionSecret();
+  return secret ? createHmac("sha256", secret).update(payload).digest("base64url") : null;
 }
 
 function signaturesMatch(left: string, right: string): boolean {
@@ -52,10 +54,15 @@ export function verifyMacSessionToken(token: string): MacSession | null {
   if (!encodedHeader || !encodedPayload || !signature) {
     return null;
   }
-  if (!signaturesMatch(signature, signPayload(`${encodedHeader}.${encodedPayload}`))) {
+  const expectedSignature = signPayload(`${encodedHeader}.${encodedPayload}`);
+  if (!expectedSignature || !signaturesMatch(signature, expectedSignature)) {
     return null;
   }
   const payload = decodeBase64UrlJson(encodedPayload);
+  return sessionFromPayload(payload);
+}
+
+function sessionFromPayload(payload: Record<string, unknown> | null): MacSession | null {
   const userId = payload?.sub;
   const email = payload?.email;
   const issuedAt = payload?.iat;
@@ -81,6 +88,36 @@ export function authenticateMacRequest(request: Request): MacSession | null {
   }
   const token = authorization.slice("Bearer ".length).trim();
   return token ? verifyMacSessionToken(token) : null;
+}
+
+export async function authenticateMacRequestWithWorkerFallback(request: Request): Promise<MacSession | null> {
+  const verifiedSession = authenticateMacRequest(request);
+  if (verifiedSession) {
+    return verifiedSession;
+  }
+
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.startsWith("Bearer ")) {
+    return null;
+  }
+  const token = authorization.slice("Bearer ".length).trim();
+  const [, encodedPayload] = token.split(".");
+  const session = sessionFromPayload(encodedPayload ? decodeBase64UrlJson(encodedPayload) : null);
+  if (!session) {
+    return null;
+  }
+
+  const workerBaseURL = process.env.SKILLY_WORKER_BASE_URL ?? DEFAULT_WORKER_BASE_URL;
+  const url = new URL("/entitlement", workerBaseURL);
+  url.searchParams.set("user_id", session.userId);
+  const response = await fetch(url, {
+    headers: { authorization },
+  }).catch(() => null);
+
+  if (!response || response.status !== 200) {
+    return null;
+  }
+  return session;
 }
 
 export function selectMacOpenAIAPIKey(): string {

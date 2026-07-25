@@ -4,14 +4,14 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { mintRealtimeToken, TokenMintError } from "@/domain/openaiToken";
-import { authenticateMacRequest, selectMacOpenAIAPIKey } from "@/lib/macSession";
+import { authenticateMacRequestWithWorkerFallback, selectMacOpenAIAPIKey } from "@/lib/macSession";
 import { captureServerEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const session = authenticateMacRequest(request);
+  const session = await authenticateMacRequestWithWorkerFallback(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
