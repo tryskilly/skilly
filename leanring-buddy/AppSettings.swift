@@ -53,6 +53,12 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(openAIAPIKey, forKey: "openAIAPIKey") }
     }
 
+    /// Off-by-default migration switch. When enabled, BYOK users must also
+    /// have an active Skilly BYOK platform plan before starting turns.
+    @Published var requireBYOKSubscription: Bool {
+        didSet { UserDefaults.standard.set(requireBYOKSubscription, forKey: "requireBYOKSubscription") }
+    }
+
     /// True when the user has provided their own OpenAI key.
     /// Drives BYOK code paths: bypassing the relay, skipping trial gating,
     /// and surfacing a "BYOK active" indicator in the UI.
@@ -179,6 +185,7 @@ final class AppSettings: ObservableObject {
 
         // BYOK — load user-supplied OpenAI key if previously saved.
         self.openAIAPIKey = UserDefaults.standard.string(forKey: "openAIAPIKey") ?? ""
+        self.requireBYOKSubscription = UserDefaults.standard.bool(forKey: "requireBYOKSubscription")
 
         // PostHog key — migrate any stale cached keys to the current default.
         let currentPostHogKey = "phc_D46KQXyPXhmRabFDiL3KUZTWJcmjyqhpGJfpH7H48Sso"

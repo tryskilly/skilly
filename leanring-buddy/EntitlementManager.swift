@@ -242,6 +242,20 @@ final class EntitlementManager: ObservableObject {
 
     /// Returns (allowed, reason). Call before starting any billable turn.
     func canStartTurn() -> (allowed: Bool, reason: BlockReason?) {
+        // MARK: - Skilly — BYOK platform fee gate, disabled by default during rollout.
+        if AppSettings.shared.hasOwnAPIKey && AppSettings.shared.requireBYOKSubscription {
+            switch status {
+            case .active:
+                return (true, nil)
+            case .canceled(let accessUntil) where accessUntil > Date():
+                return (true, nil)
+            case .expired:
+                return (false, .expired)
+            default:
+                return (false, .subscriptionInactive)
+            }
+        }
+
         // MARK: - Skilly — Prefer shared Rust policy when available.
         if let rustDecision = RustPolicyBridge.shared.canStartTurn(
             userID: AuthManager.shared.currentUser?.id,
@@ -289,6 +303,83 @@ final class EntitlementManager: ObservableObject {
 
         case .expired:
             return (false, .expired)
+        }
+    }
+
+    /// Opens the Mac BYOK platform-fee checkout in the default browser.
+    func startBYOKCheckout() async -> Bool {
+        guard AuthManager.shared.isAuthenticated else {
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "mac_byok_checkout_start",
+                errorCode: "missing_auth_state",
+                errorMessage: "isAuthenticated=\(AuthManager.shared.isAuthenticated)",
+                surface: "byok_settings"
+            )
+            return false
+        }
+
+        do {
+            guard let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/byok/checkout") else {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout_start",
+                    errorCode: "invalid_studio_url",
+                    errorMessage: AppSettings.shared.studioBackendBaseURL,
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout_start",
+                    errorCode: "no_session_token",
+                    errorMessage: "applyWorkerSessionAuthorization returned false",
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            let (data, urlResponse) = try await URLSession.shared.data(for: request)
+            let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? -1
+            guard (200...299).contains(statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "unknown"
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout",
+                    httpStatus: statusCode,
+                    errorCode: statusCode == 401 ? "studio_session_stale" : "non_2xx_from_studio",
+                    errorMessage: body,
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            struct CheckoutResponse: Codable { let url: String? }
+            let decoded = try JSONDecoder().decode(CheckoutResponse.self, from: data)
+            guard let checkoutURLString = decoded.url,
+                  let checkoutURL = URL(string: checkoutURLString) else {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout",
+                    errorCode: "malformed_checkout_url",
+                    errorMessage: decoded.url ?? "nil",
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            NSWorkspace.shared.open(checkoutURL)
+            startPostCheckoutPolling()
+            return true
+        } catch {
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "mac_byok_checkout",
+                errorCode: "exception",
+                errorMessage: String(describing: error),
+                surface: "byok_settings"
+            )
+            return false
         }
     }
 
