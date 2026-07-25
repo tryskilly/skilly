@@ -57,6 +57,13 @@
       "when": 1784994000000,
       "tag": "0007_guest_session_cap",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784997120000,
+      "tag": "0008_mac_backend_parity",
+      "breakpoints": true
     }
   ]
 }

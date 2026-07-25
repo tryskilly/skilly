@@ -99,6 +99,29 @@ export const usageEvents = pgTable(
   (table) => [index("usage_events_tenant_time_idx").on(table.tenantId, table.createdAt)],
 );
 
+export const macEntitlements = pgTable("mac_entitlements", {
+  userId: text("user_id").primaryKey(),
+  email: text("email"),
+  status: text("status").notNull().default("none"),
+  periodStart: text("period_start"),
+  periodEnd: text("period_end"),
+  plan: text("plan"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const macUsageEvents = pgTable(
+  "mac_usage_events",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+    userId: text("user_id").notNull(),
+    email: text("email").notNull(),
+    seconds: integer("seconds").notNull().default(0),
+    result: text("result"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("mac_usage_events_user_time_idx").on(table.userId, table.createdAt)],
+);
+
 /** Per-tenant widget appearance/behavior config (accent, locale, launcher label). */
 export const tenantWidgetConfigs = pgTable(
   "tenant_widget_configs",
