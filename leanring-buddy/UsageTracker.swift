@@ -110,12 +110,10 @@ final class UsageTracker: ObservableObject {
             SkillyAnalytics.trackUsageCapHit(userId: userId)
         }
 
-        reportStudioMacUsageIfEnabled(seconds: seconds)
     }
 
-    private func reportStudioMacUsageIfEnabled(seconds: TimeInterval) {
-        guard AppSettings.shared.useStudioMacBackend,
-              AuthManager.shared.isAuthenticated,
+    func reportStudioMacUsage(seconds: TimeInterval, result: String) {
+        guard AuthManager.shared.isAuthenticated,
               let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/usage") else {
             return
         }
@@ -127,7 +125,7 @@ final class UsageTracker: ObservableObject {
             guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else { return }
             let body: [String: Any] = [
                 "seconds": max(0, Int(seconds.rounded())),
-                "result": "completed",
+                "result": result,
             ]
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
             _ = try? await URLSession.shared.data(for: request)

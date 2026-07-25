@@ -345,6 +345,12 @@ final class CompanionManager: ObservableObject {
 
     private func recordSessionSecondsIfNeeded(_ seconds: TimeInterval) {
         guard seconds > 0 else { return }
+        let usageResult = AppSettings.shared.hasOwnAPIKey ? "byok_completed" : "relay_completed"
+        UsageTracker.shared.reportStudioMacUsage(seconds: seconds, result: usageResult)
+        if AppSettings.shared.hasOwnAPIKey {
+            return
+        }
+
         // MARK: - Skilly — Fall back to trial when no entitlement is set
         // (new user, offline, or Worker hasn't synced). This ensures
         // usage starts tracking immediately on first use.
