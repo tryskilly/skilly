@@ -1201,13 +1201,19 @@ final class CompanionManager: ObservableObject {
                 clearRealtimeResponseBubble()
                 resetRustRealtimeTracking()
 
-                // MARK: - Skilly — Auth recovery: if the Worker rejected
-                // /openai/token because our Keychain session token is stale,
-                // sign the user out and surface the panel so they re-auth
-                // instead of silently failing on every push-to-talk press.
+                // MARK: - Skilly — Auth recovery: if token minting reports an
+                // expired session, refresh once before clearing Keychain. This
+                // keeps Studio/Worker migration fallback failures from forcing
+                // a destructive sign-out when the refresh token can recover.
                 if case OpenAIRealtimeClient.OpenAIRealtimeError.authExpired = error {
-                    AuthManager.shared.signOut()
-                    NotificationCenter.default.post(name: .skillyAuthExpired, object: nil)
+                    Task { @MainActor in
+                        do {
+                            try await AuthManager.shared.refreshAccessToken()
+                        } catch {
+                            AuthManager.shared.signOut()
+                            NotificationCenter.default.post(name: .skillyAuthExpired, object: nil)
+                        }
+                    }
                 }
             }
         }
