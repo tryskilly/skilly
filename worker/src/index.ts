@@ -27,6 +27,7 @@ interface Env {
   SESSION_TOKEN_SECRET: string;
   OPENAI_API_KEY: string;
   OPENAI_API_KEY_MAC?: string;
+  OPENAI_REALTIME_MODEL?: string; // override to A/B a cheaper model, e.g. "gpt-realtime-mini"
   POLAR_API_KEY: string;
   POLAR_WEBHOOK_SECRET: string;
   POLAR_BETA_PRODUCT_ID: string;
@@ -674,8 +675,9 @@ async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedS
 }
 
 async function mintOpenAIRealtimeTokenWithFallback(env: Env): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
+  const model = env.OPENAI_REALTIME_MODEL || OPENAI_REALTIME_MODEL;
   if (env.OPENAI_API_KEY_MAC) {
-    const macToken = await mintOpenAIRealtimeToken(env.OPENAI_API_KEY_MAC);
+    const macToken = await mintOpenAIRealtimeToken(env.OPENAI_API_KEY_MAC, model);
     if (!("error" in macToken)) {
       return macToken;
     }
@@ -685,10 +687,10 @@ async function mintOpenAIRealtimeTokenWithFallback(env: Env): Promise<OpenAIReal
       return macToken;
     }
   }
-  return mintOpenAIRealtimeToken(env.OPENAI_API_KEY);
+  return mintOpenAIRealtimeToken(env.OPENAI_API_KEY, model);
 }
 
-async function mintOpenAIRealtimeToken(apiKey: string): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
+async function mintOpenAIRealtimeToken(apiKey: string, model: string): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
   let mint: Response;
   try {
     // Mint a short-lived ephemeral client secret so the raw OPENAI_API_KEY never
@@ -700,7 +702,7 @@ async function mintOpenAIRealtimeToken(apiKey: string): Promise<OpenAIRealtimeTo
         Authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ session: { type: "realtime", model: OPENAI_REALTIME_MODEL } }),
+      body: JSON.stringify({ session: { type: "realtime", model } }),
     });
   } catch (error) {
     return { error: "OpenAI client_secrets request failed", detail: String(error) };
@@ -733,7 +735,7 @@ async function mintOpenAIRealtimeToken(apiKey: string): Promise<OpenAIRealtimeTo
   return {
     clientSecret,
     expiresAt: payload.expires_at ?? payload.client_secret?.expires_at ?? Math.floor(Date.now() / 1000) + 3600,
-    model: OPENAI_REALTIME_MODEL,
+    model,
   };
 }
 

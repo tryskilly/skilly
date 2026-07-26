@@ -21,7 +21,8 @@ export interface MintOptions {
 }
 
 const CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
-const DEFAULT_MODEL = "gpt-realtime";
+// Override to A/B a cheaper model (e.g. "gpt-realtime-mini") via env, no redeploy of code needed.
+const DEFAULT_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
 
 export class TokenMintError extends Error {
   constructor(
