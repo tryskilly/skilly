@@ -142,7 +142,16 @@ final class OpenAIRealtimeClient: ObservableObject {
             return studioToken
         }
 
-        let url = URL(string: "\(AppSettings.shared.workerBaseURL)/openai/token")!
+        var tokenURLString = "\(AppSettings.shared.workerBaseURL)/openai/token"
+        #if DEBUG
+        // Skilly Dev: canary a specific model (e.g. gpt-realtime-2.1-mini). The worker
+        // only honors allow-listed ids; empty override = server default.
+        let debugModel = AppSettings.shared.debugRealtimeModel
+        if !debugModel.isEmpty {
+            tokenURLString += "?model=\(debugModel)"
+        }
+        #endif
+        let url = URL(string: tokenURLString)!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {

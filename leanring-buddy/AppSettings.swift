@@ -38,6 +38,15 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(useStudioMacBackend, forKey: "useStudioMacBackend") }
     }
 
+    #if DEBUG
+    /// Skilly Dev only: override the Realtime model requested from the worker.
+    /// Empty = server default. Sent as `?model=` to /openai/token; the worker only
+    /// honors allow-listed ids. Lets the Dev build canary-test gpt-realtime-2.1-mini.
+    @Published var debugRealtimeModel: String {
+        didSet { UserDefaults.standard.set(debugRealtimeModel, forKey: "debugRealtimeModel") }
+    }
+    #endif
+
     /// PostHog analytics API key. Set to empty string to disable analytics entirely.
     @Published var postHogAPIKey: String {
         didSet { UserDefaults.standard.set(postHogAPIKey, forKey: "postHogAPIKey") }
@@ -182,6 +191,9 @@ final class AppSettings: ObservableObject {
         self.studioBackendBaseURL = UserDefaults.standard.string(forKey: "studioBackendBaseURL")
             ?? "https://studio.tryskilly.app"
         self.useStudioMacBackend = UserDefaults.standard.bool(forKey: "useStudioMacBackend")
+        #if DEBUG
+        self.debugRealtimeModel = UserDefaults.standard.string(forKey: "debugRealtimeModel") ?? ""
+        #endif
 
         // BYOK — load user-supplied OpenAI key if previously saved.
         self.openAIAPIKey = UserDefaults.standard.string(forKey: "openAIAPIKey") ?? ""
