@@ -21,11 +21,17 @@ WorkOS REST integration.
 ## Global Constraints
 
 - No new database tables or columns. `mac_entitlements` and `mac_usage_events` are reused as-is.
-- Zero changes to `apps/web-backend/src/lib/macSession.ts` — this plan's isolation requirement
-  (decision 2 in the design) means the in-flight, risk-sensitive Mac cutover code is not touched,
-  even to extract shared helpers. A small amount of low-level HMAC-signing boilerplate is
-  deliberately duplicated into a new file rather than shared, and that tradeoff is intentional —
-  do not "clean this up" by refactoring `macSession.ts` as part of this plan.
+- `apps/web-backend/src/lib/macSession.ts` is touched by exactly one task in this plan (Task 1):
+  extracting its low-level HMAC sign/verify primitives into a shared module,
+  `src/lib/signedToken.ts`, that both `macSession.ts` and the new `extensionSession.ts` (Task 2)
+  import. This was a deliberate revision of an earlier draft of this plan, which instead
+  duplicated the ~25 lines of primitives to avoid touching `macSession.ts` at all — reviewed and
+  rejected in favor of sharing, on the human partner's explicit call, precisely because the
+  duplication is exactly the kind of thing a code reviewer flags as a defect. Task 1's refactor of
+  `macSession.ts` is mechanical (swap three private helper implementations for imports) and is
+  verified against `macSession.ts`'s existing test suite (`tests/macSession.test.ts`, 3 tests)
+  passing unchanged — that is the regression guard, not a broader review of Mac cutover logic.
+  No other task in this plan touches `macSession.ts` beyond Task 1's import-swap.
 - `SESSION_TOKEN_SECRET` (already used by `macSession.ts` to sign/verify) is reused for signing
   extension tokens too — it is a general-purpose HMAC secret, not Mac-specific; no new secret to
   provision.
@@ -36,13 +42,200 @@ WorkOS REST integration.
 
 ---
 
-### Task 1: Extension session — mint and verify
+### Task 1: Extract shared signed-token primitives (`signedToken.ts`)
+
+**Why this task exists and comes first:** the original draft of this plan had
+`extensionSession.ts` (originally Task 1, now Task 2) duplicate `macSession.ts`'s low-level HMAC
+sign/verify plumbing rather than touch that file. On review, duplicating ~25 lines of crypto
+boilerplate was judged a worse tradeoff than a small, mechanical, test-guarded refactor — so this
+task extracts those primitives into a new shared module first, and Task 2 builds on it instead of
+reimplementing it.
+
+**Files:**
+- Create: `apps/web-backend/src/lib/signedToken.ts`
+- Test: `apps/web-backend/tests/signedToken.test.ts`
+- Modify: `apps/web-backend/src/lib/macSession.ts:1,27-52` (replace the private
+  `signPayload`/`signaturesMatch`/`decodeBase64UrlJson` implementations with calls to the shared
+  module — no change to any exported function's signature or behavior)
+
+**Interfaces:**
+- Produces:
+  `export function signToken(payload: string, secret: string): string`
+  `export function signaturesMatch(left: string, right: string): boolean`
+  `export function base64UrlEncodeJson(value: unknown): string`
+  `export function decodeBase64UrlJson(value: string): Record<string, unknown> | null`
+
+- [ ] **Step 1: Confirm the regression baseline is green before touching anything**
+
+Run: `cd apps/web-backend && bun test tests/macSession.test.ts`
+Expected: PASS, all 3 tests (`accepts the Worker-issued desktop session token shape`,
+`rejects tampered, expired, or wrong-audience tokens`, `can validate existing Mac sessions
+through the Worker when Studio lacks the shared secret`). If this is not green before Step 3's
+refactor, stop and report — do not attempt the refactor against a pre-existing failure.
+
+- [ ] **Step 2: Write the failing tests for the new shared module**
+
+Create `apps/web-backend/tests/signedToken.test.ts`:
+
+```typescript
+import { describe, expect, test } from "bun:test";
+import { signToken, signaturesMatch, base64UrlEncodeJson, decodeBase64UrlJson } from "@/lib/signedToken";
+
+describe("signToken", () => {
+  test("produces a deterministic signature for the same payload and secret", () => {
+    expect(signToken("hello", "secret")).toBe(signToken("hello", "secret"));
+  });
+
+  test("produces a different signature for a different secret", () => {
+    expect(signToken("hello", "secret-a")).not.toBe(signToken("hello", "secret-b"));
+  });
+});
+
+describe("signaturesMatch", () => {
+  test("true for identical strings", () => {
+    expect(signaturesMatch("abc", "abc")).toBe(true);
+  });
+
+  test("false for different strings, including different lengths", () => {
+    expect(signaturesMatch("abc", "abd")).toBe(false);
+    expect(signaturesMatch("abc", "abcd")).toBe(false);
+  });
+});
+
+describe("base64UrlEncodeJson / decodeBase64UrlJson", () => {
+  test("round-trips a JSON-serializable value", () => {
+    const encoded = base64UrlEncodeJson({ a: 1, b: "two" });
+    expect(decodeBase64UrlJson(encoded)).toEqual({ a: 1, b: "two" });
+  });
+
+  test("returns null for malformed input rather than throwing", () => {
+    expect(decodeBase64UrlJson("not-valid-base64url-json")).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 3: Run the new tests to verify they fail**
+
+Run: `cd apps/web-backend && bun test tests/signedToken.test.ts`
+Expected: FAIL — `Cannot find module '@/lib/signedToken'`.
+
+- [ ] **Step 4: Implement `signedToken.ts`**
+
+```typescript
+// Low-level HMAC sign/verify primitives shared by every signed-session token in this codebase
+// (macSession.ts for Mac, extensionSession.ts for the browser extension). No issuer/audience/
+// expiry semantics here — those stay in each caller, since Mac and the extension use different
+// values on purpose (a Mac-issued token must never verify as an extension session, or vice
+// versa) and that discrimination is exactly what would be lost by centralizing it here too.
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function signToken(payload: string, secret: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+export function signaturesMatch(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+export function base64UrlEncodeJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+export function decodeBase64UrlJson(value: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+```
+
+- [ ] **Step 5: Run the new tests to verify they pass**
+
+Run: `cd apps/web-backend && bun test tests/signedToken.test.ts`
+Expected: PASS, all 6 tests.
+
+- [ ] **Step 6: Refactor `macSession.ts` to use the shared primitives — mechanical, no behavior change**
+
+Open `apps/web-backend/src/lib/macSession.ts`. Its current private helpers (lines 27–52 as of
+this plan's writing — confirm exact line numbers against the file's current state, since Task
+numbering elsewhere may have shifted them slightly) are:
+
+```typescript
+function signPayload(payload: string): string | null {
+  const secret = sessionSecret();
+  return secret ? createHmac("sha256", secret).update(payload).digest("base64url") : null;
+}
+
+function signaturesMatch(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function decodeBase64UrlJson(value: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+```
+
+Replace the `import { createHmac, timingSafeEqual } from "node:crypto";` at the top of the file
+with:
+
+```typescript
+import { signToken, signaturesMatch, decodeBase64UrlJson } from "./signedToken";
+```
+
+Delete the local `signaturesMatch` and `decodeBase64UrlJson` function bodies entirely (the
+imported versions replace them — every call site in this file already calls them by the same
+names, so no call site changes). Replace `signPayload`'s body to delegate:
+
+```typescript
+function signPayload(payload: string): string | null {
+  const secret = sessionSecret();
+  return secret ? signToken(payload, secret) : null;
+}
+```
+
+`macSession.ts` has no `base64UrlEncodeJson` usage today (only `macSession.ts`'s
+`decodeBase64UrlJson` is used, for verification — it never mints a token itself, so it never
+needs the encode direction) — do not add an unused import.
+
+- [ ] **Step 7: Run `macSession.ts`'s existing test suite to confirm zero behavior change**
+
+Run: `cd apps/web-backend && bun test tests/macSession.test.ts`
+Expected: PASS, the same 3 tests, identical results to Step 1 — this is the proof the refactor
+changed nothing observable.
+
+- [ ] **Step 8: Run the full backend suite and typecheck**
+
+Run: `cd apps/web-backend && bun test && bun run typecheck`
+Expected: same 92 pass / 0 fail as the pre-existing baseline, plus the 6 new `signedToken.test.ts`
+tests (98 total), 0 fail. `tsc --noEmit` clean.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add apps/web-backend/src/lib/signedToken.ts apps/web-backend/src/lib/macSession.ts apps/web-backend/tests/signedToken.test.ts
+git commit -m "Extract shared signed-token primitives; macSession.ts uses them (no behavior change)"
+```
+
+---
+
+### Task 2: Extension session — mint and verify
 
 **Files:**
 - Create: `apps/web-backend/src/lib/extensionSession.ts`
 - Test: `apps/web-backend/tests/extensionSession.test.ts`
 
 **Interfaces:**
+- Consumes: `signToken`, `signaturesMatch`, `base64UrlEncodeJson`, `decodeBase64UrlJson` from
+  `./signedToken` (Task 1).
 - Produces:
   `export interface ExtensionSession { userId: string; email: string; issuedAt: number; expiresAt: number; }`
   `export function mintExtensionSessionToken(user: { id: string; email: string }): { token: string; expiresAt: number }`
@@ -179,12 +372,12 @@ Expected: FAIL — `Cannot find module '@/lib/extensionSession'`.
 ```typescript
 // Extension-compatible session: mint + verify. Unlike macSession.ts (which only VERIFIES
 // tokens the Cloudflare Worker mints), the browser extension has no Worker in its flow at all —
-// Studio itself mints this token, right after a WorkOS code exchange. The low-level HMAC
-// sign/verify plumbing below is deliberately duplicated from macSession.ts rather than shared:
-// macSession.ts is mid-migration and risk-sensitive (see CLAUDE.md's BYOK/Studio migration
-// notes), and this is ~25 lines of generic crypto boilerplate, not business logic worth coupling
-// two independently-evolving auth surfaces over.
-import { createHmac, timingSafeEqual } from "node:crypto";
+// Studio itself mints this token, right after a WorkOS code exchange. Low-level HMAC sign/verify
+// plumbing lives in the shared signedToken.ts (Task 1) — this file owns only the
+// extension-specific issuer/audience/expiry semantics, deliberately kept separate from
+// macSession.ts's own issuer/audience so a Mac-issued token can never verify as an extension
+// session, or vice versa.
+import { signToken, signaturesMatch, base64UrlEncodeJson, decodeBase64UrlJson } from "./signedToken";
 
 export interface ExtensionSession {
   userId: string;
@@ -203,25 +396,7 @@ function sessionSecret(): string | null {
 
 function signPayload(payload: string): string | null {
   const secret = sessionSecret();
-  return secret ? createHmac("sha256", secret).update(payload).digest("base64url") : null;
-}
-
-function signaturesMatch(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function base64UrlEncodeJson(value: unknown): string {
-  return Buffer.from(JSON.stringify(value)).toString("base64url");
-}
-
-function decodeBase64UrlJson(value: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  return secret ? signToken(payload, secret) : null;
 }
 
 export function mintExtensionSessionToken(user: { id: string; email: string }): {
@@ -302,7 +477,7 @@ git commit -m "Add extension session mint/verify (isolated from macSession.ts)"
 
 ---
 
-### Task 2: `POST /api/extension/auth/exchange` — WorkOS code → session token
+### Task 3: `POST /api/extension/auth/exchange` — WorkOS code → session token
 
 **Files:**
 - Create: `apps/web-backend/src/app/api/extension/auth/exchange/route.ts`
@@ -439,7 +614,7 @@ git commit -m "Add POST /api/extension/auth/exchange"
 
 ---
 
-### Task 3: `GET /api/extension/entitlement` and `GET /api/extension/openai/token`
+### Task 4: `GET /api/extension/entitlement` and `GET /api/extension/openai/token`
 
 **Files:**
 - Create: `apps/web-backend/src/app/api/extension/entitlement/route.ts`
@@ -448,7 +623,7 @@ git commit -m "Add POST /api/extension/auth/exchange"
 - Test: `apps/web-backend/tests/extensionOpenaiTokenRoute.test.ts`
 
 **Interfaces:**
-- Consumes: `authenticateExtensionRequest` (Task 1), `getMacEntitlement(userId): Promise<MacEntitlementRecord | null>` (existing, from `@/lib/macSession`, unchanged), `selectExtensionOpenAIAPIKey` (Task 1), `mintRealtimeToken({ apiKey }): Promise<{ clientSecret, expiresAt, model }>` (existing, from `@/domain/openaiToken`, unchanged).
+- Consumes: `authenticateExtensionRequest` (Task 2), `getMacEntitlement(userId): Promise<MacEntitlementRecord | null>` (existing, from `@/lib/macSession`, unchanged), `selectExtensionOpenAIAPIKey` (Task 2), `mintRealtimeToken({ apiKey }): Promise<{ clientSecret, expiresAt, model }>` (existing, from `@/domain/openaiToken`, unchanged).
 - Produces: `GET /api/extension/entitlement` → `200 MacEntitlementRecord`-shaped JSON (reusing
   the exact same shape `/api/mac/entitlement` returns) or `401`. `GET /api/extension/openai/token`
   → `200 { clientSecret, expiresAt, model }` or `401`/`500`/`502`.
@@ -645,14 +820,14 @@ git commit -m "Add GET /api/extension/entitlement and GET /api/extension/openai/
 
 ---
 
-### Task 4: `POST /api/extension/usage`
+### Task 5: `POST /api/extension/usage`
 
 **Files:**
 - Create: `apps/web-backend/src/app/api/extension/usage/route.ts`
 - Test: `apps/web-backend/tests/extensionUsageRoute.test.ts`
 
 **Interfaces:**
-- Consumes: `authenticateExtensionRequest` (Task 1), `recordMacUsage(input): Promise<void>`
+- Consumes: `authenticateExtensionRequest` (Task 2), `recordMacUsage(input): Promise<void>`
   (existing, from `@/lib/macSession`, unchanged — its `source` field is the per-surface tag).
 - Produces: `POST /api/extension/usage` → `200 { ok: true, recordedSeconds: number }` or `401`.
 
@@ -775,7 +950,7 @@ git commit -m "Add POST /api/extension/usage"
 
 ---
 
-### Task 5: End-to-end auth spike (the risk the design flagged explicitly)
+### Task 6: End-to-end auth spike (the risk the design flagged explicitly)
 
 **Files:** None created — this is a manual verification task, not a code task. Its job is to
 prove the four routes above work together against real WorkOS and Postgres, before any extension
@@ -812,7 +987,7 @@ With `apps/web-backend` running locally (`bun run dev`) against real `WORKOS_CLI
    (`SELECT * FROM mac_usage_events WHERE source = 'extension' ORDER BY created_at DESC LIMIT 1;`)
    to confirm the row landed with the right tag.
 
-- [ ] **Step 2 (record the result, no commit needed)**
+- [ ] **Step 3 (record the result, no commit needed)**
 
 This task produces no diff — its deliverable is confidence, not code. If any step fails, fix the
 underlying route/lib code (re-running that task's unit tests after the fix) before proceeding to
