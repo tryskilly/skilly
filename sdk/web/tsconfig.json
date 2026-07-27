@@ -11,7 +11,9 @@
     "declaration": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": { "@skilly/browser-core": ["../browser-core/src/index.ts"] }
   },
   "include": ["src"],
   "exclude": ["dist", "generated", "node_modules"]

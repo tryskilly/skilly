@@ -240,13 +240,13 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 | `sdk/web/src/token.ts` | **8.3** Backend client: fetch ephemeral Realtime token + tenant SKILL.md from `apps/web-backend`. |
 | `sdk/web/demo/index.html` | Demo host page (`bun run demo`). |
 
-> Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (prompt + token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
+> Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
 
 #### Web SDK Session Lifecycle Protection
 
 Two user-reported bugs drove hardening in `realtime.ts` and `index.ts`. Understand these patterns before touching session teardown or the toggle flow.
 
-**Bug 1 — Audio keeps playing after widget is toggled off** (`sdk/web/src/realtime.ts`)
+**Bug 1 — Audio keeps playing after widget is toggled off** (`sdk/browser-core/src/realtime.ts`)
 
 Root cause: `HTMLAudioElement.srcObject = null` does not flush already-decoded PCM frames from the browser's playback buffer. Chrome and Safari continue playing the buffered tail after the stream is removed.
 
@@ -457,7 +457,7 @@ Skilly-only files (not in upstream, safe to ignore during merges): everything in
 
 A log of user-reported issues and the protection patterns added to prevent regressions. When touching the listed files, re-read the corresponding protection rules.
 
-### Web SDK — Session Lifecycle (`sdk/web/src/realtime.ts`, `sdk/web/src/index.ts`)
+### Web SDK — Session Lifecycle (`sdk/browser-core/src/realtime.ts`, `sdk/web/src/index.ts`)
 
 | # | Symptom | Root cause | Protection added |
 |---|---------|-----------|-----------------|
