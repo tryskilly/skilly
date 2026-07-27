@@ -230,18 +230,14 @@ Browser sibling of `core/mobile-sdk`: the shared core (`policy`, `realtime`, `sk
 
 ### `@skilly/web` embed widget (`sdk/web`) — Web SDK Phase 8.1
 
-The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework — embeds must be tiny + style-isolated) that site owners drop into their web app via one `<script>`. Builds to a ~7KB IIFE (`window.Skilly`) + an ESM build via `tsup`.
+The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework — embeds must be tiny + style-isolated) that site owners drop into their web app via one `<script>`. Builds to a ~7KB IIFE (`window.Skilly`) + an ESM build via `tsup`. Browser-generic logic (digest, pointing, actions, prompt composition, realtime, wasm core loader) lives in the sibling `sdk/browser-core` package, shared with the Skilly browser extension — see `sdk/browser-core/README.md`.
 
 | File | Purpose |
 |------|---------|
+| `sdk/browser-core/` | Browser-generic library (vanilla-TS, no framework) with digest (DOM analysis), pointing (element targeting), actions (UI interaction), prompt composition, realtime session lifecycle, and wasm loader. Shared with the Skilly browser extension. Consumed by `@skilly/web`, exports typed interfaces for digest queries, pointing resolution, action definitions, and realtime event types. See `sdk/browser-core/README.md`. |
 | `sdk/web/src/index.ts` | Public `Skilly` API (`init`/`start`/`on`/`identify`/`destroy`) + auto-init from `data-skilly-*` script attrs + typed event emitter. |
 | `sdk/web/src/widget.ts` | Shadow-DOM UI: launcher button, response bubble, blue cursor + `setCursorPosition` (driven per-frame by the pointing engine). |
-| `sdk/web/src/core.ts` | Lazy, tolerant loader for the `core/web-sdk` WASM (widget runs UI-only if absent). |
-| `sdk/web/src/digest.ts` | **8.2** DOM digest: structured, screenshot-free page view (interactive/annotated elements → stable ids, labels, rects) + element registry. `getPageDigest()`. |
-| `sdk/web/src/pointing.ts` | **8.2** Pointing engine: parse `[POINT:id:label]`, resolve (digest id / `data-skilly` / CSS / visible text), bezier-arc cursor flight, scroll/resize re-anchor. |
 | `sdk/web/src/token.ts` | **8.3** Backend client: fetch ephemeral Realtime token + tenant SKILL.md from `apps/web-backend`. |
-| `sdk/web/src/prompt.ts` | **8.3** Compose companion instructions: persona + SKILL.md + DOM-digest summary + `[POINT]` protocol. |
-| `sdk/web/src/realtime.ts` | **8.3** OpenAI Realtime over browser **WebRTC**: mic up / model voice down, events over a data channel, `[POINT]` tags → pointing engine. |
 | `sdk/web/demo/index.html` | Demo host page (`bun run demo`). |
 
 > Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (prompt + token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
