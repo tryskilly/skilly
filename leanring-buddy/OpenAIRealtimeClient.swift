@@ -118,7 +118,7 @@ final class OpenAIRealtimeClient: ObservableObject {
 
     private var cachedToken: OpenAITokenResponse?
 
-    private func fetchToken() async throws -> OpenAITokenResponse {
+    private func fetchToken(attemptedRefresh: Bool = false) async throws -> OpenAITokenResponse {
         if let cached = cachedToken {
             let nowInSeconds = Int(Date().timeIntervalSince1970)
             if cached.expiresAt > (nowInSeconds + 10) {
@@ -165,6 +165,19 @@ final class OpenAIRealtimeClient: ObservableObject {
                 errorMessage: "Worker returned 401 — Keychain session token likely stale",
                 surface: "user_ptt"
             )
+            // MARK: - Skilly — Seamless auth recovery: on a stale session token,
+            // refresh once and retry inline so the CURRENT push-to-talk succeeds
+            // instead of failing first (v2.1 only refreshed after the failed press).
+            // If the refresh token can't recover, surface authExpired so
+            // CompanionManager signs out and prompts re-login.
+            if !attemptedRefresh {
+                do {
+                    try await AuthManager.shared.refreshAccessToken()
+                } catch {
+                    throw OpenAIRealtimeError.authExpired
+                }
+                return try await fetchToken(attemptedRefresh: true)
+            }
             throw OpenAIRealtimeError.authExpired
         }
 
