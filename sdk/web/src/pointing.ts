@@ -8,7 +8,6 @@
 
 import type { ElementRegistry } from "./digest.js";
 import type { DomDigest } from "./digest.js";
-import type { SkillyWidget } from "./widget.js";
 
 export interface PointTag {
   target: string;
@@ -20,6 +19,14 @@ export interface ResolvedPoint {
   y: number;
   label: string;
   element: HTMLElement;
+}
+
+/** The three cursor-rendering methods PointingEngine needs from its host — deliberately not
+ *  the concrete SkillyWidget class, so a minimal per-frame overlay can satisfy this too. */
+export interface CursorHost {
+  showCursor(): void;
+  hideCursor(): void;
+  setCursorPosition(viewportX: number, viewportY: number): void;
 }
 
 // Matches [POINT:<target>:<label>]. Targets (digest ids / data-skilly keys)
@@ -123,7 +130,7 @@ export class PointingEngine {
   private reanchorListener: (() => void) | null = null;
   private animationFrame = 0;
 
-  constructor(private widget: SkillyWidget) {
+  constructor(private widget: CursorHost) {
     // Start near the launcher (bottom-right), like the desktop cursor's home.
     this.currentX = window.innerWidth - 44;
     this.currentY = window.innerHeight - 44;

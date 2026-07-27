@@ -41,3 +41,26 @@ describe("inferPointFromText", () => {
     expect(inferPointFromText("Skilly is a voice-first tutor.", digest)).toBeNull();
   });
 });
+
+import { PointingEngine } from "../src/pointing";
+
+describe("PointingEngine construction", () => {
+  test("accepts a plain object satisfying the CursorHost shape, not a real SkillyWidget", () => {
+    // Mock window if not available (test environment)
+    if (typeof window === "undefined") {
+      (global as any).window = { innerWidth: 1024, innerHeight: 768 };
+    }
+
+    let hideCalled = false;
+    const fakeCursorHost = {
+      showCursor: () => {},
+      hideCursor: () => {
+        hideCalled = true;
+      },
+      setCursorPosition: (_x: number, _y: number) => {},
+    };
+    const engine = new PointingEngine(fakeCursorHost);
+    engine.clear();
+    expect(hideCalled).toBe(true);
+  });
+});

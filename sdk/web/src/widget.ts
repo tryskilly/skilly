@@ -7,6 +7,7 @@
 
 import { WIDGET_STYLES } from "./styles.js";
 import type { SkillyState } from "./types.js";
+import type { CursorHost } from "./pointing.js";
 
 // Inline SVGs so the widget has zero asset dependencies.
 const SKILLY_MARK_ICON = /* html */ `
@@ -19,7 +20,7 @@ const CURSOR_ICON = /* html */ `
   <path d="M367 165c0-42 47-67 82-43l440 299c38 26 27 85-18 94l-118 24c-32 7-45 46-22 69l170 169c22 22 22 57 0 79l-77 77c-23 23-60 21-81-4L586 746c-20-24-56-27-80-8L425 801c-34 27-84 3-84-40V216c0-28 10-41 26-51Z" fill="currentColor"/>
 </svg>`;
 
-export class SkillyWidget {
+export class SkillyWidget implements CursorHost {
   private hostElement: HTMLDivElement;
   private shadowRoot: ShadowRoot;
   private launcherButton!: HTMLButtonElement;
