@@ -13,14 +13,24 @@
 // digest + selector pointing (8.2), voice pipeline (8.3), and multi-tenant
 // backend (8.4+) are layered on next.
 
-import { loadCore } from "./core.js";
 import { SkillyWidget } from "./widget.js";
-import { buildDomDigest, type DomDigest, type ElementRegistry } from "./digest.js";
-import { inferPointFromText, parsePointTags, PointingEngine } from "./pointing.js";
 import { fetchSessionToken, fetchTenantSkill, reportSessionUsage } from "./token.js";
-import { buildCompanionInstructions } from "./prompt.js";
-import { RealtimeSession, type RealtimeActionToolCall, type RealtimeState } from "./realtime.js";
-import { ActionExecutor, parseActionRequest, type ActionResult } from "./actions.js";
+import {
+  loadCore,
+  buildDomDigest,
+  type DomDigest,
+  type ElementRegistry,
+  inferPointFromText,
+  parsePointTags,
+  PointingEngine,
+  buildCompanionInstructions,
+  RealtimeSession,
+  type RealtimeActionToolCall,
+  type RealtimeState,
+  ActionExecutor,
+  parseActionRequest,
+  type ActionResult,
+} from "@skilly/browser-core";
 import type {
   SkillyConfig,
   SkillyEventHandler,
@@ -507,7 +517,7 @@ export const destroy = (): void => controller.destroy();
 export const getPageDigest = (): DomDigest => controller.getPageDigest();
 
 export type { SkillyConfig, SkillyEventMap, SkillyEventName } from "./types.js";
-export type { DomDigest, DigestElement } from "./digest.js";
+export type { DomDigest, DigestElement } from "@skilly/browser-core";
 
 // Auto-init from `<script data-skilly-key="..." data-skilly-skill="...">`.
 // Only runs in the script-embed (IIFE) path, where `currentScript` is set.

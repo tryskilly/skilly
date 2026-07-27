@@ -7,7 +7,7 @@
 
 import { WIDGET_STYLES } from "./styles.js";
 import type { SkillyState } from "./types.js";
-import type { CursorHost } from "./pointing.js";
+import type { CursorHost } from "@skilly/browser-core";
 
 // Inline SVGs so the widget has zero asset dependencies.
 const SKILLY_MARK_ICON = /* html */ `
