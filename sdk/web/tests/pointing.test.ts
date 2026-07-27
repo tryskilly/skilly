@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { inferPointFromText, parsePointTags } from "../src/pointing";
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
+import { inferPointFromText, parsePointTags, PointingEngine } from "../src/pointing";
 import type { DomDigest } from "../src/digest";
 
 const digest: DomDigest = {
@@ -42,15 +42,62 @@ describe("inferPointFromText", () => {
   });
 });
 
-import { PointingEngine } from "../src/pointing";
-
 describe("PointingEngine construction", () => {
-  test("accepts a plain object satisfying the CursorHost shape, not a real SkillyWidget", () => {
-    // Mock window if not available (test environment)
-    if (typeof window === "undefined") {
-      (global as any).window = { innerWidth: 1024, innerHeight: 768 };
+  let windowStub: { innerWidth?: number; innerHeight?: number } | undefined;
+
+  beforeEach(() => {
+    // Ensure window exists and has the required properties for PointingEngine
+    if (typeof (globalThis as any).window === "undefined") {
+      (globalThis as any).window = {};
+    }
+    windowStub = (globalThis as any).window;
+
+    // Store original descriptors
+    const originalInnerWidth = Object.getOwnPropertyDescriptor(windowStub, "innerWidth");
+    const originalInnerHeight = Object.getOwnPropertyDescriptor(windowStub, "innerHeight");
+
+    // Set up mock properties, restore after test
+    Object.defineProperty(windowStub, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1024,
+    });
+    Object.defineProperty(windowStub, "innerHeight", {
+      configurable: true,
+      writable: true,
+      value: 768,
+    });
+
+    // Store descriptors for cleanup
+    (windowStub as any).__originalInnerWidthDesc = originalInnerWidth;
+    (windowStub as any).__originalInnerHeightDesc = originalInnerHeight;
+  });
+
+  afterEach(() => {
+    if (!windowStub) return;
+
+    // Restore original properties or delete the mock
+    const originalWidthDesc = (windowStub as any).__originalInnerWidthDesc;
+    const originalHeightDesc = (windowStub as any).__originalInnerHeightDesc;
+
+    if (originalWidthDesc) {
+      Object.defineProperty(windowStub, "innerWidth", originalWidthDesc);
+    } else {
+      delete (windowStub as any).innerWidth;
     }
 
+    if (originalHeightDesc) {
+      Object.defineProperty(windowStub, "innerHeight", originalHeightDesc);
+    } else {
+      delete (windowStub as any).innerHeight;
+    }
+
+    // Clean up temporary storage
+    delete (windowStub as any).__originalInnerWidthDesc;
+    delete (windowStub as any).__originalInnerHeightDesc;
+  });
+
+  test("accepts a plain object satisfying the CursorHost shape, not a real SkillyWidget", () => {
     let hideCalled = false;
     const fakeCursorHost = {
       showCursor: () => {},
