@@ -44,10 +44,14 @@ describe("inferPointFromText", () => {
 
 describe("PointingEngine construction", () => {
   let windowStub: { innerWidth?: number; innerHeight?: number } | undefined;
+  let windowExistedBeforeTest = false;
 
   beforeEach(() => {
+    // Track whether window existed before this test
+    windowExistedBeforeTest = typeof (globalThis as any).window !== "undefined";
+
     // Ensure window exists and has the required properties for PointingEngine
-    if (typeof (globalThis as any).window === "undefined") {
+    if (!windowExistedBeforeTest) {
       (globalThis as any).window = {};
     }
     windowStub = (globalThis as any).window;
@@ -68,7 +72,7 @@ describe("PointingEngine construction", () => {
       value: 768,
     });
 
-    // Store descriptors for cleanup
+    // Store descriptors and window state for cleanup
     (windowStub as any).__originalInnerWidthDesc = originalInnerWidth;
     (windowStub as any).__originalInnerHeightDesc = originalInnerHeight;
   });
@@ -95,6 +99,11 @@ describe("PointingEngine construction", () => {
     // Clean up temporary storage
     delete (windowStub as any).__originalInnerWidthDesc;
     delete (windowStub as any).__originalInnerHeightDesc;
+
+    // If window didn't exist before the test, delete it entirely to avoid polluting globalThis
+    if (!windowExistedBeforeTest) {
+      delete (globalThis as any).window;
+    }
   });
 
   test("accepts a plain object satisfying the CursorHost shape, not a real SkillyWidget", () => {
