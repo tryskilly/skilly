@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { signToken, signaturesMatch, decodeBase64UrlJson } from "./signedToken";
 import { getDatabaseUrl } from "@/db";
 import { Pool } from "pg";
 
@@ -34,21 +34,7 @@ function sessionSecret(): string | null {
 
 function signPayload(payload: string): string | null {
   const secret = sessionSecret();
-  return secret ? createHmac("sha256", secret).update(payload).digest("base64url") : null;
-}
-
-function signaturesMatch(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function decodeBase64UrlJson(value: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  return secret ? signToken(payload, secret) : null;
 }
 
 export function verifyMacSessionToken(token: string): MacSession | null {
