@@ -217,9 +217,14 @@ final class AppSettings: ObservableObject {
             : UserDefaults.standard.bool(forKey: "analyticsEnabled")
         self.beta_terms_consent = UserDefaults.standard.bool(forKey: "beta_terms_consent")
 
-        // Skilly — External assets
-        self.onboardingVideoURL = UserDefaults.standard.string(forKey: "onboardingVideoURL")
-            ?? "https://stream.mux.com/e5jB8UuSrtFABVnTHCR7k3sIsmcUHCyhtLu1tzqLlfs.m3u8"
+        // Skilly — External assets. The onboarding video was the fork's (Clicky's) Mux
+        // stream and describes Clicky, not Skilly. Remove it for good: default to empty
+        // (skip the video), and migrate any existing user who still has the Clicky URL cached.
+        let clickyOnboardingURL = "https://stream.mux.com/e5jB8UuSrtFABVnTHCR7k3sIsmcUHCyhtLu1tzqLlfs.m3u8"
+        let cachedOnboardingURL = UserDefaults.standard.string(forKey: "onboardingVideoURL")
+        self.onboardingVideoURL = (cachedOnboardingURL == nil || cachedOnboardingURL == clickyOnboardingURL)
+            ? ""
+            : cachedOnboardingURL!
 
         // Language
         let systemLanguage = Locale.current.language.languageCode?.identifier ?? "en"
