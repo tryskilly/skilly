@@ -41,7 +41,10 @@ interface Env {
 
 const OPENAI_REALTIME_MODEL = "gpt-realtime";
 const OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
-const SESSION_TOKEN_TTL_SECONDS = 60 * 60 * 12;
+// 30 days. Was 12h, which forced daily re-auth on old apps that don't auto-refresh
+// the session token (pre-2.2). Entitlement is still checked per-request via KV, so a
+// longer-lived auth token only changes re-auth frequency, not access control.
+const SESSION_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 const POLAR_WEBHOOK_MAX_SKEW_SECONDS = 60 * 5;
 
 interface AuthenticatedSession {
