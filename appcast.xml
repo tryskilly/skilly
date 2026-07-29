@@ -3,12 +3,12 @@
     <channel>
         <title>Skilly</title>
         <item>
-            <title>2.2</title>
-            <pubDate>Mon, 27 Jul 2026 19:12:44 +0300</pubDate>
-            <sparkle:version>13</sparkle:version>
-            <sparkle:shortVersionString>2.2</sparkle:shortVersionString>
+            <title>2.3</title>
+            <pubDate>Wed, 29 Jul 2026 21:44:32 +0300</pubDate>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>2.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v2.2/Skilly.dmg" length="11424716" type="application/octet-stream" sparkle:edSignature="8CaTSRPgYGzwwf/YHV5xi+IDHjpBXJn521dTgQY24VLof+/ENJEgHkZktUhW2A8NKP3dk3Fke6sx/13SP8TqCg=="/>
+            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v2.3/Skilly.dmg" length="11425685" type="application/octet-stream" sparkle:edSignature="ksXrI1MXpIFRq5ZYMUgJo4tmnmVhvTDHz0Jv+WAdXy9rCQ5AJpSWPg0fG7vt4kK3dLHDtDcdcoagewnQMwUjBA=="/>
         </item>
         <item>
             <title>2.1</title>
