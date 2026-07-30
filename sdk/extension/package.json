@@ -2,7 +2,7 @@
   "name": "@skilly/extension",
   "version": "0.1.0",
   "private": true,
-  "description": "Skilly browser extension — point, talk, and act on any page.",
+  "description": "Skilly browser extension \u2014 point, talk, and act on any page.",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -11,14 +11,16 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
-    "test": "bun test",
+    "test": "bun test tests/",
     "typecheck": "tsc --noEmit",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "test:e2e": "bun run build && playwright test"
   },
   "dependencies": {
     "@skilly/browser-core": "file:../browser-core"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/chrome": "^0.2.2",
     "bun-types": "^1.2.0",
     "happy-dom": "^20.11.1",
