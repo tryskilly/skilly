@@ -223,24 +223,23 @@ final class OpenAIRealtimeClient: ObservableObject {
             let (data, response) = try await URLSession.shared.data(for: request)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             guard statusCode == 200 else {
+                // MARK: - Skilly — The Studio Mac-token endpoint may not be deployed
+                // yet; a non-200 here is an EXPECTED, recoverable fallback to the
+                // worker relay, not user-facing breakage. Reporting it as a
+                // silent_failure on every push-to-talk floods the metric with false
+                // alarms — the worker relay logs its own real errors, so a fully
+                // broken token path is still captured downstream.
+                #if DEBUG
                 let body = String(data: data, encoding: .utf8) ?? "unknown"
-                SkillyAnalytics.trackSilentFailure(
-                    subsystem: "studio_mac_token_fetch",
-                    httpStatus: statusCode,
-                    errorCode: "studio_token_fallback_to_worker",
-                    errorMessage: body,
-                    surface: "user_ptt"
-                )
+                print("ℹ️ Studio Mac-token \(statusCode) — falling back to worker: \(body.prefix(80))")
+                #endif
                 return nil
             }
             return try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
         } catch {
-            SkillyAnalytics.trackSilentFailure(
-                subsystem: "studio_mac_token_fetch",
-                errorCode: "studio_token_exception_fallback_to_worker",
-                errorMessage: String(describing: error),
-                surface: "user_ptt"
-            )
+            #if DEBUG
+            print("ℹ️ Studio Mac-token exception — falling back to worker: \(error)")
+            #endif
             return nil
         }
     }
@@ -880,13 +879,30 @@ final class OpenAIRealtimeClient: ObservableObject {
                 let errorCode = (errorObj["code"] as? String)
                     ?? (errorObj["type"] as? String)
                     ?? "openai_realtime_error"
-                SkillyAnalytics.trackSilentFailure(
-                    subsystem: "openai_realtime_session",
-                    errorCode: errorCode,
-                    errorMessage: errorMessage,
-                    surface: "user_ptt"
-                )
-                eventPublisher.send(.error(errorMessage))
+                // MARK: - Skilly — Benign no-ops the API reports as "error" but that
+                // fire during normal use: cancelling when no response is active
+                // (double-tap), or committing an empty audio buffer (a too-short
+                // push-to-talk). These are not user-facing breakage — reporting them
+                // as silent failures pollutes the metric and triggers false alarms,
+                // so we swallow them (no telemetry, no UI error) and keep reporting
+                // every other code (insufficient_quota, unknown_parameter, …).
+                let benignErrorCodes: Set<String> = [
+                    "response_cancel_not_active",
+                    "input_audio_buffer_commit_empty",
+                ]
+                if benignErrorCodes.contains(errorCode) {
+                    #if DEBUG
+                    print("ℹ️ OpenAI Realtime: benign no-op (\(errorCode)) — not reported")
+                    #endif
+                } else {
+                    SkillyAnalytics.trackSilentFailure(
+                        subsystem: "openai_realtime_session",
+                        errorCode: errorCode,
+                        errorMessage: errorMessage,
+                        surface: "user_ptt"
+                    )
+                    eventPublisher.send(.error(errorMessage))
+                }
             }
 
         case "input_audio_buffer.speech_started":
