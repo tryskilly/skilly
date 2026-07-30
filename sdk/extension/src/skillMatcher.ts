@@ -1,6 +1,12 @@
 // Matches the active tab's hostname against a bundled skill's URL patterns. Hostname-only
 // matching (not path/query) — a pattern must appear in the hostname itself, so a URL that merely
 // mentions a domain in a query string can't false-trigger that skill.
+/**
+ * The popup's skill-override value meaning "run the generic companion on this page", as opposed
+ * to "" / absent, which means auto-detect from the URL.
+ */
+export const GENERIC_SKILL_VALUE = "generic";
+
 export interface BundledSkill {
   id: string;
   name: string;

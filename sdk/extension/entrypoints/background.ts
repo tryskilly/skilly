@@ -2,7 +2,7 @@
 // getUserMedia/WebRTC and can be killed at any time, so the offscreen document created here is
 // what persists for a session's lifetime.
 import { FrameRegistry, parseQualifiedTarget } from "../src/frameRegistry";
-import { matchSkillForUrl } from "../src/skillMatcher";
+import { matchSkillForUrl, GENERIC_SKILL_VALUE } from "../src/skillMatcher";
 import { BUNDLED_SKILLS } from "../src/bundledSkills";
 import { buildWorkOSAuthorizeUrl, exchangeCodeForSession } from "../src/auth";
 import type {
@@ -29,6 +29,25 @@ export default defineBackground(() => {
    * page instead. Detected explicitly so the failure is a clear banner, not a thrown TypeError.
    */
   const supportsOffscreenDocuments = typeof chrome !== "undefined" && chrome.offscreen !== undefined;
+
+  /**
+   * The popup's skill dropdown wins over URL auto-detection: "" (or absent) means auto-detect,
+   * "generic" forces the no-skill companion even on a site a skill would match, and any other
+   * value pins that bundled skill. An unrecognised id falls back to auto-detect rather than
+   * silently running with no skill.
+   */
+  function selectSkill(tabUrl: string | undefined, skillOverride: string | null) {
+    if (skillOverride === GENERIC_SKILL_VALUE) {
+      return null;
+    }
+    if (skillOverride) {
+      const pinned = BUNDLED_SKILLS.find((skill) => skill.id === skillOverride);
+      if (pinned) {
+        return pinned;
+      }
+    }
+    return tabUrl ? matchSkillForUrl(tabUrl, BUNDLED_SKILLS) : null;
+  }
 
   function notifyActiveTab(text: string): void {
     if (activeTabId === null) {
@@ -63,8 +82,9 @@ export default defineBackground(() => {
     activeTabId = tabId;
     frameRegistry.clear();
 
-    const stored = await chrome.storage.local.get(["sessionToken"]);
+    const stored = await chrome.storage.local.get(["sessionToken", "skillOverride"]);
     const sessionToken = stored.sessionToken as string | undefined;
+    const skillOverride = (stored.skillOverride as string | null | undefined) ?? null;
     if (!sessionToken) {
       activeTabId = null;
       return; // not logged in — the popup owns prompting the user to sign in
@@ -89,7 +109,7 @@ export default defineBackground(() => {
     const token = (await tokenResponse.json()) as { clientSecret: string; model: string };
 
     const tab = await chrome.tabs.get(tabId);
-    const skill = tab.url ? matchSkillForUrl(tab.url, BUNDLED_SKILLS) : null;
+    const skill = selectSkill(tab.url, skillOverride);
     void chrome.tabs.sendMessage(tabId, { type: "refresh-digest" } satisfies BackgroundToContentMessage).catch(
       () => undefined,
     );
