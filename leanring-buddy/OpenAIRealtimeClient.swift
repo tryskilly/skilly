@@ -664,7 +664,11 @@ final class OpenAIRealtimeClient: ObservableObject {
         let responseEvent: [String: Any] = [
             "type": "response.create",
             "response": [
-                "modalities": ["text", "audio"],
+                // MARK: - Skilly — GA Realtime: the field is `output_modalities`, not
+                // `modalities` (OpenAI rejects the latter with "Unknown parameter:
+                // 'response.modalities'"). Audio output carries the text transcript, so
+                // ["audio"] covers the forced-spoken-response case.
+                "output_modalities": ["audio"],
                 "tool_choice": "none",
                 "instructions": instruction
             ]
