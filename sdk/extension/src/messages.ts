@@ -111,4 +111,16 @@ export interface ToggleSessionMessage {
 export interface GetSessionStatusMessage {
   type: "get-session-status";
 }
-export type PopupToBackgroundMessage = ToggleSessionMessage | GetSessionStatusMessage;
+/** Kicks off the WorkOS web auth flow; the background owns the redirect and the code exchange. */
+export interface LoginStartMessage {
+  type: "login-start";
+}
+export type PopupToBackgroundMessage = ToggleSessionMessage | GetSessionStatusMessage | LoginStartMessage;
+
+/** Replies the popup receives back from the background, one per PopupToBackgroundMessage. */
+export interface SessionStatusReply {
+  active: boolean;
+}
+export interface LoginReply {
+  ok: boolean;
+}

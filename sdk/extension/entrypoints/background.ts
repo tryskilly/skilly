@@ -1,3 +1,269 @@
+// Coordinator only. Never hosts the Realtime session: MV3 service workers have no
+// getUserMedia/WebRTC and can be killed at any time, so the offscreen document created here is
+// what persists for a session's lifetime.
+import { FrameRegistry, parseQualifiedTarget } from "../src/frameRegistry";
+import { matchSkillForUrl } from "../src/skillMatcher";
+import { BUNDLED_SKILLS } from "../src/bundledSkills";
+import { buildWorkOSAuthorizeUrl, exchangeCodeForSession } from "../src/auth";
+import type {
+  ContentToBackgroundMessage,
+  OffscreenToBackgroundMessage,
+  BackgroundToOffscreenMessage,
+  BackgroundToContentMessage,
+  PopupToBackgroundMessage,
+} from "../src/messages";
+
+const BACKEND_URL = "https://studio.tryskilly.app"; // TODO(config): build-time env var once staging/prod diverge
+const WORKOS_CLIENT_ID = "client_REPLACE_ME"; // TODO(config): the real, public WorkOS client id
+
+/** How long content scripts get to answer refresh-digest before the prompt is composed. */
+const DIGEST_SETTLE_MS = 300;
+
 export default defineBackground(() => {
-  console.log('Hello background!', { id: browser.runtime.id });
+  const frameRegistry = new FrameRegistry();
+  let activeTabId: number | null = null;
+
+  /**
+   * The offscreen document is a Chrome-only MV3 API. On Firefox `chrome.offscreen` is undefined,
+   * so voice sessions cannot start there yet — Firefox MV3 needs the session hosted in its event
+   * page instead. Detected explicitly so the failure is a clear banner, not a thrown TypeError.
+   */
+  const supportsOffscreenDocuments = typeof chrome !== "undefined" && chrome.offscreen !== undefined;
+
+  function notifyActiveTab(text: string): void {
+    if (activeTabId === null) {
+      return;
+    }
+    const message: BackgroundToContentMessage = { type: "show-banner", text };
+    void chrome.tabs.sendMessage(activeTabId, message).catch(() => undefined);
+  }
+
+  async function ensureOffscreenDocument(): Promise<void> {
+    const existing = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT" as chrome.runtime.ContextType],
+    });
+    if (existing.length > 0) {
+      return;
+    }
+    await chrome.offscreen.createDocument({
+      url: chrome.runtime.getURL("offscreen.html"),
+      reasons: ["USER_MEDIA" as chrome.offscreen.Reason],
+      justification: "Hosts the OpenAI Realtime voice session (microphone + WebRTC).",
+    });
+  }
+
+  async function startSession(tabId: number): Promise<void> {
+    if (!supportsOffscreenDocuments) {
+      activeTabId = tabId;
+      notifyActiveTab("Skilly voice sessions aren't supported in this browser yet.");
+      activeTabId = null;
+      return;
+    }
+
+    activeTabId = tabId;
+    frameRegistry.clear();
+
+    const stored = await chrome.storage.local.get(["sessionToken"]);
+    const sessionToken = stored.sessionToken as string | undefined;
+    if (!sessionToken) {
+      activeTabId = null;
+      return; // not logged in — the popup owns prompting the user to sign in
+    }
+
+    const authorizationHeader = { authorization: `Bearer ${sessionToken}` };
+    const [entitlementResponse, tokenResponse] = await Promise.all([
+      fetch(`${BACKEND_URL}/api/extension/entitlement`, { headers: authorizationHeader }),
+      fetch(`${BACKEND_URL}/api/extension/openai/token`, { headers: authorizationHeader }),
+    ]);
+    if (!entitlementResponse.ok || !tokenResponse.ok) {
+      notifyActiveTab("Skilly couldn't connect. Try again in a moment.");
+      activeTabId = null;
+      return;
+    }
+    const entitlement = (await entitlementResponse.json()) as { status: string };
+    if (entitlement.status !== "active") {
+      notifyActiveTab("Your Skilly subscription isn't active.");
+      activeTabId = null;
+      return;
+    }
+    const token = (await tokenResponse.json()) as { clientSecret: string; model: string };
+
+    const tab = await chrome.tabs.get(tabId);
+    const skill = tab.url ? matchSkillForUrl(tab.url, BUNDLED_SKILLS) : null;
+    void chrome.tabs.sendMessage(tabId, { type: "refresh-digest" } satisfies BackgroundToContentMessage).catch(
+      () => undefined,
+    );
+    // Give content scripts a moment to answer with register-frame before composing the prompt.
+    await new Promise((resolve) => setTimeout(resolve, DIGEST_SETTLE_MS));
+
+    // The session may have been stopped (or the tab navigated) while we were awaiting the
+    // network and the digest settle — starting a Realtime session now would orphan it.
+    if (activeTabId !== tabId) {
+      return;
+    }
+
+    const instructions = [
+      "You are Skilly, a browser extension companion. Help the user with the page they're on.",
+      skill ? `--- ACTIVE SKILL: ${skill.name} ---\n${skill.content}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    await ensureOffscreenDocument();
+    if (activeTabId !== tabId) {
+      return;
+    }
+    const startMessage: BackgroundToOffscreenMessage = {
+      type: "start-session",
+      clientSecret: token.clientSecret,
+      model: token.model,
+      instructions,
+      actionsEnabled: true,
+    };
+    void chrome.runtime.sendMessage(startMessage).catch(() => undefined);
+  }
+
+  function stopSession(): void {
+    activeTabId = null;
+    frameRegistry.clear();
+    void chrome.runtime
+      .sendMessage({ type: "stop-session" } satisfies BackgroundToOffscreenMessage)
+      .catch(() => undefined);
+  }
+
+  // chrome.action.onClicked is deliberately NOT used. A WXT popup entrypoint sets the manifest's
+  // action.default_popup, and Chrome never fires onClicked when a default_popup is set — the
+  // popup opens instead. The popup's "Start/Stop" button is the only toggle entry point, and it
+  // reaches this file via the "toggle-session" message below.
+  chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage, _sender, sendResponse) => {
+    if (message.type === "toggle-session") {
+      void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        if (!tab?.id) {
+          sendResponse({ active: false });
+          return;
+        }
+        if (activeTabId === tab.id) {
+          stopSession();
+          sendResponse({ active: false });
+          return;
+        }
+        void startSession(tab.id).then(() => sendResponse({ active: activeTabId === tab.id }));
+      });
+      return true; // async sendResponse
+    }
+
+    if (message.type === "get-session-status") {
+      sendResponse({ active: activeTabId !== null });
+      return false;
+    }
+
+    if (message.type === "login-start") {
+      const redirectUri = chrome.identity.getRedirectURL();
+      const authorizeUrl = buildWorkOSAuthorizeUrl(WORKOS_CLIENT_ID, redirectUri);
+      chrome.identity.launchWebAuthFlow({ url: authorizeUrl, interactive: true }, (responseUrl) => {
+        const code = responseUrl ? new URL(responseUrl).searchParams.get("code") : null;
+        if (!code) {
+          sendResponse({ ok: false });
+          return;
+        }
+        exchangeCodeForSession(BACKEND_URL, code)
+          .then((session) =>
+            chrome.storage.local.set({ sessionToken: session.sessionToken, email: session.email }),
+          )
+          .then(() => sendResponse({ ok: true }))
+          .catch(() => sendResponse({ ok: false }));
+      });
+      return true; // keep the channel open for the async sendResponse
+    }
+
+    return false;
+  });
+
+  // Tab navigation ends the session — a fixed decision from the approved design.
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (tabId === activeTabId && changeInfo.status === "loading" && changeInfo.url) {
+      stopSession();
+    }
+  });
+
+  // A closed tab must end the session too, otherwise activeTabId points at a tab that no longer
+  // exists and every subsequent sendMessage silently fails.
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    if (tabId === activeTabId) {
+      stopSession();
+    }
+  });
+
+  chrome.runtime.onMessage.addListener(
+    (rawMessage: ContentToBackgroundMessage | OffscreenToBackgroundMessage, sender) => {
+      if (rawMessage.type === "register-frame") {
+        // sender.frameId is stamped by the browser and is the id chrome.tabs.sendMessage routes
+        // on — a content script cannot know or forge it. Frames from other tabs are ignored so a
+        // background tab cannot inject elements into the active session's digest.
+        if (sender.frameId === undefined || sender.tab?.id !== activeTabId) {
+          return false;
+        }
+        frameRegistry.registerFrame(sender.frameId, rawMessage.digest);
+        return false;
+      }
+
+      if (rawMessage.type === "action-result") {
+        const outcome: BackgroundToOffscreenMessage = {
+          type: "action-outcome",
+          callId: rawMessage.callId,
+          result: rawMessage.result,
+        };
+        void chrome.runtime.sendMessage(outcome).catch(() => undefined);
+        return false;
+      }
+
+      if (rawMessage.type === "point-request") {
+        const qualified = parseQualifiedTarget(rawMessage.target);
+        if (!qualified || activeTabId === null) {
+          return false;
+        }
+        const pointMessage: BackgroundToContentMessage = {
+          type: "point-at",
+          target: qualified.localTarget,
+          label: rawMessage.label,
+        };
+        void chrome.tabs
+          .sendMessage(activeTabId, pointMessage, { frameId: qualified.frameId })
+          .catch(() => undefined);
+        return false;
+      }
+
+      if (rawMessage.type === "action-request") {
+        const qualified = parseQualifiedTarget(rawMessage.request.element_id);
+        if (!qualified || activeTabId === null) {
+          return false;
+        }
+        const executeMessage: BackgroundToContentMessage = {
+          type: "execute-action",
+          callId: rawMessage.callId,
+          request: { ...rawMessage.request, element_id: qualified.localTarget },
+        };
+        void chrome.tabs
+          .sendMessage(activeTabId, executeMessage, { frameId: qualified.frameId })
+          .catch(() => undefined);
+        return false;
+      }
+
+      if (rawMessage.type === "usage-report") {
+        void chrome.storage.local.get(["sessionToken"]).then(({ sessionToken }) => {
+          if (!sessionToken) {
+            return;
+          }
+          void fetch(`${BACKEND_URL}/api/extension/usage`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${sessionToken}`, "content-type": "application/json" },
+            body: JSON.stringify({ seconds: rawMessage.seconds }),
+          }).catch(() => undefined);
+        });
+        return false;
+      }
+
+      return false;
+    },
+  );
 });
