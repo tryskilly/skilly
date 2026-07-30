@@ -8,15 +8,18 @@
 // local ids.
 import type { ActionRequest, ActionResult, DomDigest } from "@skilly/browser-core";
 
-// Content script -> background
+// Content script -> background.
+//
+// Neither carries a frameId: a content script cannot know its own browser frame id, and the id
+// the background needs is precisely the one `chrome.tabs.sendMessage(tabId, msg, { frameId })`
+// routes on. The background reads it from `sender.frameId`, which the browser stamps and a page
+// cannot forge. (WXT's ctx.instanceId is a random per-injection id and is NOT this value.)
 export interface RegisterFrameMessage {
   type: "register-frame";
-  frameId: number;
   digest: DomDigest;
 }
 export interface ActionResultMessage {
   type: "action-result";
-  frameId: number;
   callId: string;
   result: ActionResult;
 }
