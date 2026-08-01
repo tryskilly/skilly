@@ -2,6 +2,7 @@ name: Browser Surfaces
 
 on:
   push:
+    branches: [main]
     paths:
       - "apps/web-backend/**"
       - "sdk/browser-core/**"
