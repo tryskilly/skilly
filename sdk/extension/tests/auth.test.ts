@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, mock } from "bun:test";
-import { buildWorkOSAuthorizeUrl, exchangeCodeForSession } from "../src/auth";
+import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches } from "../src/auth";
 
 const REAL_FETCH = globalThis.fetch;
 
@@ -9,12 +9,28 @@ afterEach(() => {
 
 describe("buildWorkOSAuthorizeUrl", () => {
   test("builds a WorkOS authorize URL with the given client id and redirect uri", () => {
-    const url = new URL(buildWorkOSAuthorizeUrl("client_abc", "https://ext-id.chromiumapp.org/"));
+    const url = new URL(buildWorkOSAuthorizeUrl("client_abc", "https://ext-id.chromiumapp.org/", "state-xyz"));
     expect(url.origin + url.pathname).toBe("https://api.workos.com/user_management/authorize");
     expect(url.searchParams.get("client_id")).toBe("client_abc");
     expect(url.searchParams.get("redirect_uri")).toBe("https://ext-id.chromiumapp.org/");
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("provider")).toBe("authkit");
+    expect(url.searchParams.get("state")).toBe("state-xyz");
+  });
+});
+
+describe("auth state", () => {
+  test("generates a distinct value each time", () => {
+    expect(generateAuthState()).not.toBe(generateAuthState());
+  });
+
+  // The whole point: a redirect carrying someone else's state (or none) must not be exchanged.
+  test("accepts only the exact state it issued", () => {
+    const issued = generateAuthState();
+    expect(authStateMatches(issued, issued)).toBe(true);
+    expect(authStateMatches(issued, "some-other-state")).toBe(false);
+    expect(authStateMatches(issued, null)).toBe(false);
+    expect(authStateMatches(issued, "")).toBe(false);
   });
 });
 

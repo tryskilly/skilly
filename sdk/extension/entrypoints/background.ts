@@ -4,7 +4,7 @@
 import { FrameRegistry, parseQualifiedTarget } from "../src/frameRegistry";
 import { matchSkillForUrl, GENERIC_SKILL_VALUE } from "../src/skillMatcher";
 import { BUNDLED_SKILLS } from "../src/bundledSkills";
-import { buildWorkOSAuthorizeUrl, exchangeCodeForSession } from "../src/auth";
+import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches } from "../src/auth";
 import type {
   ContentToBackgroundMessage,
   OffscreenToBackgroundMessage,
@@ -185,10 +185,13 @@ export default defineBackground(() => {
 
     if (message.type === "login-start") {
       const redirectUri = chrome.identity.getRedirectURL();
-      const authorizeUrl = buildWorkOSAuthorizeUrl(WORKOS_CLIENT_ID, redirectUri);
+      const expectedState = generateAuthState();
+      const authorizeUrl = buildWorkOSAuthorizeUrl(WORKOS_CLIENT_ID, redirectUri, expectedState);
       chrome.identity.launchWebAuthFlow({ url: authorizeUrl, interactive: true }, (responseUrl) => {
-        const code = responseUrl ? new URL(responseUrl).searchParams.get("code") : null;
-        if (!code) {
+        const redirectParams = responseUrl ? new URL(responseUrl).searchParams : null;
+        const code = redirectParams?.get("code") ?? null;
+        // Reject a redirect this flow did not initiate, rather than exchanging its code.
+        if (!code || !authStateMatches(expectedState, redirectParams?.get("state") ?? null)) {
           sendResponse({ ok: false });
           return;
         }
