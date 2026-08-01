@@ -118,7 +118,7 @@ final class OpenAIRealtimeClient: ObservableObject {
 
     private var cachedToken: OpenAITokenResponse?
 
-    private func fetchToken() async throws -> OpenAITokenResponse {
+    private func fetchToken(attemptedRefresh: Bool = false) async throws -> OpenAITokenResponse {
         if let cached = cachedToken {
             let nowInSeconds = Int(Date().timeIntervalSince1970)
             if cached.expiresAt > (nowInSeconds + 10) {
@@ -137,7 +137,21 @@ final class OpenAIRealtimeClient: ObservableObject {
             return tokenResponse
         }
 
-        let url = URL(string: "\(AppSettings.shared.workerBaseURL)/openai/token")!
+        if let studioToken = await fetchStudioMacTokenIfEnabled() {
+            cachedToken = studioToken
+            return studioToken
+        }
+
+        var tokenURLString = "\(AppSettings.shared.workerBaseURL)/openai/token"
+        #if DEBUG
+        // Skilly Dev: canary a specific model (e.g. gpt-realtime-2.1-mini). The worker
+        // only honors allow-listed ids; empty override = server default.
+        let debugModel = AppSettings.shared.debugRealtimeModel
+        if !debugModel.isEmpty {
+            tokenURLString += "?model=\(debugModel)"
+        }
+        #endif
+        let url = URL(string: tokenURLString)!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
@@ -160,6 +174,19 @@ final class OpenAIRealtimeClient: ObservableObject {
                 errorMessage: "Worker returned 401 — Keychain session token likely stale",
                 surface: "user_ptt"
             )
+            // MARK: - Skilly — Seamless auth recovery: on a stale session token,
+            // refresh once and retry inline so the CURRENT push-to-talk succeeds
+            // instead of failing first (v2.1 only refreshed after the failed press).
+            // If the refresh token can't recover, surface authExpired so
+            // CompanionManager signs out and prompts re-login.
+            if !attemptedRefresh {
+                do {
+                    try await AuthManager.shared.refreshAccessToken()
+                } catch {
+                    throw OpenAIRealtimeError.authExpired
+                }
+                return try await fetchToken(attemptedRefresh: true)
+            }
             throw OpenAIRealtimeError.authExpired
         }
 
@@ -178,6 +205,43 @@ final class OpenAIRealtimeClient: ObservableObject {
         let tokenResponse = try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
         cachedToken = tokenResponse
         return tokenResponse
+    }
+
+    private func fetchStudioMacTokenIfEnabled() async -> OpenAITokenResponse? {
+        guard AppSettings.shared.useStudioMacBackend,
+              let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/openai/token") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+            return nil
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard statusCode == 200 else {
+                // MARK: - Skilly — The Studio Mac-token endpoint may not be deployed
+                // yet; a non-200 here is an EXPECTED, recoverable fallback to the
+                // worker relay, not user-facing breakage. Reporting it as a
+                // silent_failure on every push-to-talk floods the metric with false
+                // alarms — the worker relay logs its own real errors, so a fully
+                // broken token path is still captured downstream.
+                #if DEBUG
+                let body = String(data: data, encoding: .utf8) ?? "unknown"
+                print("ℹ️ Studio Mac-token \(statusCode) — falling back to worker: \(body.prefix(80))")
+                #endif
+                return nil
+            }
+            return try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
+        } catch {
+            #if DEBUG
+            print("ℹ️ Studio Mac-token exception — falling back to worker: \(error)")
+            #endif
+            return nil
+        }
     }
 
     // MARK: - Skilly — BYOK direct session mint
@@ -804,7 +868,41 @@ final class OpenAIRealtimeClient: ObservableObject {
                 #if DEBUG
                 print("⚠️ OpenAI Realtime error: \(errorMessage)")
                 #endif
-                eventPublisher.send(.error(errorMessage))
+                // MARK: - Skilly — v2.1 telemetry for OpenAI session rejections.
+                // This case used to only print in DEBUG, so session-level
+                // rejections were invisible in PostHog — the blind spot that hid
+                // the shared-key credit outage (2026-07-23) AND the earlier
+                // beta_api_shape_disabled outage that left 17 users with zero
+                // messages for 14 days. `code` carries the actionable reason,
+                // e.g. "insufficient_quota" when the hosted OpenAI credit runs
+                // out. Client-side, so it survives the backend migration.
+                let errorCode = (errorObj["code"] as? String)
+                    ?? (errorObj["type"] as? String)
+                    ?? "openai_realtime_error"
+                // MARK: - Skilly — Benign no-ops the API reports as "error" but that
+                // fire during normal use: cancelling when no response is active
+                // (double-tap), or committing an empty audio buffer (a too-short
+                // push-to-talk). These are not user-facing breakage — reporting them
+                // as silent failures pollutes the metric and triggers false alarms,
+                // so we swallow them (no telemetry, no UI error) and keep reporting
+                // every other code (insufficient_quota, unknown_parameter, …).
+                let benignErrorCodes: Set<String> = [
+                    "response_cancel_not_active",
+                    "input_audio_buffer_commit_empty",
+                ]
+                if benignErrorCodes.contains(errorCode) {
+                    #if DEBUG
+                    print("ℹ️ OpenAI Realtime: benign no-op (\(errorCode)) — not reported")
+                    #endif
+                } else {
+                    SkillyAnalytics.trackSilentFailure(
+                        subsystem: "openai_realtime_session",
+                        errorCode: errorCode,
+                        errorMessage: errorMessage,
+                        surface: "user_ptt"
+                    )
+                    eventPublisher.send(.error(errorMessage))
+                }
             }
 
         case "input_audio_buffer.speech_started":

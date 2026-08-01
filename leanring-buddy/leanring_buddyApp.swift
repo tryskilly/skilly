@@ -83,7 +83,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             menuBarPanelManager?.showPanelOnLaunch()
         }
         registerAsLoginItemIfNeeded()
-        // startSparkleUpdater()
+        startSparkleUpdater()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -157,6 +157,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startSparkleUpdater() {
+        // MARK: - Skilly — The "Skilly Dev" (DEBUG) build skips auto-update entirely so it
+        // never tries to update itself into the release app via the production appcast.
+        #if DEBUG
+        return
+        #else
         let updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: nil,
@@ -167,10 +172,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         do {
             try updaterController.updater.start()
         } catch {
-            // MARK: - Skilly — Debug logging (stripped in release)
-            #if DEBUG
-            print("⚠️ Skilly: Sparkle updater failed to start: \(error)")
-            #endif
+            // Sparkle failed to start; release builds silently skip auto-update this launch.
         }
+        #endif
     }
 }

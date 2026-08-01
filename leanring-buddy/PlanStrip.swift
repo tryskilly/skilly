@@ -230,6 +230,10 @@ struct PlanStrip: View {
             RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
                 .stroke(DS.Colors.warning.opacity(0.35), lineWidth: 0.5)
         )
+        .onAppear {
+            guard let userId = AuthManager.shared.currentUser?.id else { return }
+            SkillyAnalytics.trackPaywallShown(userId: userId, reason: "low")
+        }
     }
 
     private func emptyStrip(resetsAt: Date?) -> some View {
@@ -260,6 +264,10 @@ struct PlanStrip: View {
             RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
                 .stroke(DS.Colors.destructive.opacity(0.4), lineWidth: 0.5)
         )
+        .onAppear {
+            guard let userId = AuthManager.shared.currentUser?.id else { return }
+            SkillyAnalytics.trackPaywallShown(userId: userId, reason: "empty")
+        }
     }
 
     private var trialEndedStrip: some View {
@@ -288,6 +296,10 @@ struct PlanStrip: View {
             RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
                 .stroke(DS.Colors.accent.opacity(0.4), lineWidth: 0.5)
         )
+        .onAppear {
+            guard let userId = AuthManager.shared.currentUser?.id else { return }
+            SkillyAnalytics.trackPaywallShown(userId: userId, reason: "trial_ended")
+        }
     }
 
     // MARK: - Components

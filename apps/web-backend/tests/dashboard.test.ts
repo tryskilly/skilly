@@ -343,12 +343,14 @@ describe("v2 usage dimensions + queries", () => {
     await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 60, result: "completed" });
     await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 120, result: "completed" });
     await repo.recordUsage({ tenantId, kind: "session_seconds", seconds: 0, result: "error" });
+    await repo.recordUsage({ tenantId, kind: "action", seconds: 0, count: 4 });
 
     const metrics = await repo.getUsageMetrics(tenantId);
     expect(metrics.sessionCount).toBe(3);
     expect(metrics.avgSessionSeconds).toBe(60); // (60+120+0)/3
     // 1 of 3 errored
     expect(Math.round(metrics.errorRate * 100)).toBe(33);
+    expect(metrics.totalActions).toBe(4);
   });
 
   test("getUsageMetrics is zero-safe with no sessions", async () => {
@@ -357,6 +359,7 @@ describe("v2 usage dimensions + queries", () => {
     expect(metrics.sessionCount).toBe(0);
     expect(metrics.avgSessionSeconds).toBe(0);
     expect(metrics.errorRate).toBe(0);
+    expect(metrics.totalActions).toBe(0);
   });
 
   test("getTopPages and getTopDomains group + rank by count", async () => {

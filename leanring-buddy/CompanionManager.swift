@@ -343,8 +343,31 @@ final class CompanionManager: ObservableObject {
         openAIRealtimeClient.disconnect()
     }
 
-    private func recordSessionSecondsIfNeeded(_ seconds: TimeInterval) {
+    private func recordSessionSecondsIfNeeded(_ seconds: TimeInterval, usage: RealtimeUsage? = nil) {
         guard seconds > 0 else { return }
+        let usageResult = AppSettings.shared.hasOwnAPIKey ? "byok_completed" : "relay_completed"
+        let usageSource = AppSettings.shared.hasOwnAPIKey ? "byok" : "relay"
+        let estimatedCostUsd = usage.map {
+            RealtimePricing.turnCost(
+                audioInputTokens: $0.audio_input_tokens,
+                audioOutputTokens: $0.audio_output_tokens,
+                textInputTokens: $0.text_input_tokens,
+                textOutputTokens: $0.text_output_tokens,
+                cachedInputTokens: $0.cached_input_tokens
+            )
+        }
+        UsageTracker.shared.reportStudioMacUsage(
+            seconds: seconds,
+            result: usageResult,
+            source: usageSource,
+            model: openAIRealtimeClient.currentModel == "unknown" ? nil : openAIRealtimeClient.currentModel,
+            usage: usage,
+            estimatedCostUsd: estimatedCostUsd
+        )
+        if AppSettings.shared.hasOwnAPIKey {
+            return
+        }
+
         // MARK: - Skilly — Fall back to trial when no entitlement is set
         // (new user, offline, or Worker hasn't synced). This ensures
         // usage starts tracking immediately on first use.
@@ -1201,13 +1224,19 @@ final class CompanionManager: ObservableObject {
                 clearRealtimeResponseBubble()
                 resetRustRealtimeTracking()
 
-                // MARK: - Skilly — Auth recovery: if the Worker rejected
-                // /openai/token because our Keychain session token is stale,
-                // sign the user out and surface the panel so they re-auth
-                // instead of silently failing on every push-to-talk press.
+                // MARK: - Skilly — Auth recovery: if token minting reports an
+                // expired session, refresh once before clearing Keychain. This
+                // keeps Studio/Worker migration fallback failures from forcing
+                // a destructive sign-out when the refresh token can recover.
                 if case OpenAIRealtimeClient.OpenAIRealtimeError.authExpired = error {
-                    AuthManager.shared.signOut()
-                    NotificationCenter.default.post(name: .skillyAuthExpired, object: nil)
+                    Task { @MainActor in
+                        do {
+                            try await AuthManager.shared.refreshAccessToken()
+                        } catch {
+                            AuthManager.shared.signOut()
+                            NotificationCenter.default.post(name: .skillyAuthExpired, object: nil)
+                        }
+                    }
                 }
             }
         }
@@ -1423,7 +1452,7 @@ final class CompanionManager: ObservableObject {
             // MARK: - Skilly — Record per-turn usage for trial/cap tracking
             if let turnStart = currentTurnStartTime {
                 let turnDurationSeconds = Date().timeIntervalSince(turnStart)
-                recordSessionSecondsIfNeeded(turnDurationSeconds)
+                recordSessionSecondsIfNeeded(turnDurationSeconds, usage: usage)
                 // Fire the first-turn milestone on the very first trial turn
                 TrialTracker.shared.recordFirstTurn()
                 // Check for 80% warning thresholds after each recording

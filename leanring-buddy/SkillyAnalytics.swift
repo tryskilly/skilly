@@ -167,8 +167,7 @@ enum SkillyAnalytics {
         visionTokens: Int?,
         turnCostUsd: Double
     ) {
-        guard AppSettings.shared.analyticsEnabled,
-              AppSettings.shared.beta_terms_consent else { return }
+        guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("skilly_turn_completed", properties: [
             "session_id": sessionId,
             "turn_index": turnIndex,
@@ -204,8 +203,7 @@ enum SkillyAnalytics {
         avgTurnLatencyMs: Int,
         sessionCostUsd: Double
     ) {
-        guard AppSettings.shared.analyticsEnabled,
-              AppSettings.shared.beta_terms_consent else { return }
+        guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("skilly_session_ended", properties: [
             "session_id": sessionId,
             "model": model,
@@ -234,6 +232,13 @@ enum SkillyAnalytics {
     static func trackSubscriptionActivated(userId: String) {
         guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("skilly_subscription_activated", properties: [
+            "user_id": userId
+        ])
+    }
+
+    static func trackCapReached(userId: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skilly_cap_reached", properties: [
             "user_id": userId
         ])
     }

@@ -2,7 +2,7 @@
 
 import Testing
 import Foundation
-@testable import leanring_buddy
+@testable import Skilly
 
 // MARK: - CurriculumEngineTests
 // Uses SkillDefinitionParserTests.minimalSkillMarkdown from SkillDefinitionTests.swift

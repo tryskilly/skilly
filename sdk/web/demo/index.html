@@ -25,6 +25,8 @@
         <h2>Getting started</h2>
         <p>This page simulates a website owner's app. The <code>@skilly/web</code> widget is mounted via a single script tag.</p>
         <button class="host-btn" id="start-onboarding">Start onboarding with Skilly</button>
+        <button class="host-btn" data-skilly="upgrade-button" data-skilly-label="Upgrade plan button" onclick="this.textContent='Upgrade clicked'">Upgrade plan</button>
+        <button class="host-btn" data-skilly="delete-project" data-skilly-no-act onclick="this.textContent='Should not run'">Delete project</button>
       </div>
       <div class="card" data-skilly="pricing-section" data-skilly-label="the Pricing section">
         <h2>Pricing</h2>
@@ -36,6 +38,7 @@
     <script src="../dist/skilly-web.global.js"
             data-skilly-key="pk_demo_local"
             data-skilly-skill="acme-onboarding"
+            data-skilly-actions="true"
             defer></script>
 
     <script>
@@ -50,6 +53,7 @@
             key: "pk_test_demolocaldemolocaldemolocal01", // backend's seeded demo tenant
             skill: "acme-onboarding",
             backendUrl,
+            actions: true,
           });
         }
 

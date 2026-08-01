@@ -21,6 +21,7 @@ struct BYOKSection: View {
     @State private var draftKey: String = ""
     @State private var isRevealed: Bool = false
     @State private var status: Status = .idle
+    @State private var planStatus: PlanStatus = .idle
 
     enum Status: Equatable {
         case idle
@@ -29,15 +30,24 @@ struct BYOKSection: View {
         case error(String)
     }
 
+    enum PlanStatus: Equatable {
+        case idle
+        case opening
+        case opened
+        case error(String)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if settings.hasOwnAPIKey && status != .validating {
                 activeStateRow
+                platformPlanRow
             } else {
                 inputRow
             }
 
             statusRow
+            planStatusRow
 
             helperText
         }
@@ -138,6 +148,63 @@ struct BYOKSection: View {
         }
     }
 
+    private var platformPlanRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "creditcard")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.accentText)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("BYOK platform plan")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text("Keep Skilly account features and usage telemetry active while OpenAI bills your key directly.")
+                        .font(.system(size: 10))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+
+            Button(action: openBYOKCheckout) {
+                HStack(spacing: 5) {
+                    if planStatus == .opening {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.7)
+                    } else {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    Text(planStatus == .opening ? "Opening…" : "Activate plan")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(DS.Colors.textOnAccent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                        .fill(DS.Colors.accent)
+                )
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .disabled(planStatus == .opening)
+
+            #if DEBUG
+            Toggle("Require BYOK plan before use", isOn: $settings.requireBYOKSubscription)
+                .font(.system(size: 10))
+                .foregroundColor(DS.Colors.textTertiary)
+                .toggleStyle(.checkbox)
+            #endif
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .fill(Color.white.opacity(0.035))
+        )
+    }
+
     @ViewBuilder
     private var statusRow: some View {
         switch status {
@@ -163,9 +230,34 @@ struct BYOKSection: View {
         }
     }
 
+    @ViewBuilder
+    private var planStatusRow: some View {
+        switch planStatus {
+        case .idle, .opening:
+            EmptyView()
+        case .opened:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9))
+                Text("Checkout opened in your browser.")
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(DS.Colors.accent)
+        case .error(let message):
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 9))
+                Text(message)
+                    .font(.system(size: 10))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundColor(DS.Colors.destructiveText)
+        }
+    }
+
     private var helperText: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Paste your OpenAI API key to skip the 15-minute trial. You'll be billed by OpenAI directly (~$0.06–0.10 per minute of voice).")
+            Text("Paste your OpenAI API key to use your own OpenAI billing for Realtime voice. Skilly still records usage totals for account support and abuse monitoring.")
                 .font(.system(size: 10))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -189,6 +281,7 @@ struct BYOKSection: View {
         let trimmed = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         status = .validating
+        planStatus = .idle
 
         Task {
             let result = await BYOKValidator.validate(key: trimmed)
@@ -208,6 +301,19 @@ struct BYOKSection: View {
         settings.openAIAPIKey = ""
         draftKey = ""
         status = .idle
+        planStatus = .idle
+    }
+
+    private func openBYOKCheckout() {
+        planStatus = .opening
+        Task {
+            let didOpen = await EntitlementManager.shared.startBYOKCheckout()
+            await MainActor.run {
+                planStatus = didOpen
+                    ? .opened
+                    : .error("Could not open checkout. Make sure you're signed in and try again.")
+            }
+        }
     }
 
     private func openOpenAIKeysPage() {

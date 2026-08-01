@@ -64,5 +64,9 @@ struct SubscriptionRequiredModal: View {
         .padding(24)
         .frame(width: 300)
         .background(DS.Colors.background)
+        .onAppear {
+            guard let userId = AuthManager.shared.currentUser?.id else { return }
+            SkillyAnalytics.trackPaywallShown(userId: userId, reason: "subscription_required")
+        }
     }
 }

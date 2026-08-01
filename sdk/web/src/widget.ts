@@ -7,6 +7,7 @@
 
 import { WIDGET_STYLES } from "./styles.js";
 import type { SkillyState } from "./types.js";
+import type { CursorHost } from "@skilly/browser-core";
 
 // Inline SVGs so the widget has zero asset dependencies.
 const SKILLY_MARK_ICON = /* html */ `
@@ -19,7 +20,7 @@ const CURSOR_ICON = /* html */ `
   <path d="M367 165c0-42 47-67 82-43l440 299c38 26 27 85-18 94l-118 24c-32 7-45 46-22 69l170 169c22 22 22 57 0 79l-77 77c-23 23-60 21-81-4L586 746c-20-24-56-27-80-8L425 801c-34 27-84 3-84-40V216c0-28 10-41 26-51Z" fill="currentColor"/>
 </svg>`;
 
-export class SkillyWidget {
+export class SkillyWidget implements CursorHost {
   private hostElement: HTMLDivElement;
   private shadowRoot: ShadowRoot;
   private launcherButton!: HTMLButtonElement;
@@ -27,6 +28,8 @@ export class SkillyWidget {
   private bubbleElement!: HTMLDivElement;
   private bubbleMessageElement!: HTMLDivElement;
   private cursorElement!: HTMLDivElement;
+  private confirmElement!: HTMLDivElement;
+  private pendingConfirm: { resolve: (confirmed: boolean) => void; timeoutId: number } | null = null;
   private idleLauncherLabel: string;
 
   // Current Skilly cursor position. The bubble is always positioned relative to
@@ -52,6 +55,7 @@ export class SkillyWidget {
     this.renderLauncher(accentColor);
     this.renderBubble();
     this.renderCursor();
+    this.renderConfirmChip();
   }
 
   /** Append the widget to the host page. */
@@ -111,6 +115,26 @@ export class SkillyWidget {
     this.shadowRoot.appendChild(this.cursorElement);
   }
 
+  private renderConfirmChip(): void {
+    this.confirmElement = document.createElement("div");
+    this.confirmElement.className = "skilly-confirm";
+    this.confirmElement.setAttribute("data-visible", "false");
+    this.confirmElement.innerHTML = /* html */ `
+      <div class="skilly-confirm-copy"></div>
+      <div class="skilly-confirm-actions">
+        <button class="skilly-confirm-button skilly-confirm-primary" type="button">Confirm</button>
+        <button class="skilly-confirm-button" type="button">Cancel</button>
+      </div>
+    `;
+    this.confirmElement
+      .querySelector<HTMLButtonElement>(".skilly-confirm-primary")
+      ?.addEventListener("click", () => this.finishActionConfirmation(true));
+    this.confirmElement
+      .querySelectorAll<HTMLButtonElement>(".skilly-confirm-button")[1]
+      ?.addEventListener("click", () => this.finishActionConfirmation(false));
+    this.shadowRoot.appendChild(this.confirmElement);
+  }
+
   /** Reflect the companion state on the launcher (drives the listening pulse). */
   setState(state: SkillyState): void {
     this.launcherButton.setAttribute("data-state", state);
@@ -148,6 +172,9 @@ export class SkillyWidget {
     this.skillyY = y;
     if (this.bubbleElement.getAttribute("data-visible") === "true") {
       this.repositionBubble();
+    }
+    if (this.confirmElement.getAttribute("data-visible") === "true") {
+      this.repositionConfirmChip();
     }
   }
 
@@ -198,8 +225,57 @@ export class SkillyWidget {
     this.cursorElement.setAttribute("data-visible", "false");
   }
 
+  showActionConfirmation(label: string): Promise<boolean> {
+    this.finishActionConfirmation(false);
+    const copy = this.confirmElement.querySelector<HTMLDivElement>(".skilly-confirm-copy");
+    if (copy) {
+      copy.textContent = `Let Skilly act on "${label}"?`;
+    }
+    this.repositionConfirmChip();
+    this.confirmElement.setAttribute("data-visible", "true");
+    return new Promise((resolve) => {
+      const timeoutId = window.setTimeout(() => this.finishActionConfirmation(false), 10_000);
+      this.pendingConfirm = { resolve, timeoutId };
+    });
+  }
+
+  cancelActionConfirmation(): void {
+    this.finishActionConfirmation(false);
+  }
+
+  private finishActionConfirmation(confirmed: boolean): void {
+    const pendingConfirm = this.pendingConfirm;
+    this.pendingConfirm = null;
+    this.confirmElement?.setAttribute("data-visible", "false");
+    if (!pendingConfirm) {
+      return;
+    }
+    window.clearTimeout(pendingConfirm.timeoutId);
+    pendingConfirm.resolve(confirmed);
+  }
+
+  private repositionConfirmChip(): void {
+    const chipWidth = Math.min(300, window.innerWidth - 32);
+    const chipHeight = this.confirmElement.offsetHeight || 76;
+    const edge = 16;
+    let x = this.skillyX + 22;
+    let y = this.skillyY + 42;
+
+    if (x + chipWidth > window.innerWidth - edge) {
+      x = this.skillyX - chipWidth - 22;
+    }
+    if (y + chipHeight > window.innerHeight - edge) {
+      y = this.skillyY - chipHeight - 16;
+    }
+
+    x = Math.max(edge, Math.min(window.innerWidth - chipWidth - edge, x));
+    y = Math.max(edge, Math.min(window.innerHeight - chipHeight - edge, y));
+    this.confirmElement.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
   /** Remove the widget and its shadow root from the page. */
   destroy(): void {
+    this.cancelActionConfirmation();
     this.hostElement.remove();
   }
 }

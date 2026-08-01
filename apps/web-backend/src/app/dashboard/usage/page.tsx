@@ -81,7 +81,7 @@ export default async function UsagePage() {
       />
 
       {/* Metric strip */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Metric
           label="Minutes used"
           value={usedMinutes}
@@ -90,6 +90,7 @@ export default async function UsagePage() {
         />
         <Metric label="Remaining" value={remainingMinutes === null ? "∞" : `${remainingMinutes} min`} foot={remainingMinutes === null ? "no cap" : "before minting blocks"} />
         <Metric label="Sessions" value={metrics.sessionCount} foot="this month" />
+        <Metric label="Actions" value={metrics.totalActions} foot="executed this month" />
         <Metric label="Avg session" value={metrics.sessionCount > 0 ? formatDuration(metrics.avgSessionSeconds) : "—"} foot={metrics.errorRate > 0 ? `${Math.round(metrics.errorRate * 100)}% error` : "healthy"} />
       </div>
 

@@ -6,6 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
 import { interpretSubscriptionEvent, verifyWebhookSignature } from "@/domain/billing";
 import { captureServerEvent } from "@/lib/analytics";
+import { upsertMacEntitlement } from "@/lib/macSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const activeCapSeconds = Number(process.env.POLAR_PLAN_CAP_SECONDS ?? DEFAULT_PLAN_CAP_SECONDS);
   const update = interpretSubscriptionEvent(event as Parameters<typeof interpretSubscriptionEvent>[0], activeCapSeconds);
+  const macUpdate = interpretMacByokSubscriptionEvent(event);
   if (update) {
     const repo = getRepo();
     await repo.setTenantUsageCap(update.tenantId, update.capSeconds);
@@ -67,11 +69,80 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       plan: update.plan,
       source_surface: "web_backend",
     });
-  } else {
+  }
+
+  if (macUpdate) {
+    await upsertMacEntitlement({
+      userId: macUpdate.userId,
+      email: macUpdate.email,
+      status: macUpdate.status,
+      entitlementType: "byok",
+      periodStart: macUpdate.periodStart,
+      periodEnd: macUpdate.periodEnd,
+      plan: "byok",
+      polarCustomerId: macUpdate.polarCustomerId,
+    });
+    await captureServerEvent("mac_byok_plan_updated", {
+      workos_user_id: macUpdate.userId,
+      status: macUpdate.status,
+      source_surface: "web_backend",
+    });
+  }
+
+  if (!update && !macUpdate) {
     await captureServerEvent("polar_webhook_ignored", {
       source_surface: "web_backend",
     });
   }
 
-  return NextResponse.json({ ok: true, applied: Boolean(update) }, { status: 200 });
+  return NextResponse.json({ ok: true, applied: Boolean(update || macUpdate) }, { status: 200 });
+}
+
+function interpretMacByokSubscriptionEvent(event: unknown): {
+  userId: string;
+  email?: string | null;
+  status: "active" | "canceled" | "none";
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  polarCustomerId?: string | null;
+} | null {
+  if (!event || typeof event !== "object") {
+    return null;
+  }
+
+  const eventRecord = event as Record<string, unknown>;
+  const type = typeof eventRecord.type === "string" ? eventRecord.type : null;
+  const data = recordOrNull(eventRecord.data);
+  const customer = recordOrNull(data?.customer);
+  const metadata = recordOrNull(data?.metadata) ?? recordOrNull(customer?.metadata);
+  if (!type || metadata?.surface !== "mac" || metadata?.plan !== "byok" || typeof metadata.macUserId !== "string") {
+    return null;
+  }
+
+  let status: "active" | "canceled" | "none" | null = null;
+  if (type === "subscription.created" || type === "subscription.active" || type === "subscription.updated") {
+    status = "active";
+  } else if (type === "subscription.canceled" || type === "subscription.revoked") {
+    status = "canceled";
+  }
+  if (!status) {
+    return null;
+  }
+
+  return {
+    userId: metadata.macUserId,
+    email: typeof metadata.email === "string" ? metadata.email : null,
+    status,
+    periodStart: stringOrNull(data?.current_period_start),
+    periodEnd: stringOrNull(data?.current_period_end),
+    polarCustomerId: stringOrNull(data?.customer_id) ?? stringOrNull(customer?.id),
+  };
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }

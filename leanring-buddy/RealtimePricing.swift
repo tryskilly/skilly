@@ -5,7 +5,7 @@ enum RealtimePricing {
     static let audioInputCostPerMillion: Double = 32.00
     static let audioOutputCostPerMillion: Double = 64.00
     static let textInputCostPerMillion: Double = 4.00
-    static let textOutputCostPerMillion: Double = 16.00
+    static let textOutputCostPerMillion: Double = 24.00  // gpt-realtime-2.1 text output (verified 2026-07-26)
     static let cachedInputCostPerMillion: Double = 0.40
 
     static func cost(

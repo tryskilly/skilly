@@ -1,0 +1,65 @@
+name: Browser Surfaces
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web-backend/**"
+      - "sdk/browser-core/**"
+      - "sdk/extension/**"
+      - "sdk/web/**"
+      - ".github/workflows/browser-surfaces.yml"
+  pull_request:
+    paths:
+      - "apps/web-backend/**"
+      - "sdk/browser-core/**"
+      - "sdk/extension/**"
+      - "sdk/web/**"
+      - ".github/workflows/browser-surfaces.yml"
+
+jobs:
+  browser-packages:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: sdk/browser-core
+            verify: bun test && bun run typecheck
+          - package: sdk/web
+            verify: bun test && bun run typecheck && bun run build
+          - package: apps/web-backend
+            verify: bun test && bun run typecheck
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.17
+      - run: bun install --frozen-lockfile
+      - name: Verify ${{ matrix.package }}
+        run: ${{ matrix.verify }}
+
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.17
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - run: bun run build:firefox
+      - name: Lint Firefox package
+        run: bunx web-ext lint --source-dir .output/firefox-mv3
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+      - name: Run extension end-to-end tests
+        run: xvfb-run --auto-servernum bun run test:e2e

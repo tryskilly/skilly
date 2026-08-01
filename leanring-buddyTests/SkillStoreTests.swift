@@ -3,7 +3,7 @@
 
 import Testing
 import Foundation
-@testable import leanring_buddy
+@testable import Skilly
 
 struct SkillStoreTests {
 

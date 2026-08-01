@@ -43,6 +43,34 @@
       "when": 1782124544505,
       "tag": "0005_tricky_unicorn",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783375477422,
+      "tag": "0006_bright_rawhide_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784994000000,
+      "tag": "0007_guest_session_cap",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784997120000,
+      "tag": "0008_mac_backend_parity",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785012600000,
+      "tag": "0009_mac_byok_telemetry",
+      "breakpoints": true
     }
   ]
 }

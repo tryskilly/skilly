@@ -33,6 +33,7 @@ export async function POST(): Promise<NextResponse> {
   }
 
   const usageSecondsThisPeriod = await repo.getUsageSecondsThisPeriod(tenant.id);
+  const widgetConfig = await repo.getWidgetConfig(tenant.id);
   const quotaInput = { usageSecondsThisPeriod, capSeconds: tenant.usageCapSeconds };
   if (isOverQuota(quotaInput)) {
     await captureServerEvent("dashboard_test_widget_token_rejected", {
@@ -45,7 +46,7 @@ export async function POST(): Promise<NextResponse> {
     return NextResponse.json({ error: "monthly usage quota reached" }, { status: 429 });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY ?? "";
+  const apiKey = process.env.OPENAI_API_KEY_DEMO ?? process.env.OPENAI_API_KEY_WEB ?? process.env.OPENAI_API_KEY ?? "";
   if (!apiKey) {
     return NextResponse.json({ error: "server is missing OPENAI_API_KEY" }, { status: 500 });
   }
@@ -62,6 +63,8 @@ export async function POST(): Promise<NextResponse> {
       clientSecret: token.clientSecret,
       expiresAt: token.expiresAt,
       model: token.model,
+      actionsEnabled: widgetConfig.actionsEnabled,
+      guestSessionCapSeconds: widgetConfig.guestSessionCapSeconds,
       remainingSeconds: remainingSeconds(quotaInput),
     });
   } catch (error) {

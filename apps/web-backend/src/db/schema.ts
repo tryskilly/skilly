@@ -87,6 +87,7 @@ export const usageEvents = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
     seconds: integer("seconds").notNull().default(0),
+    count: integer("count"),
     // v2 richer dimensions (nullable — additive; old rows + token_mint events
     // simply leave them null). Populated by session_seconds events from the SDK.
     page: text("page"),
@@ -96,6 +97,40 @@ export const usageEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("usage_events_tenant_time_idx").on(table.tenantId, table.createdAt)],
+);
+
+export const macEntitlements = pgTable("mac_entitlements", {
+  userId: text("user_id").primaryKey(),
+  email: text("email"),
+  status: text("status").notNull().default("none"),
+  entitlementType: text("entitlement_type").notNull().default("relay"),
+  periodStart: text("period_start"),
+  periodEnd: text("period_end"),
+  plan: text("plan"),
+  polarCustomerId: text("polar_customer_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const macUsageEvents = pgTable(
+  "mac_usage_events",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+    userId: text("user_id").notNull(),
+    email: text("email").notNull(),
+    seconds: integer("seconds").notNull().default(0),
+    result: text("result"),
+    source: text("source"),
+    model: text("model"),
+    audioInputTokens: integer("audio_input_tokens"),
+    audioOutputTokens: integer("audio_output_tokens"),
+    textInputTokens: integer("text_input_tokens"),
+    textOutputTokens: integer("text_output_tokens"),
+    cachedInputTokens: integer("cached_input_tokens"),
+    totalTokens: integer("total_tokens"),
+    estimatedCostUsd: text("estimated_cost_usd"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("mac_usage_events_user_time_idx").on(table.userId, table.createdAt)],
 );
 
 /** Per-tenant widget appearance/behavior config (accent, locale, launcher label). */
@@ -109,6 +144,8 @@ export const tenantWidgetConfigs = pgTable(
     accentColor: text("accent_color").notNull().default("#f59e0b"),
     locale: text("locale").notNull().default("en"),
     launcherLabel: text("launcher_label"),
+    actionsEnabled: boolean("actions_enabled").notNull().default(false),
+    guestSessionCapSeconds: integer("guest_session_cap_seconds").notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
 );

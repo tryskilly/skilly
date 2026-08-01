@@ -4,8 +4,11 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(import.meta.dirname ?? path.dirname(import.meta.url.replace("file://", "")), "../../..");
 const HOST_PORT = 4399;
+const DEMO_KEY = "pk_test_demolocaldemolocaldemolocal01";
+const ALLOWED_ORIGIN = "http://localhost:4399";
 
 test.describe.configure({ mode: "serial" });
+test.use({ storageState: "e2e/.auth/user.json" });
 
 test.describe("@skilly/web widget embed", () => {
   let server: ReturnType<typeof spawn>;
@@ -60,5 +63,34 @@ test.describe("@skilly/web widget embed", () => {
 
     // Wait for the bubble to show listening/thinking/speaking state.
     await expect(launcher.locator("css=.skilly-bubble")).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("token response reflects the Studio Actions toggle", async ({ page, request }) => {
+    await request.post("/api/reset-demo");
+
+    const tokenBefore = await request.post("/api/web/token", {
+      headers: {
+        "X-Skilly-Key": DEMO_KEY,
+        Origin: ALLOWED_ORIGIN,
+      },
+    });
+    expect(tokenBefore.status()).toBe(200);
+    expect((await tokenBefore.json()).actionsEnabled).toBe(false);
+
+    await page.goto("/dashboard/widget");
+    const actionsToggle = page.getByRole("switch").first();
+    await expect(actionsToggle).toHaveAttribute("aria-checked", "false");
+    await actionsToggle.click();
+    await page.getByRole("button", { name: /save widget config/i }).click();
+    await expect(page.getByText("Saved")).toBeVisible();
+
+    const tokenAfter = await request.post("/api/web/token", {
+      headers: {
+        "X-Skilly-Key": DEMO_KEY,
+        Origin: ALLOWED_ORIGIN,
+      },
+    });
+    expect(tokenAfter.status()).toBe(200);
+    expect((await tokenAfter.json()).actionsEnabled).toBe(true);
   });
 });

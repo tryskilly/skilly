@@ -24,6 +24,29 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(workerBaseURL, forKey: "workerBaseURL") }
     }
 
+    /// Base URL for Studio's Mac compatibility APIs. This is separate from
+    /// workerBaseURL because WorkOS auth and Polar checkout still live on the
+    /// Worker during the migration.
+    @Published var studioBackendBaseURL: String {
+        didSet { UserDefaults.standard.set(studioBackendBaseURL, forKey: "studioBackendBaseURL") }
+    }
+
+    /// When enabled, the Mac app tries Studio's Mac API routes first for
+    /// Realtime token minting, entitlement reads, and usage telemetry. Every
+    /// customer-critical path keeps Worker fallback.
+    @Published var useStudioMacBackend: Bool {
+        didSet { UserDefaults.standard.set(useStudioMacBackend, forKey: "useStudioMacBackend") }
+    }
+
+    #if DEBUG
+    /// Skilly Dev only: override the Realtime model requested from the worker.
+    /// Empty = server default. Sent as `?model=` to /openai/token; the worker only
+    /// honors allow-listed ids. Lets the Dev build canary-test gpt-realtime-2.1-mini.
+    @Published var debugRealtimeModel: String {
+        didSet { UserDefaults.standard.set(debugRealtimeModel, forKey: "debugRealtimeModel") }
+    }
+    #endif
+
     /// PostHog analytics API key. Set to empty string to disable analytics entirely.
     @Published var postHogAPIKey: String {
         didSet { UserDefaults.standard.set(postHogAPIKey, forKey: "postHogAPIKey") }
@@ -37,6 +60,12 @@ final class AppSettings: ObservableObject {
     /// (plaintext on disk). The user is billed by OpenAI for usage.
     @Published var openAIAPIKey: String {
         didSet { UserDefaults.standard.set(openAIAPIKey, forKey: "openAIAPIKey") }
+    }
+
+    /// Off-by-default migration switch. When enabled, BYOK users must also
+    /// have an active Skilly BYOK platform plan before starting turns.
+    @Published var requireBYOKSubscription: Bool {
+        didSet { UserDefaults.standard.set(requireBYOKSubscription, forKey: "requireBYOKSubscription") }
     }
 
     /// True when the user has provided their own OpenAI key.
@@ -159,9 +188,16 @@ final class AppSettings: ObservableObject {
         // Skilly — Configurable endpoints
         self.workerBaseURL = UserDefaults.standard.string(forKey: "workerBaseURL")
             ?? "https://skilly-proxy.eng-mohamedszaied.workers.dev"
+        self.studioBackendBaseURL = UserDefaults.standard.string(forKey: "studioBackendBaseURL")
+            ?? "https://studio.tryskilly.app"
+        self.useStudioMacBackend = UserDefaults.standard.bool(forKey: "useStudioMacBackend")
+        #if DEBUG
+        self.debugRealtimeModel = UserDefaults.standard.string(forKey: "debugRealtimeModel") ?? ""
+        #endif
 
         // BYOK — load user-supplied OpenAI key if previously saved.
         self.openAIAPIKey = UserDefaults.standard.string(forKey: "openAIAPIKey") ?? ""
+        self.requireBYOKSubscription = UserDefaults.standard.bool(forKey: "requireBYOKSubscription")
 
         // PostHog key — migrate any stale cached keys to the current default.
         let currentPostHogKey = "phc_D46KQXyPXhmRabFDiL3KUZTWJcmjyqhpGJfpH7H48Sso"
@@ -181,9 +217,14 @@ final class AppSettings: ObservableObject {
             : UserDefaults.standard.bool(forKey: "analyticsEnabled")
         self.beta_terms_consent = UserDefaults.standard.bool(forKey: "beta_terms_consent")
 
-        // Skilly — External assets
-        self.onboardingVideoURL = UserDefaults.standard.string(forKey: "onboardingVideoURL")
-            ?? "https://stream.mux.com/e5jB8UuSrtFABVnTHCR7k3sIsmcUHCyhtLu1tzqLlfs.m3u8"
+        // Skilly — External assets. The onboarding video was the fork's (Clicky's) Mux
+        // stream and describes Clicky, not Skilly. Remove it for good: default to empty
+        // (skip the video), and migrate any existing user who still has the Clicky URL cached.
+        let clickyOnboardingURL = "https://stream.mux.com/e5jB8UuSrtFABVnTHCR7k3sIsmcUHCyhtLu1tzqLlfs.m3u8"
+        let cachedOnboardingURL = UserDefaults.standard.string(forKey: "onboardingVideoURL")
+        self.onboardingVideoURL = (cachedOnboardingURL == nil || cachedOnboardingURL == clickyOnboardingURL)
+            ? ""
+            : cachedOnboardingURL!
 
         // Language
         let systemLanguage = Locale.current.language.languageCode?.identifier ?? "en"

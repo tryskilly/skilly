@@ -40,7 +40,7 @@ enum EntitlementStatus: Sendable {
 // MARK: - Entitlement Record (from Worker KV)
 
 struct EntitlementRecord: Codable {
-    let user_id: String
+    let user_id: String?
     let status: String
     let period_start: String?
     let period_end: String?
@@ -53,8 +53,23 @@ struct EntitlementRecord: Codable {
     }()
 
     /// Parse an ISO 8601 date string, trying with and without fractional seconds.
-    private static func parseISO8601(_ string: String) -> Date? {
-        iso8601Formatter.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+    ///
+    /// Foundation's ISO8601DateFormatter only accepts up to millisecond (3-digit)
+    /// fractional seconds and returns nil on more. Polar emits `current_period_end`
+    /// with MICROSECOND precision (e.g. "2026-08-23T12:06:03.691165Z"), which made
+    /// an active subscription parse to nil -> read as .none -> the paying user was
+    /// locked out. The worker now normalises to milliseconds, but we truncate here
+    /// too so no upstream date-precision change can ever gate access again.
+    static func parseISO8601(_ string: String) -> Date? {
+        if let date = iso8601Formatter.date(from: string) ?? ISO8601DateFormatter().date(from: string) {
+            return date
+        }
+        // Truncate sub-millisecond fractional digits (4+ -> 3), then retry.
+        let truncated = string.replacingOccurrences(
+            of: #"\.(\d{3})\d+"#, with: ".$1", options: .regularExpression
+        )
+        guard truncated != string else { return nil }
+        return iso8601Formatter.date(from: truncated) ?? ISO8601DateFormatter().date(from: truncated)
     }
 
     var parsedStatus: EntitlementStatus {
@@ -90,6 +105,8 @@ final class EntitlementManager: ObservableObject {
         AppSettings.shared.workerBaseURL
     }
 
+    private let userDefaults = UserDefaults.standard
+
     private init() {}
 
     // MARK: - Fetch
@@ -106,26 +123,84 @@ final class EntitlementManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            guard let url = URL(string: "\(workerBaseURL)/entitlement?user_id=\(userId)") else { return }
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: forContentType)
-            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
-                status = .none
-                return
-            }
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let record = try JSONDecoder().decode(EntitlementRecord.self, from: data)
+            let record = try await fetchEntitlementRecord(userId: userId)
 
             applyEntitlementRecord(record)
 
             if case .active = status {
                 TrialTracker.shared.recordConversionToPaid()
+                trackSubscriptionActivatedIfNeeded(userId: userId)
             }
         } catch {
             // Network failure: leave existing status unchanged
         }
+    }
+
+    private func fetchEntitlementRecord(userId: String) async throws -> EntitlementRecord {
+        if AppSettings.shared.useStudioMacBackend,
+           let studioURL = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/entitlement?user_id=\(userId)"),
+           let studioRecord = try? await fetchEntitlementRecord(from: studioURL) {
+            if studioRecord.status != "none" {
+                return studioRecord
+            }
+        }
+
+        guard let workerURL = URL(string: "\(workerBaseURL)/entitlement?user_id=\(userId)") else {
+            throw URLError(.badURL)
+        }
+        return try await fetchEntitlementRecord(from: workerURL)
+    }
+
+    private func fetchEntitlementRecord(from url: URL) async throws -> EntitlementRecord {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: forContentType)
+        guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+            throw URLError(.userAuthenticationRequired)
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(EntitlementRecord.self, from: data)
+    }
+
+    // MARK: - Skilly — v2.1: the paid-conversion event was never wired up.
+    //
+    // SkillyAnalytics.trackSubscriptionActivated() existed since launch but had
+    // ZERO callers: startPostCheckoutPolling() detected the active subscription
+    // and only did a `#if DEBUG print`, so in a release build the moment a
+    // customer paid emitted nothing. skilly_subscription_activated had never
+    // fired once (PostHog, 120d, checked 2026-07-16) — which also meant the
+    // weekly "checkout_started without subscription_activated" grep could never
+    // return anything but 100% unconverted.
+    //
+    // Fired from refresh() because that is the one path every activation routes
+    // through: app launch, checkout return, and the 5s post-checkout poll all
+    // call it. TrialTracker.recordConversionToPaid() deliberately stays as-is —
+    // it is gated on hasRecordedTrialStarted because trial_converted_to_paid is
+    // specifically a *trial* metric. This event is not: someone who pays without
+    // ever starting a trial is still an activation.
+
+    /// Fires `skilly_subscription_activated` exactly once per user.
+    private func trackSubscriptionActivatedIfNeeded(userId: String) {
+        guard Self.claimActivationLatch(userDefaults: userDefaults, userId: userId) else { return }
+        SkillyAnalytics.trackSubscriptionActivated(userId: userId)
+    }
+
+    /// Returns `true` exactly once per (defaults, userId); the caller then fires.
+    ///
+    /// refresh() runs on every launch and every 5s while polling, so without a
+    /// *persisted* latch this event would re-fire forever. Keyed per user (same
+    /// shape as TrialTracker's milestone flags) so a different account signing in
+    /// on the same Mac still records its own activation.
+    static func claimActivationLatch(userDefaults: UserDefaults, userId: String) -> Bool {
+        let key = "entitlement_milestone_activated_\(userId)"
+        guard !userDefaults.bool(forKey: key) else { return false }
+        userDefaults.set(true, forKey: key)
+        return true
     }
 
     // MARK: - Apply Record
@@ -167,6 +242,20 @@ final class EntitlementManager: ObservableObject {
 
     /// Returns (allowed, reason). Call before starting any billable turn.
     func canStartTurn() -> (allowed: Bool, reason: BlockReason?) {
+        // MARK: - Skilly — BYOK platform fee gate, disabled by default during rollout.
+        if AppSettings.shared.hasOwnAPIKey && AppSettings.shared.requireBYOKSubscription {
+            switch status {
+            case .active:
+                return (true, nil)
+            case .canceled(let accessUntil) where accessUntil > Date():
+                return (true, nil)
+            case .expired:
+                return (false, .expired)
+            default:
+                return (false, .subscriptionInactive)
+            }
+        }
+
         // MARK: - Skilly — Prefer shared Rust policy when available.
         if let rustDecision = RustPolicyBridge.shared.canStartTurn(
             userID: AuthManager.shared.currentUser?.id,
@@ -214,6 +303,83 @@ final class EntitlementManager: ObservableObject {
 
         case .expired:
             return (false, .expired)
+        }
+    }
+
+    /// Opens the Mac BYOK platform-fee checkout in the default browser.
+    func startBYOKCheckout() async -> Bool {
+        guard AuthManager.shared.isAuthenticated else {
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "mac_byok_checkout_start",
+                errorCode: "missing_auth_state",
+                errorMessage: "isAuthenticated=\(AuthManager.shared.isAuthenticated)",
+                surface: "byok_settings"
+            )
+            return false
+        }
+
+        do {
+            guard let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/byok/checkout") else {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout_start",
+                    errorCode: "invalid_studio_url",
+                    errorMessage: AppSettings.shared.studioBackendBaseURL,
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout_start",
+                    errorCode: "no_session_token",
+                    errorMessage: "applyWorkerSessionAuthorization returned false",
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            let (data, urlResponse) = try await URLSession.shared.data(for: request)
+            let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? -1
+            guard (200...299).contains(statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "unknown"
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout",
+                    httpStatus: statusCode,
+                    errorCode: statusCode == 401 ? "studio_session_stale" : "non_2xx_from_studio",
+                    errorMessage: body,
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            struct CheckoutResponse: Codable { let url: String? }
+            let decoded = try JSONDecoder().decode(CheckoutResponse.self, from: data)
+            guard let checkoutURLString = decoded.url,
+                  let checkoutURL = URL(string: checkoutURLString) else {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "mac_byok_checkout",
+                    errorCode: "malformed_checkout_url",
+                    errorMessage: decoded.url ?? "nil",
+                    surface: "byok_settings"
+                )
+                return false
+            }
+
+            NSWorkspace.shared.open(checkoutURL)
+            startPostCheckoutPolling()
+            return true
+        } catch {
+            SkillyAnalytics.trackSilentFailure(
+                subsystem: "mac_byok_checkout",
+                errorCode: "exception",
+                errorMessage: String(describing: error),
+                surface: "byok_settings"
+            )
+            return false
         }
     }
 

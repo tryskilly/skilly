@@ -6,8 +6,9 @@
 //
 
 import Testing
-@testable import leanring_buddy
+@testable import Skilly
 
+@MainActor
 struct leanring_buddyTests {
 
     @Test func firstPermissionRequestUsesSystemPromptOnly() async throws {

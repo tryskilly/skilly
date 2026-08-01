@@ -26,6 +26,8 @@ interface Env {
   WORKOS_REDIRECT_URI: string;
   SESSION_TOKEN_SECRET: string;
   OPENAI_API_KEY: string;
+  OPENAI_API_KEY_MAC?: string;
+  OPENAI_REALTIME_MODEL?: string; // override to A/B a cheaper model, e.g. "gpt-realtime-mini"
   POLAR_API_KEY: string;
   POLAR_WEBHOOK_SECRET: string;
   POLAR_BETA_PRODUCT_ID: string;
@@ -38,7 +40,11 @@ interface Env {
 }
 
 const OPENAI_REALTIME_MODEL = "gpt-realtime";
-const SESSION_TOKEN_TTL_SECONDS = 60 * 60 * 12;
+const OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
+// 30 days. Was 12h, which forced daily re-auth on old apps that don't auto-refresh
+// the session token (pre-2.2). Entitlement is still checked per-request via KV, so a
+// longer-lived auth token only changes re-auth frequency, not access control.
+const SESSION_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 const POLAR_WEBHOOK_MAX_SKEW_SECONDS = 60 * 5;
 
 interface AuthenticatedSession {
@@ -46,6 +52,12 @@ interface AuthenticatedSession {
   email: string;
   issuedAt: number;
   expiresAt: number;
+}
+
+interface OpenAIRealtimeToken {
+  clientSecret: string;
+  expiresAt: number;
+  model: string;
 }
 
 export default {
@@ -119,7 +131,7 @@ export default {
           if (!authenticatedSession) {
             return unauthorizedResponse();
           }
-          return await handleOpenAIToken(env, authenticatedSession);
+          return await handleOpenAIToken(env, authenticatedSession, url.searchParams.get("model"));
         }
       }
     } catch (error) {
@@ -637,24 +649,24 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
  * Mints a short-lived OpenAI Realtime client secret for an authenticated app user.
  * The raw OpenAI API key never leaves the Worker.
  */
-async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedSession): Promise<Response> {
-  if (!env.OPENAI_API_KEY) {
+async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedSession, requestedModel?: string | null): Promise<Response> {
+  if (!env.OPENAI_API_KEY_MAC && !env.OPENAI_API_KEY) {
     return new Response(
       JSON.stringify({ error: "OpenAI API key not configured" }),
       { status: 500, headers: { "content-type": "application/json" } }
     );
   }
 
-  // Return the API key directly for WebSocket auth. The endpoint is
-  // protected by session token authentication so only signed-in users
-  // can access it. Ephemeral client secrets (POST /v1/realtime/client_secrets)
-  // are the ideal approach but don't yet support all Realtime models.
+  const token = await mintOpenAIRealtimeTokenWithFallback(env, requestedModel);
+  if ("error" in token) {
+    return new Response(
+      JSON.stringify(token),
+      { status: 502, headers: { "content-type": "application/json" } }
+    );
+  }
+
   return new Response(
-    JSON.stringify({
-      clientSecret: env.OPENAI_API_KEY,
-      expiresAt: Math.floor(Date.now() / 1000) + 3600,
-      model: OPENAI_REALTIME_MODEL,
-    }),
+    JSON.stringify(token),
     {
       status: 200,
       headers: {
@@ -663,6 +675,78 @@ async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedS
       },
     }
   );
+}
+
+// Clients may request a specific model via ?model=. Only allow-listed ids are honored
+// (so a caller can't inject an arbitrary/expensive model); anything else falls back to the
+// configured default. Used by the "Skilly Dev" build to canary-test gpt-realtime-2.1-mini.
+const ALLOWED_REALTIME_MODELS = ["gpt-realtime", "gpt-realtime-2.1", "gpt-realtime-2.1-mini"];
+
+async function mintOpenAIRealtimeTokenWithFallback(env: Env, requestedModel?: string | null): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
+  const model = (requestedModel && ALLOWED_REALTIME_MODELS.includes(requestedModel))
+    ? requestedModel
+    : (env.OPENAI_REALTIME_MODEL || OPENAI_REALTIME_MODEL);
+  if (env.OPENAI_API_KEY_MAC) {
+    const macToken = await mintOpenAIRealtimeToken(env.OPENAI_API_KEY_MAC, model);
+    if (!("error" in macToken)) {
+      return macToken;
+    }
+    if (env.OPENAI_API_KEY) {
+      console.error("[/openai/token] OPENAI_API_KEY_MAC mint failed; falling back to OPENAI_API_KEY");
+    } else {
+      return macToken;
+    }
+  }
+  return mintOpenAIRealtimeToken(env.OPENAI_API_KEY, model);
+}
+
+async function mintOpenAIRealtimeToken(apiKey: string, model: string): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
+  let mint: Response;
+  try {
+    // Mint a short-lived ephemeral client secret so the raw OPENAI_API_KEY never
+    // leaves the Worker. The app connects its Realtime WebSocket with this
+    // secret as the Bearer — identical to the BYOK path in the macOS app.
+    mint = await fetch(OPENAI_CLIENT_SECRETS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ session: { type: "realtime", model } }),
+    });
+  } catch (error) {
+    return { error: "OpenAI client_secrets request failed", detail: String(error) };
+  }
+
+  if (!mint.ok) {
+    return {
+      error: `OpenAI client_secrets returned ${mint.status}`,
+      detail: await mint.text(),
+    };
+  }
+
+  // GA endpoint returns { value, expires_at }; tolerate the older nested shape.
+  let payload: {
+    value?: string;
+    client_secret?: { value?: string; expires_at?: number };
+    expires_at?: number;
+  };
+  try {
+    payload = await mint.json();
+  } catch (error) {
+    return { error: "OpenAI response was not valid JSON", detail: String(error) };
+  }
+
+  const clientSecret = payload.value ?? payload.client_secret?.value;
+  if (!clientSecret) {
+    return { error: "OpenAI response missing client secret" };
+  }
+
+  return {
+    clientSecret,
+    expiresAt: payload.expires_at ?? payload.client_secret?.expires_at ?? Math.floor(Date.now() / 1000) + 3600,
+    model,
+  };
 }
 
 interface CheckoutPayload {
@@ -676,6 +760,20 @@ interface EntitlementData {
   period_start?: string;
   period_end?: string;
   plan?: string;
+}
+
+/// Normalise an ISO date to millisecond precision before it enters the
+/// entitlement record. Polar sends `current_period_end` with MICROSECOND
+/// precision (e.g. "2026-08-23T12:06:03.691165Z"), and Apple's
+/// ISO8601DateFormatter (used by the Mac app to gate access) returns nil on
+/// 6-digit fractional seconds — so an active subscription was read as .none
+/// and the paying user was locked out. `new Date(...).toISOString()` always
+/// emits exactly 3 fractional digits, which the app parses. Empty/unparseable
+/// input passes through unchanged.
+function toMillisIso(value: string | null | undefined): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 }
 
 interface PolarWebhookEvent {
@@ -821,6 +919,27 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
 
   const userId = event.data.metadata?.user_id;
   if (!userId) {
+    // MARK: - Skilly — Pay-but-no-access guard. The entitlement KV is keyed by
+    // user:${userId}, so a subscription lifecycle event with no metadata.user_id
+    // means a paying customer would silently get NO access. Alert loudly (with the
+    // customer email so it can be reconciled by hand) instead of swallowing it.
+    // We still return 200 so Polar doesn't retry a condition that won't self-heal.
+    // ponytail: manual reconcile for now; add an email→user_id lookup if this fires often.
+    const LIFECYCLE_EVENTS = new Set([
+      "subscription.created",
+      "subscription.active",
+      "subscription.updated",
+      "subscription.canceled",
+      "subscription.revoked",
+    ]);
+    if (LIFECYCLE_EVENTS.has(event.type)) {
+      await trackSilentFailureFromWorker(env, {
+        subsystem: "polar_webhook",
+        errorCode: "missing_user_id_metadata",
+        errorMessage: `${event.type} for ${event.data.customer_email || "unknown email"} had no metadata.user_id — entitlement NOT granted`,
+        surface: "worker_webhook",
+      });
+    }
     return new Response("ok", { status: 200 });
   }
 
@@ -834,7 +953,7 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
         user_id: userId,
         status: "active",
         period_start: new Date().toISOString(),
-        period_end: event.data.current_period_end ?? "",
+        period_end: toMillisIso(event.data.current_period_end),
         plan: "beta_19",
       };
       break;
@@ -844,7 +963,7 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
       record = {
         user_id: userId,
         status: "canceled",
-        period_end: event.data.current_period_end ?? "",
+        period_end: toMillisIso(event.data.current_period_end),
         plan: "beta_19",
       };
       break;
@@ -855,7 +974,7 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
         user_id: userId,
         status: existing?.status ?? "active",
         period_start: existing?.period_start ?? new Date().toISOString(),
-        period_end: event.data.current_period_end ?? "",
+        period_end: toMillisIso(event.data.current_period_end),
         plan: "beta_19",
       };
       break;

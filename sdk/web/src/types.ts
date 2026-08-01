@@ -41,6 +41,11 @@ export interface SkillyConfig {
   /** Backend base URL that mints runtime tokens + serves the tenant skill. */
   backendUrl?: string;
   /**
+   * Enables demo-mode actions. In live mode the server widget config enables
+   * actions, while `false` remains a hard local kill-switch.
+   */
+  actions?: boolean;
+  /**
    * Controls where the response bubble appears when the cursor is pointing.
    * "follow" (default) — bubble floats near the cursor tip after it lands.
    * "fixed" — bubble stays above the launcher in the bottom-right corner.

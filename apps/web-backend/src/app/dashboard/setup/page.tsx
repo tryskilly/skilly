@@ -147,6 +147,8 @@ export default async function SetupPage() {
                   initialAccentColor={config.accentColor}
                   initialLocale={config.locale}
                   initialLauncherLabel={config.launcherLabel ?? ""}
+                  initialActionsEnabled={config.actionsEnabled}
+                  initialGuestSessionCapSeconds={config.guestSessionCapSeconds}
                 />
               </PanelBody>
             </Panel>

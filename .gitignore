@@ -59,3 +59,8 @@ sdk/web-cdn-public/
 
 # Local Netlify folder
 .netlify
+.vercel
+
+# Internal agent working docs — may contain customer PII. This repo is PUBLIC.
+# Keep local-only (same rule as skilly-videos).
+.agents/

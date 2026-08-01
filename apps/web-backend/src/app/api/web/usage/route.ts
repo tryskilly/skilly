@@ -12,6 +12,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_REPORTED_SECONDS = 3600; // clamp a single report to one hour
+const MAX_ACTION_COUNT = 100;
+
+function clampReportedActionCount(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(MAX_ACTION_COUNT, Math.round(value)));
+}
 
 export function OPTIONS(request: NextRequest): NextResponse {
   return new NextResponse(null, { status: 204, headers: corsHeaders(extractOrigin(request)) });
@@ -21,7 +29,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const origin = extractOrigin(request);
   const headers = corsHeaders(origin);
 
-  const auth = await authenticateWebRequest(getRepo(), {
+  const repo = getRepo();
+  const auth = await authenticateWebRequest(repo, {
     rawKey: extractKey(request),
     origin,
     appId: extractAppId(request),
@@ -39,12 +48,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = (await request.json().catch(() => ({}))) as {
     seconds?: unknown;
     endUserId?: unknown;
+    actionsExecuted?: unknown;
+    actionsRefused?: unknown;
     page?: unknown;
     domain?: unknown;
     durationSeconds?: unknown;
     result?: unknown;
   };
   const seconds = Math.max(0, Math.min(MAX_REPORTED_SECONDS, Math.round(Number(body.seconds) || 0)));
+  const actionsExecuted = clampReportedActionCount(body.actionsExecuted);
+  const actionsRefused = clampReportedActionCount(body.actionsRefused);
   const endUserId = typeof body.endUserId === "string" ? body.endUserId.trim().slice(0, 128) : "";
   // v2 richer dimensions (validated + length-capped; all optional).
   const page = typeof body.page === "string" ? body.page.trim().slice(0, 512) || null : null;
@@ -59,7 +72,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? (body.result as "completed" | "mic_denied" | "error" | "quota")
       : null;
 
-  await getRepo().recordUsage({
+  await repo.recordUsage({
     tenantId: auth.tenant.id,
     kind: "session_seconds",
     seconds,
@@ -68,12 +81,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     durationSeconds,
     result,
   });
+  if (actionsExecuted > 0) {
+    await repo.recordUsage({
+      tenantId: auth.tenant.id,
+      kind: "action",
+      seconds: 0,
+      count: actionsExecuted,
+      page,
+      domain,
+    });
+  }
   await captureServerEvent("web_sdk_session_usage_reported", {
     tenant_id: auth.tenant.id,
     end_user_id: endUserId || undefined,
     end_user_identified: Boolean(endUserId),
     seconds,
+    actions_executed: actionsExecuted,
+    actions_refused: actionsRefused,
     source_surface: "web_backend",
   });
+  if (actionsExecuted > 0 || actionsRefused > 0) {
+    await captureServerEvent("web_action_usage_reported", {
+      tenant_id: auth.tenant.id,
+      end_user_id: endUserId || undefined,
+      end_user_identified: Boolean(endUserId),
+      actions_executed: actionsExecuted,
+      actions_refused: actionsRefused,
+      source_surface: "web_backend",
+    });
+  }
   return NextResponse.json({ ok: true, recordedSeconds: seconds }, { status: 200, headers });
 }

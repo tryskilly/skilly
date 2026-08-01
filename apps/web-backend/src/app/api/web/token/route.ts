@@ -15,6 +15,13 @@ export function OPTIONS(request: NextRequest): NextResponse {
   return new NextResponse(null, { status: 204, headers: corsHeaders(extractOrigin(request)) });
 }
 
+function selectOpenAIAPIKey(rawKey: string | null): string {
+  if (rawKey?.startsWith("pk_test_") && process.env.OPENAI_API_KEY_DEMO) {
+    return process.env.OPENAI_API_KEY_DEMO;
+  }
+  return process.env.OPENAI_API_KEY_WEB ?? process.env.OPENAI_API_KEY ?? "";
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const origin = extractOrigin(request);
   const rawKey = extractKey(request);
@@ -26,7 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     rawKey,
     origin,
     appId,
-    openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+    openaiApiKey: selectOpenAIAPIKey(rawKey),
   });
   await captureServerEvent("web_sdk_token_mint_finished", {
     tenant_id: outcome.tenantId,
