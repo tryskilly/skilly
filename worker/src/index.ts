@@ -41,7 +41,10 @@ interface Env {
 
 const OPENAI_REALTIME_MODEL = "gpt-realtime";
 const OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
-const SESSION_TOKEN_TTL_SECONDS = 60 * 60 * 12;
+// 30 days. Was 12h, which forced daily re-auth on old apps that don't auto-refresh
+// the session token (pre-2.2). Entitlement is still checked per-request via KV, so a
+// longer-lived auth token only changes re-auth frequency, not access control.
+const SESSION_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 const POLAR_WEBHOOK_MAX_SKEW_SECONDS = 60 * 5;
 
 interface AuthenticatedSession {
@@ -128,7 +131,7 @@ export default {
           if (!authenticatedSession) {
             return unauthorizedResponse();
           }
-          return await handleOpenAIToken(env, authenticatedSession);
+          return await handleOpenAIToken(env, authenticatedSession, url.searchParams.get("model"));
         }
       }
     } catch (error) {
@@ -646,7 +649,7 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
  * Mints a short-lived OpenAI Realtime client secret for an authenticated app user.
  * The raw OpenAI API key never leaves the Worker.
  */
-async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedSession): Promise<Response> {
+async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedSession, requestedModel?: string | null): Promise<Response> {
   if (!env.OPENAI_API_KEY_MAC && !env.OPENAI_API_KEY) {
     return new Response(
       JSON.stringify({ error: "OpenAI API key not configured" }),
@@ -654,7 +657,7 @@ async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedS
     );
   }
 
-  const token = await mintOpenAIRealtimeTokenWithFallback(env);
+  const token = await mintOpenAIRealtimeTokenWithFallback(env, requestedModel);
   if ("error" in token) {
     return new Response(
       JSON.stringify(token),
@@ -674,8 +677,15 @@ async function handleOpenAIToken(env: Env, _authenticatedSession: AuthenticatedS
   );
 }
 
-async function mintOpenAIRealtimeTokenWithFallback(env: Env): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
-  const model = env.OPENAI_REALTIME_MODEL || OPENAI_REALTIME_MODEL;
+// Clients may request a specific model via ?model=. Only allow-listed ids are honored
+// (so a caller can't inject an arbitrary/expensive model); anything else falls back to the
+// configured default. Used by the "Skilly Dev" build to canary-test gpt-realtime-2.1-mini.
+const ALLOWED_REALTIME_MODELS = ["gpt-realtime", "gpt-realtime-2.1", "gpt-realtime-2.1-mini"];
+
+async function mintOpenAIRealtimeTokenWithFallback(env: Env, requestedModel?: string | null): Promise<OpenAIRealtimeToken | { error: string; detail?: string }> {
+  const model = (requestedModel && ALLOWED_REALTIME_MODELS.includes(requestedModel))
+    ? requestedModel
+    : (env.OPENAI_REALTIME_MODEL || OPENAI_REALTIME_MODEL);
   if (env.OPENAI_API_KEY_MAC) {
     const macToken = await mintOpenAIRealtimeToken(env.OPENAI_API_KEY_MAC, model);
     if (!("error" in macToken)) {
@@ -909,6 +919,27 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
 
   const userId = event.data.metadata?.user_id;
   if (!userId) {
+    // MARK: - Skilly — Pay-but-no-access guard. The entitlement KV is keyed by
+    // user:${userId}, so a subscription lifecycle event with no metadata.user_id
+    // means a paying customer would silently get NO access. Alert loudly (with the
+    // customer email so it can be reconciled by hand) instead of swallowing it.
+    // We still return 200 so Polar doesn't retry a condition that won't self-heal.
+    // ponytail: manual reconcile for now; add an email→user_id lookup if this fires often.
+    const LIFECYCLE_EVENTS = new Set([
+      "subscription.created",
+      "subscription.active",
+      "subscription.updated",
+      "subscription.canceled",
+      "subscription.revoked",
+    ]);
+    if (LIFECYCLE_EVENTS.has(event.type)) {
+      await trackSilentFailureFromWorker(env, {
+        subsystem: "polar_webhook",
+        errorCode: "missing_user_id_metadata",
+        errorMessage: `${event.type} for ${event.data.customer_email || "unknown email"} had no metadata.user_id — entitlement NOT granted`,
+        surface: "worker_webhook",
+      });
+    }
     return new Response("ok", { status: 200 });
   }
 

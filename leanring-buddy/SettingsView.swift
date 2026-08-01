@@ -182,6 +182,27 @@ struct SettingsView: View {
                     .font(.system(size: 10))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                #if DEBUG
+                Divider().padding(.vertical, 4)
+                Text("Realtime model (Dev build)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Picker("", selection: Binding(
+                    get: { AppSettings.shared.debugRealtimeModel },
+                    set: { AppSettings.shared.debugRealtimeModel = $0 }
+                )) {
+                    Text("Server default").tag("")
+                    Text("Full — gpt-realtime").tag("gpt-realtime")
+                    Text("Mini — gpt-realtime-2.1-mini").tag("gpt-realtime-2.1-mini")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                Text("Sends ?model= to the worker (allow-listed only). Start a new voice session to apply.")
+                    .font(.system(size: 10))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                #endif
             }
         }
     }
