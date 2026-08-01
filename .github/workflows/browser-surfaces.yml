@@ -61,4 +61,5 @@ jobs:
         run: bunx web-ext lint --source-dir .output/firefox-mv3
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
-      - run: bun run test:e2e
+      - name: Run extension end-to-end tests
+        run: xvfb-run --auto-servernum bun run test:e2e
