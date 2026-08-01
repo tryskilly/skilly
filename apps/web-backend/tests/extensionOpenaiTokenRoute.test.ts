@@ -1,22 +1,20 @@
-import { afterEach, beforeEach, describe, expect, test, mock } from "bun:test";
-import * as realOpenaiToken from "@/domain/openaiToken";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { TokenMintError } from "@/domain/openaiToken";
 import { mintExtensionSessionToken } from "@/lib/extensionSession";
+import {
+  handleExtensionOpenAITokenRequest,
+  type ExtensionOpenAITokenDependencies,
+} from "@/lib/extensionOpenaiTokenRoute";
 
-// Spread the real exports before overriding — see the comment in extensionEntitlementRoute.test.ts.
-// Keeping the real TokenMintError class (rather than redeclaring a lookalike) matters here
-// specifically: the route branches on `error instanceof TokenMintError`, and a second class
-// identity would silently make that check always false.
-mock.module("@/domain/openaiToken", () => ({
-  ...realOpenaiToken,
+const dependencies: ExtensionOpenAITokenDependencies = {
   mintRealtimeToken: async () => {
     if (process.env.OPENAI_API_KEY_EXTENSION === "sk-upstream-failure") {
-      throw new realOpenaiToken.TokenMintError("OpenAI rejected the mint", 429);
+      throw new TokenMintError("OpenAI rejected the mint", 429);
     }
     return { clientSecret: "ek_test_123", expiresAt: Math.floor(Date.now() / 1000) + 60, model: "gpt-realtime" };
   },
-}));
-
-const { GET } = await import("@/app/api/extension/openai/token/route");
+  captureServerEvent: async () => undefined,
+};
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -37,13 +35,16 @@ describe("GET /api/extension/openai/token", () => {
   });
 
   test("returns 401 with no Authorization header", async () => {
-    const response = await GET(new Request("https://example.com/api/extension/openai/token") as never);
+    const response = await handleExtensionOpenAITokenRequest(
+      new Request("https://example.com/api/extension/openai/token") as never,
+      dependencies,
+    );
     expect(response.status).toBe(401);
   });
 
   test("mints a token for an authenticated request", async () => {
     process.env.OPENAI_API_KEY_EXTENSION = "sk-test";
-    const response = await GET(authedRequest() as never);
+    const response = await handleExtensionOpenAITokenRequest(authedRequest() as never, dependencies);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { clientSecret: string; model: string };
     expect(body.clientSecret).toBe("ek_test_123");
@@ -53,13 +54,13 @@ describe("GET /api/extension/openai/token", () => {
   test("returns 500 when no OpenAI key is configured", async () => {
     delete process.env.OPENAI_API_KEY_EXTENSION;
     delete process.env.OPENAI_API_KEY;
-    const response = await GET(authedRequest() as never);
+    const response = await handleExtensionOpenAITokenRequest(authedRequest() as never, dependencies);
     expect(response.status).toBe(500);
   });
 
   test("returns 502 when the upstream mint fails", async () => {
     process.env.OPENAI_API_KEY_EXTENSION = "sk-upstream-failure";
-    const response = await GET(authedRequest() as never);
+    const response = await handleExtensionOpenAITokenRequest(authedRequest() as never, dependencies);
     expect(response.status).toBe(502);
   });
 
@@ -69,7 +70,10 @@ describe("GET /api/extension/openai/token", () => {
   test("prefers 401 over 500 when the request is both unauthenticated and unconfigured", async () => {
     delete process.env.OPENAI_API_KEY_EXTENSION;
     delete process.env.OPENAI_API_KEY;
-    const response = await GET(new Request("https://example.com/api/extension/openai/token") as never);
+    const response = await handleExtensionOpenAITokenRequest(
+      new Request("https://example.com/api/extension/openai/token") as never,
+      dependencies,
+    );
     expect(response.status).toBe(401);
   });
 });
