@@ -18,8 +18,9 @@ export default defineConfig({
     name: "Skilly",
     description: "Skilly points, talks, and acts on any page you're browsing.",
     // `offscreen` hosts the Realtime voice session (a service worker cannot hold media),
-    // `identity` drives the WorkOS login redirect, `scripting` injects the page digest.
-    permissions: ["storage", "identity", "scripting", ...(browser === "chrome" ? ["offscreen"] : [])],
+    // while `identity` drives the WorkOS login redirect. The page digest is provided by
+    // the statically declared content script, so no runtime scripting permission is needed.
+    permissions: ["storage", "identity", ...(browser === "chrome" ? ["offscreen"] : [])],
     // The broad host permission the design's Chrome Web Store risk note flags. It is required
     // for the extension's core value — pointing into any page, including cross-origin iframes —
     // and cannot be narrowed without breaking that.
