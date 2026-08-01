@@ -40,14 +40,14 @@ export default defineBackground(() => {
    * hold the session itself — so on Firefox the same host runs in-process and no offscreen
    * document is involved. Feature-detected rather than branded on a user-agent string.
    */
-  const supportsOffscreenDocuments = typeof chrome !== "undefined" && chrome.offscreen !== undefined;
+  const usesOffscreenDocument = import.meta.env.BROWSER === "chrome";
 
   /** Only used on the Firefox path; stays null on Chrome, where the offscreen document hosts it. */
   let inProcessSessionHost: RealtimeHost | null = null;
 
   /** Create whichever host this browser supports, if it isn't already running. */
   async function ensureSessionHost(): Promise<void> {
-    if (supportsOffscreenDocuments) {
+    if (usesOffscreenDocument) {
       await ensureOffscreenDocument();
       return;
     }
@@ -58,7 +58,7 @@ export default defineBackground(() => {
   }
 
   function sendToSessionHost(message: BackgroundToOffscreenMessage): void {
-    if (supportsOffscreenDocuments) {
+    if (usesOffscreenDocument) {
       void chrome.runtime.sendMessage(message).catch(() => undefined);
       return;
     }

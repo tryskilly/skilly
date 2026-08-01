@@ -5,10 +5,9 @@
 // even inside a cross-origin iframe — no cross-frame coordinate math needed.
 import type { CursorHost } from "@skilly/browser-core";
 
-const CURSOR_ICON = /* html */ `
-<svg viewBox="0 0 1024 1024" aria-hidden="true" width="20" height="20">
-  <path d="M367 165c0-42 47-67 82-43l440 299c38 26 27 85-18 94l-118 24c-32 7-45 46-22 69l170 169c22 22 22 57 0 79l-77 77c-23 23-60 21-81-4L586 746c-20-24-56-27-80-8L425 801c-34 27-84 3-84-40V216c0-28 10-41 26-51Z" fill="#2F6BFF"/>
-</svg>`;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const CURSOR_PATH =
+  "M367 165c0-42 47-67 82-43l440 299c38 26 27 85-18 94l-118 24c-32 7-45 46-22 69l170 169c22 22 22 57 0 79l-77 77c-23 23-60 21-81-4L586 746c-20-24-56-27-80-8L425 801c-34 27-84 3-84-40V216c0-28 10-41 26-51Z";
 
 const CONFIRMATION_TIMEOUT_MS = 10_000;
 
@@ -36,7 +35,16 @@ export class MinimalCursorWidget implements CursorHost {
     this.cursorElement.style.left = "0";
     this.cursorElement.style.zIndex = "2147483647";
     this.cursorElement.style.pointerEvents = "none";
-    this.cursorElement.innerHTML = CURSOR_ICON;
+    const cursorSvg = document.createElementNS(SVG_NAMESPACE, "svg");
+    cursorSvg.setAttribute("viewBox", "0 0 1024 1024");
+    cursorSvg.setAttribute("aria-hidden", "true");
+    cursorSvg.setAttribute("width", "20");
+    cursorSvg.setAttribute("height", "20");
+    const cursorPath = document.createElementNS(SVG_NAMESPACE, "path");
+    cursorPath.setAttribute("d", CURSOR_PATH);
+    cursorPath.setAttribute("fill", "#2F6BFF");
+    cursorSvg.appendChild(cursorPath);
+    this.cursorElement.appendChild(cursorSvg);
     this.hostElement.appendChild(this.cursorElement);
 
     this.confirmElement = document.createElement("div");
@@ -44,11 +52,17 @@ export class MinimalCursorWidget implements CursorHost {
     this.confirmElement.setAttribute("data-visible", "false");
     this.confirmElement.style.position = "fixed";
     this.confirmElement.style.zIndex = "2147483647";
-    this.confirmElement.innerHTML = `
-      <div data-skilly-confirm-copy></div>
-      <button type="button" data-skilly-confirm-yes>Confirm</button>
-      <button type="button" data-skilly-confirm-no>Cancel</button>
-    `;
+    const confirmationCopy = document.createElement("div");
+    confirmationCopy.setAttribute("data-skilly-confirm-copy", "");
+    const confirmButton = document.createElement("button");
+    confirmButton.type = "button";
+    confirmButton.setAttribute("data-skilly-confirm-yes", "");
+    confirmButton.textContent = "Confirm";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.setAttribute("data-skilly-confirm-no", "");
+    cancelButton.textContent = "Cancel";
+    this.confirmElement.append(confirmationCopy, confirmButton, cancelButton);
     this.confirmElement
       .querySelector("[data-skilly-confirm-yes]")
       ?.addEventListener("click", () => this.finishConfirmation(true));
