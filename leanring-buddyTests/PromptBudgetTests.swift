@@ -77,7 +77,7 @@ struct PromptBudgetTests {
     @Test func capsAtFiveEntriesWhenStageRelevantStillOverBudget() {
         // 8 entries, all referenced in goals, each with a long enough description to bust a small budget.
         let entryNames = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
-        let allEntries = entryNames.map { makeVocabularyEntry(name: $0, descriptionLength: 50) }
+        let allEntries = entryNames.map { makeVocabularyEntry(name: $0, descriptionLength: 120) }
 
         // Goals mention all 8 names.
         let goalText = entryNames.joined(separator: ", ")

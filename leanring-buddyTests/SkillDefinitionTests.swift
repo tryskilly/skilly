@@ -624,7 +624,7 @@ struct SkillDefinitionParserTests {
         let parsedDefinition = try SkillDefinition.parse(from: externalSkillMarkdown)
 
         #expect(parsedDefinition.metadata.id == "ask-claude")
-        #expect(parsedDefinition.skillDescription == "Ask Claude via local CLI and capture a reusable artifact")
+        #expect(parsedDefinition.skillDescription == "Run Claude with a concrete question and summarize the output.")
         #expect(parsedDefinition.teachingInstructions.contains("Run Claude with a concrete question"))
         #expect(parsedDefinition.teachingInstructions.contains("## Usage"))
         #expect(parsedDefinition.curriculumStages.isEmpty)
@@ -651,11 +651,13 @@ struct BlenderSkillValidationTests {
 
         #expect(skill.metadata.id == "blender-fundamentals")
         #expect(skill.metadata.targetApp == "Blender")
-        #expect(skill.curriculumStages.count == 6)
+        #expect(skill.curriculumStages.count == 7)
         #expect(skill.vocabularyEntries.count >= 10)
         #expect(skill.metadata.pointingMode == .always)
-        #expect(skill.curriculumStages[0].name == "Getting Around")
-        #expect(skill.curriculumStages[5].name == "Your First Render")
-        #expect(skill.curriculumStages[5].nextStageName == nil)
+        #expect(skill.curriculumStages[0].name == "3D Viewport Navigation")
+        #expect(skill.curriculumStages[5].name == "Materials and Shading")
+        #expect(skill.curriculumStages[5].nextStageName == "Lighting and Rendering")
+        #expect(skill.curriculumStages[6].name == "Lighting and Rendering")
+        #expect(skill.curriculumStages[6].nextStageName == nil)
     }
 }

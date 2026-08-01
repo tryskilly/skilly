@@ -32,7 +32,7 @@ struct SkillValidationTests {
 
         #expect(!validationResult.isValid)
         // At least one violation message should reference the banned phrase category.
-        #expect(validationResult.violations.contains(where: { $0.lowercased().contains("ignore") }))
+        #expect(validationResult.violations.contains(where: { $0.lowercased().contains("override") }))
     }
 
     // MARK: Test 3
