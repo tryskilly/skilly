@@ -1,10 +1,15 @@
-// Coordinator only. Never hosts the Realtime session: MV3 service workers have no
-// getUserMedia/WebRTC and can be killed at any time, so the offscreen document created here is
-// what persists for a session's lifetime.
+// The coordinator. Owns the active tab, the frame registry, entitlement checks and login; the
+// Realtime session itself lives in a host (src/realtimeHost.ts) whose location is per-browser.
+//
+// On Chrome that host is an offscreen document, because an MV3 service worker has no
+// getUserMedia/WebRTC and can be killed at any time. On Firefox the MV3 background is an event
+// page — a real document — so the same host runs in-process there and no offscreen document
+// (a Chrome-only API) exists. ensureSessionHost/sendToSessionHost hide which of the two is live.
 import { FrameRegistry, parseQualifiedTarget } from "../src/frameRegistry";
 import { matchSkillForUrl, GENERIC_SKILL_VALUE } from "../src/skillMatcher";
 import { BUNDLED_SKILLS } from "../src/bundledSkills";
 import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches } from "../src/auth";
+import { createRealtimeHost, type RealtimeHost } from "../src/realtimeHost";
 import type {
   ContentToBackgroundMessage,
   OffscreenToBackgroundMessage,
@@ -30,11 +35,35 @@ export default defineBackground(() => {
   let activeTabId: number | null = null;
 
   /**
-   * The offscreen document is a Chrome-only MV3 API. On Firefox `chrome.offscreen` is undefined,
-   * so voice sessions cannot start there yet — Firefox MV3 needs the session hosted in its event
-   * page instead. Detected explicitly so the failure is a clear banner, not a thrown TypeError.
+   * Offscreen documents are a Chrome-only MV3 API, needed there because a service worker has no
+   * getUserMedia/WebRTC. Firefox MV3's background is an event page — a real document that can
+   * hold the session itself — so on Firefox the same host runs in-process and no offscreen
+   * document is involved. Feature-detected rather than branded on a user-agent string.
    */
   const supportsOffscreenDocuments = typeof chrome !== "undefined" && chrome.offscreen !== undefined;
+
+  /** Only used on the Firefox path; stays null on Chrome, where the offscreen document hosts it. */
+  let inProcessSessionHost: RealtimeHost | null = null;
+
+  /** Create whichever host this browser supports, if it isn't already running. */
+  async function ensureSessionHost(): Promise<void> {
+    if (supportsOffscreenDocuments) {
+      await ensureOffscreenDocument();
+      return;
+    }
+    inProcessSessionHost ??= createRealtimeHost({
+      // No message bus in this direction — the host and the coordinator are the same context.
+      post: (message) => handleSessionHostMessage(message),
+    });
+  }
+
+  function sendToSessionHost(message: BackgroundToOffscreenMessage): void {
+    if (supportsOffscreenDocuments) {
+      void chrome.runtime.sendMessage(message).catch(() => undefined);
+      return;
+    }
+    inProcessSessionHost?.handle(message);
+  }
 
   /**
    * The popup's skill dropdown wins over URL auto-detection: "" (or absent) means auto-detect,
@@ -78,13 +107,6 @@ export default defineBackground(() => {
   }
 
   async function startSession(tabId: number): Promise<void> {
-    if (!supportsOffscreenDocuments) {
-      activeTabId = tabId;
-      notifyActiveTab("Skilly voice sessions aren't supported in this browser yet.");
-      activeTabId = null;
-      return;
-    }
-
     activeTabId = tabId;
     frameRegistry.clear();
 
@@ -135,7 +157,7 @@ export default defineBackground(() => {
       .filter(Boolean)
       .join("\n\n");
 
-    await ensureOffscreenDocument();
+    await ensureSessionHost();
     if (activeTabId !== tabId) {
       return;
     }
@@ -146,15 +168,13 @@ export default defineBackground(() => {
       instructions,
       actionsEnabled: true,
     };
-    void chrome.runtime.sendMessage(startMessage).catch(() => undefined);
+    sendToSessionHost(startMessage);
   }
 
   function stopSession(): void {
     activeTabId = null;
     frameRegistry.clear();
-    void chrome.runtime
-      .sendMessage({ type: "stop-session" } satisfies BackgroundToOffscreenMessage)
-      .catch(() => undefined);
+    sendToSessionHost({ type: "stop-session" });
   }
 
   // chrome.action.onClicked is deliberately NOT used. A WXT popup entrypoint sets the manifest's
@@ -237,19 +257,26 @@ export default defineBackground(() => {
       }
 
       if (rawMessage.type === "action-result") {
-        const outcome: BackgroundToOffscreenMessage = {
-          type: "action-outcome",
-          callId: rawMessage.callId,
-          result: rawMessage.result,
-        };
-        void chrome.runtime.sendMessage(outcome).catch(() => undefined);
+        sendToSessionHost({ type: "action-outcome", callId: rawMessage.callId, result: rawMessage.result });
         return false;
       }
 
+      handleSessionHostMessage(rawMessage);
+      return false;
+    },
+  );
+
+  /**
+   * Messages coming back from whichever host is running the session. Called by the runtime
+   * listener on Chrome (offscreen document -> chrome.runtime) and directly by the in-process
+   * host on Firefox, which has no message bus between itself and this code.
+   */
+  function handleSessionHostMessage(rawMessage: OffscreenToBackgroundMessage): void {
+    {
       if (rawMessage.type === "point-request") {
         const qualified = parseQualifiedTarget(rawMessage.target);
         if (!qualified || activeTabId === null) {
-          return false;
+          return;
         }
         const pointMessage: BackgroundToContentMessage = {
           type: "point-at",
@@ -259,13 +286,13 @@ export default defineBackground(() => {
         void chrome.tabs
           .sendMessage(activeTabId, pointMessage, { frameId: qualified.frameId })
           .catch(() => undefined);
-        return false;
+        return;
       }
 
       if (rawMessage.type === "action-request") {
         const qualified = parseQualifiedTarget(rawMessage.request.element_id);
         if (!qualified || activeTabId === null) {
-          return false;
+          return;
         }
         const executeMessage: BackgroundToContentMessage = {
           type: "execute-action",
@@ -275,7 +302,7 @@ export default defineBackground(() => {
         void chrome.tabs
           .sendMessage(activeTabId, executeMessage, { frameId: qualified.frameId })
           .catch(() => undefined);
-        return false;
+        return;
       }
 
       if (rawMessage.type === "usage-report") {
@@ -289,10 +316,8 @@ export default defineBackground(() => {
             body: JSON.stringify({ seconds: rawMessage.seconds }),
           }).catch(() => undefined);
         });
-        return false;
+        return;
       }
-
-      return false;
-    },
-  );
+    }
+  }
 });
