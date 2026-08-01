@@ -74,3 +74,10 @@ jobs:
           test -f appcast.xml
           test -f scripts/release.sh
           bash -n scripts/release.sh
+      - name: Run Mac unit tests
+        run: >-
+          xcodebuild test
+          -project leanring-buddy.xcodeproj
+          -scheme leanring-buddy
+          -destination 'platform=macOS'
+          CODE_SIGNING_ALLOWED=NO
