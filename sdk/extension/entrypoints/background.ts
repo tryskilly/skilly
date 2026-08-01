@@ -14,7 +14,13 @@ import type {
 } from "../src/messages";
 
 const BACKEND_URL = "https://studio.tryskilly.app"; // TODO(config): build-time env var once staging/prod diverge
-const WORKOS_CLIENT_ID = "client_REPLACE_ME"; // TODO(config): the real, public WorkOS client id
+
+// The same WorkOS application Studio's dashboard and the Mac app authenticate against — not a
+// separate client. WorkOS user ids are per-environment, and mac_entitlements is keyed by user id,
+// so a second environment would give a paying Mac subscriber a different id here and report their
+// subscription as inactive. This value is a public identifier; the secret (WORKOS_API_KEY) stays
+// on the backend, which performs the code exchange in /api/extension/auth/exchange.
+const WORKOS_CLIENT_ID = "client_01KP1VJPX4CG5WXEV8QSGTSTVZ";
 
 /** How long content scripts get to answer refresh-digest before the prompt is composed. */
 const DIGEST_SETTLE_MS = 300;
