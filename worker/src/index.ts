@@ -919,6 +919,27 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
 
   const userId = event.data.metadata?.user_id;
   if (!userId) {
+    // MARK: - Skilly — Pay-but-no-access guard. The entitlement KV is keyed by
+    // user:${userId}, so a subscription lifecycle event with no metadata.user_id
+    // means a paying customer would silently get NO access. Alert loudly (with the
+    // customer email so it can be reconciled by hand) instead of swallowing it.
+    // We still return 200 so Polar doesn't retry a condition that won't self-heal.
+    // ponytail: manual reconcile for now; add an email→user_id lookup if this fires often.
+    const LIFECYCLE_EVENTS = new Set([
+      "subscription.created",
+      "subscription.active",
+      "subscription.updated",
+      "subscription.canceled",
+      "subscription.revoked",
+    ]);
+    if (LIFECYCLE_EVENTS.has(event.type)) {
+      await trackSilentFailureFromWorker(env, {
+        subsystem: "polar_webhook",
+        errorCode: "missing_user_id_metadata",
+        errorMessage: `${event.type} for ${event.data.customer_email || "unknown email"} had no metadata.user_id — entitlement NOT granted`,
+        surface: "worker_webhook",
+      });
+    }
     return new Response("ok", { status: 200 });
   }
 
