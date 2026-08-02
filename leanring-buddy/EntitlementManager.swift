@@ -37,6 +37,12 @@ enum EntitlementStatus: Sendable {
     case expired
 }
 
+enum CheckoutStartDecision: Equatable, Sendable {
+    case createCheckout
+    case ignoreAlreadyInProgress
+    case openCustomerPortal
+}
+
 // MARK: - Entitlement Record (from Worker KV)
 
 struct EntitlementRecord: Codable {
@@ -100,6 +106,7 @@ final class EntitlementManager: ObservableObject {
 
     @Published private(set) var status: EntitlementStatus = .none
     @Published private(set) var isLoading: Bool = false
+    @Published private(set) var isCheckoutInProgress: Bool = false
 
     private var workerBaseURL: String {
         AppSettings.shared.workerBaseURL
@@ -201,6 +208,19 @@ final class EntitlementManager: ObservableObject {
         guard !userDefaults.bool(forKey: key) else { return false }
         userDefaults.set(true, forKey: key)
         return true
+    }
+
+    static func checkoutStartDecision(
+        status: EntitlementStatus,
+        isCheckoutInProgress: Bool
+    ) -> CheckoutStartDecision {
+        if isCheckoutInProgress {
+            return .ignoreAlreadyInProgress
+        }
+        if case .active = status {
+            return .openCustomerPortal
+        }
+        return .createCheckout
     }
 
     // MARK: - Apply Record
@@ -387,6 +407,18 @@ final class EntitlementManager: ObservableObject {
 
     /// Opens Polar checkout in the default browser.
     func startCheckout() async {
+        let preflightDecision = Self.checkoutStartDecision(
+            status: status,
+            isCheckoutInProgress: isCheckoutInProgress
+        )
+        if preflightDecision == .ignoreAlreadyInProgress {
+            SkillyAnalytics.trackCheckoutBlocked(
+                reason: "checkout_in_progress",
+                entitlementStatus: Self.analyticsValue(for: status)
+            )
+            return
+        }
+
         guard AuthManager.shared.isAuthenticated,
               let userId = AuthManager.shared.currentUser?.id,
               let email = AuthManager.shared.currentUser?.email else {
@@ -403,7 +435,34 @@ final class EntitlementManager: ObservableObject {
             return
         }
 
-        SkillyAnalytics.trackCheckoutStarted(userId: userId)
+        isCheckoutInProgress = true
+        defer { isCheckoutInProgress = false }
+
+        // Entitlement can change through a webhook while the app remains open.
+        // Refresh immediately before purchase creation so a stale trial screen
+        // cannot sell a second subscription to an already-paying customer.
+        await refresh()
+
+        let refreshedDecision = Self.checkoutStartDecision(
+            status: status,
+            isCheckoutInProgress: false
+        )
+        if refreshedDecision == .openCustomerPortal {
+            SkillyAnalytics.trackCheckoutBlocked(
+                reason: "active_subscription",
+                entitlementStatus: Self.analyticsValue(for: status)
+            )
+            await startCustomerPortal()
+            return
+        }
+
+        let checkoutAttemptId = UUID().uuidString
+        let entitlementStatus = Self.analyticsValue(for: status)
+        SkillyAnalytics.trackCheckoutStarted(
+            userId: userId,
+            checkoutAttemptId: checkoutAttemptId,
+            entitlementStatus: entitlementStatus
+        )
 
         do {
             guard let url = URL(string: "\(workerBaseURL)/checkout/create") else {
@@ -417,8 +476,18 @@ final class EntitlementManager: ObservableObject {
                 SkillyAnalytics.trackSilentFailure(subsystem: "checkout_start", errorCode: "no_session_token", errorMessage: "applyWorkerSessionAuthorization returned false — Keychain session token missing", surface: "user_checkout_click")
                 return
             }
-            struct CheckoutPayload: Codable { let user_id: String; let email: String }
-            request.httpBody = try JSONEncoder().encode(CheckoutPayload(user_id: userId, email: email))
+            struct CheckoutPayload: Codable {
+                let user_id: String
+                let email: String
+                let checkout_attempt_id: String
+            }
+            request.httpBody = try JSONEncoder().encode(
+                CheckoutPayload(
+                    user_id: userId,
+                    email: email,
+                    checkout_attempt_id: checkoutAttemptId
+                )
+            )
 
             let (data, urlResponse) = try await URLSession.shared.data(for: request)
             let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? -1
@@ -426,6 +495,22 @@ final class EntitlementManager: ObservableObject {
             // MARK: - Skilly — v1.10: detect non-200 from Worker before trying to decode
             if statusCode != 200 {
                 let body = String(data: data, encoding: .utf8) ?? "unknown"
+                if statusCode == 409 {
+                    SkillyAnalytics.trackCheckoutBlocked(
+                        reason: "active_subscription_server_guard",
+                        entitlementStatus: entitlementStatus,
+                        checkoutAttemptId: checkoutAttemptId
+                    )
+                    await refresh()
+                    await startCustomerPortal()
+                    return
+                }
+                SkillyAnalytics.trackCheckoutFailed(
+                    checkoutAttemptId: checkoutAttemptId,
+                    entitlementStatus: entitlementStatus,
+                    reason: statusCode == 401 ? "worker_session_stale" : "worker_non_200",
+                    httpStatus: statusCode
+                )
                 SkillyAnalytics.trackSilentFailure(
                     subsystem: "polar_checkout",
                     httpStatus: statusCode,
@@ -436,20 +521,54 @@ final class EntitlementManager: ObservableObject {
                 return
             }
 
-            struct CheckoutResponse: Codable { let checkout_url: String }
+            struct CheckoutResponse: Codable {
+                let checkout_url: String
+                let checkout_id: String?
+            }
             let decoded = try JSONDecoder().decode(CheckoutResponse.self, from: data)
 
             if let checkoutURL = URL(string: decoded.checkout_url) {
-                NSWorkspace.shared.open(checkoutURL)
+                SkillyAnalytics.trackCheckoutURLCreated(
+                    checkoutAttemptId: checkoutAttemptId,
+                    checkoutId: decoded.checkout_id,
+                    entitlementStatus: entitlementStatus
+                )
+                let didOpenCheckout = NSWorkspace.shared.open(checkoutURL)
+                SkillyAnalytics.trackCheckoutURLOpened(
+                    checkoutAttemptId: checkoutAttemptId,
+                    checkoutId: decoded.checkout_id,
+                    entitlementStatus: entitlementStatus,
+                    didOpen: didOpenCheckout
+                )
+                guard didOpenCheckout else {
+                    SkillyAnalytics.trackCheckoutFailed(
+                        checkoutAttemptId: checkoutAttemptId,
+                        checkoutId: decoded.checkout_id,
+                        entitlementStatus: entitlementStatus,
+                        reason: "browser_open_failed"
+                    )
+                    return
+                }
                 // Start polling for entitlement changes. The webhook may
                 // take a few seconds to arrive after the user pays. Poll
                 // every 5 seconds for up to 2 minutes so the PlanStrip
                 // updates without requiring the deep link or a relaunch.
                 startPostCheckoutPolling()
             } else {
+                SkillyAnalytics.trackCheckoutFailed(
+                    checkoutAttemptId: checkoutAttemptId,
+                    checkoutId: decoded.checkout_id,
+                    entitlementStatus: entitlementStatus,
+                    reason: "malformed_checkout_url"
+                )
                 SkillyAnalytics.trackSilentFailure(subsystem: "polar_checkout", errorCode: "malformed_checkout_url", errorMessage: decoded.checkout_url, surface: "user_checkout_click")
             }
         } catch {
+            SkillyAnalytics.trackCheckoutFailed(
+                checkoutAttemptId: checkoutAttemptId,
+                entitlementStatus: entitlementStatus,
+                reason: "exception"
+            )
             // MARK: - Skilly — v1.10: previously "Log error silently".
             // Now surfaces every catch path to PostHog so the next API
             // drift is caught in minutes instead of weeks.
@@ -459,6 +578,21 @@ final class EntitlementManager: ObservableObject {
                 errorMessage: String(describing: error),
                 surface: "user_checkout_click"
             )
+        }
+    }
+
+    static func analyticsValue(for status: EntitlementStatus) -> String {
+        switch status {
+        case .none:
+            return "none"
+        case .trial:
+            return "trial"
+        case .active:
+            return "active"
+        case .canceled:
+            return "canceled"
+        case .expired:
+            return "expired"
         }
     }
 

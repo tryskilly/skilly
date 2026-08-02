@@ -24,8 +24,46 @@ private func destroy(suite name: String) {
 /// the latch is what stands between "one event per paying customer" and either
 /// zero events (the original bug) or an endless stream of duplicates.
 @MainActor
-@Suite("Subscription activation latch")
+@Suite("Entitlement checkout and activation")
 struct EntitlementActivationLatchTests {
+
+    @Test("blocks a second checkout while one is already starting")
+    func blocksConcurrentCheckout() {
+        let decision = EntitlementManager.checkoutStartDecision(
+            status: .trial(remainingSeconds: 0),
+            isCheckoutInProgress: true
+        )
+
+        #expect(decision == .ignoreAlreadyInProgress)
+    }
+
+    @Test("routes active subscribers to subscription management")
+    func routesActiveSubscriberToPortal() {
+        let decision = EntitlementManager.checkoutStartDecision(
+            status: .active(periodEnd: Date().addingTimeInterval(3_600)),
+            isCheckoutInProgress: false
+        )
+
+        #expect(decision == .openCustomerPortal)
+    }
+
+    @Test("allows checkout for non-active entitlement states")
+    func allowsCheckoutForEligibleStates() {
+        let eligibleStatuses: [EntitlementStatus] = [
+            .none,
+            .trial(remainingSeconds: 0),
+            .canceled(accessUntil: Date().addingTimeInterval(3_600)),
+            .expired,
+        ]
+
+        for eligibleStatus in eligibleStatuses {
+            let decision = EntitlementManager.checkoutStartDecision(
+                status: eligibleStatus,
+                isCheckoutInProgress: false
+            )
+            #expect(decision == .createCheckout)
+        }
+    }
 
     @Test("claims exactly once for the same user")
     func claimsOnlyOnce() {
