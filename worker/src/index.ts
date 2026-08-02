@@ -752,6 +752,7 @@ async function mintOpenAIRealtimeToken(apiKey: string, model: string): Promise<O
 interface CheckoutPayload {
   user_id?: string;
   email?: string;
+  checkout_attempt_id?: string;
 }
 
 interface EntitlementData {
@@ -776,6 +777,17 @@ function toMillisIso(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 }
 
+function hasCurrentActiveEntitlement(record: EntitlementData | null): boolean {
+  if (!record || record.status !== "active") return false;
+  if (!record.period_end) return true;
+
+  const periodEnd = Date.parse(record.period_end);
+  // An invalid active record should fail closed for purchase creation. The
+  // customer can still reach the portal, while creating a second subscription
+  // would be harder to reverse.
+  return Number.isNaN(periodEnd) || periodEnd > Date.now();
+}
+
 interface PolarWebhookEvent {
   type: string;
   data: {
@@ -783,8 +795,10 @@ interface PolarWebhookEvent {
     customer_email: string;
     status: string;
     current_period_end: string;
+    product_id?: string;
     metadata?: {
       user_id?: string;
+      checkout_attempt_id?: string;
     };
   };
 }
@@ -801,13 +815,31 @@ async function handleCheckoutCreate(
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { user_id, email } = body;
+  const { user_id, email, checkout_attempt_id } = body;
   if (user_id && user_id !== authenticatedSession.userId) {
     return forbiddenResponse("Requested user does not match authenticated user");
   }
 
   if (email && email.toLowerCase() !== authenticatedSession.email.toLowerCase()) {
     return forbiddenResponse("Requested email does not match authenticated user");
+  }
+
+  const existingEntitlement = await env.SKILLY_ENTITLEMENTS.get<EntitlementData>(
+    `user:${authenticatedSession.userId}`,
+    "json"
+  );
+  if (hasCurrentActiveEntitlement(existingEntitlement)) {
+    await trackCheckoutLifecycleFromWorker(env, {
+      event: "skilly_checkout_blocked",
+      userId: authenticatedSession.userId,
+      checkoutAttemptId: checkout_attempt_id,
+      reason: "active_subscription_server_guard",
+      sourceSurface: "worker_checkout_create",
+    });
+    return new Response(JSON.stringify({ error: "active_subscription" }), {
+      status: 409,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   try {
@@ -829,7 +861,12 @@ async function handleCheckoutCreate(
         // API drift that hit OpenAI Realtime in v1.8.
         products: [env.POLAR_BETA_PRODUCT_ID],
         customer_email: authenticatedSession.email,
-        metadata: { user_id: authenticatedSession.userId },
+        metadata: {
+          user_id: authenticatedSession.userId,
+          checkout_attempt_id: checkout_attempt_id ?? "",
+          product_line: "people",
+          plan: "beta_19",
+        },
         // MARK: - Skilly — Pass the WorkOS user ID to the marketing site so
         // checkout-success.astro can call posthog.identify() with the same
         // distinct_id the macOS app uses. This stitches the web checkout
@@ -879,7 +916,10 @@ async function handleCheckoutCreate(
       return new Response(JSON.stringify({ error: "Polar response missing url", polar_keys: Object.keys(polarData) }), { status: 502, headers: { "content-type": "application/json" } });
     }
 
-    return new Response(JSON.stringify({ checkout_url: polarData.url }), {
+    return new Response(JSON.stringify({
+      checkout_url: polarData.url,
+      checkout_id: polarData.id,
+    }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -926,6 +966,8 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
     // We still return 200 so Polar doesn't retry a condition that won't self-heal.
     // ponytail: manual reconcile for now; add an email→user_id lookup if this fires often.
     const LIFECYCLE_EVENTS = new Set([
+      "checkout.updated",
+      "checkout.expired",
       "subscription.created",
       "subscription.active",
       "subscription.updated",
@@ -938,6 +980,35 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
         errorCode: "missing_user_id_metadata",
         errorMessage: `${event.type} for ${event.data.customer_email || "unknown email"} had no metadata.user_id — entitlement NOT granted`,
         surface: "worker_webhook",
+      });
+    }
+    return new Response("ok", { status: 200 });
+  }
+
+  if (event.type === "checkout.expired") {
+    await trackCheckoutLifecycleFromWorker(env, {
+      event: "skilly_checkout_expired",
+      userId,
+      checkoutAttemptId: event.data.metadata?.checkout_attempt_id,
+      checkoutId: event.data.id,
+      reason: "polar_checkout_expired",
+      productId: event.data.product_id,
+      sourceSurface: "polar_webhook",
+    });
+    return new Response("ok", { status: 200 });
+  }
+
+  if (event.type === "checkout.updated") {
+    const reportableStatuses = new Set(["confirmed", "succeeded", "failed"]);
+    if (reportableStatuses.has(event.data.status)) {
+      await trackCheckoutLifecycleFromWorker(env, {
+        event: "skilly_checkout_provider_status",
+        userId,
+        checkoutAttemptId: event.data.metadata?.checkout_attempt_id,
+        checkoutId: event.data.id,
+        reason: event.data.status,
+        productId: event.data.product_id,
+        sourceSurface: "polar_webhook",
       });
     }
     return new Response("ok", { status: 200 });
@@ -1197,6 +1268,46 @@ interface SilentFailurePayload {
   errorMessage: string;
   surface: string;
   userId?: string;
+}
+
+interface CheckoutLifecyclePayload {
+  event: "skilly_checkout_blocked" | "skilly_checkout_expired" | "skilly_checkout_provider_status";
+  userId: string;
+  checkoutAttemptId?: string;
+  checkoutId?: string;
+  reason: string;
+  productId?: string;
+  sourceSurface: "worker_checkout_create" | "polar_webhook";
+}
+
+async function trackCheckoutLifecycleFromWorker(_env: Env, payload: CheckoutLifecyclePayload): Promise<void> {
+  try {
+    await fetch("https://us.i.posthog.com/capture/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: SKILLY_POSTHOG_INGEST_KEY,
+        event: payload.event,
+        distinct_id: payload.userId,
+        properties: {
+          checkout_attempt_id: payload.checkoutAttemptId ?? "",
+          checkout_id: payload.checkoutId ?? "",
+          reason: payload.reason,
+          polar_product_id: payload.productId ?? "",
+          product_line: "people",
+          product_name: "Skilly Pro",
+          plan: "beta_19",
+          billing_interval: "month",
+          price_usd: 19,
+          source: "worker",
+          source_surface: payload.sourceSurface,
+        },
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  } catch {
+    // Don't let analytics failures cascade into checkout or webhook handling.
+  }
 }
 
 async function trackSilentFailureFromWorker(_env: Env, payload: SilentFailurePayload): Promise<void> {

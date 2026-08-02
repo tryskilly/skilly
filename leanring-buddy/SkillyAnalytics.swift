@@ -222,11 +222,92 @@ enum SkillyAnalytics {
         ])
     }
 
-    static func trackCheckoutStarted(userId: String) {
+    private static let checkoutProductProperties: [String: Any] = [
+        "product_line": "people",
+        "product_name": "Skilly Pro",
+        "plan": "beta_19",
+        "billing_interval": "month",
+        "price_usd": 19,
+        "source_surface": "mac_app",
+    ]
+
+    static func trackCheckoutStarted(
+        userId: String,
+        checkoutAttemptId: String,
+        entitlementStatus: String
+    ) {
         guard AppSettings.shared.analyticsEnabled else { return }
-        PostHogSDK.shared.capture("skilly_checkout_started", properties: [
-            "user_id": userId
-        ])
+        var properties = checkoutProductProperties
+        properties["user_id"] = userId
+        properties["checkout_attempt_id"] = checkoutAttemptId
+        properties["entitlement_status"] = entitlementStatus
+        PostHogSDK.shared.capture("skilly_checkout_started", properties: properties)
+    }
+
+    static func trackCheckoutBlocked(
+        reason: String,
+        entitlementStatus: String,
+        checkoutAttemptId: String? = nil
+    ) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var properties = checkoutProductProperties
+        properties["reason"] = reason
+        properties["entitlement_status"] = entitlementStatus
+        if let checkoutAttemptId {
+            properties["checkout_attempt_id"] = checkoutAttemptId
+        }
+        PostHogSDK.shared.capture("skilly_checkout_blocked", properties: properties)
+    }
+
+    static func trackCheckoutURLCreated(
+        checkoutAttemptId: String,
+        checkoutId: String?,
+        entitlementStatus: String
+    ) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var properties = checkoutProductProperties
+        properties["checkout_attempt_id"] = checkoutAttemptId
+        properties["entitlement_status"] = entitlementStatus
+        if let checkoutId {
+            properties["checkout_id"] = checkoutId
+        }
+        PostHogSDK.shared.capture("skilly_checkout_url_created", properties: properties)
+    }
+
+    static func trackCheckoutURLOpened(
+        checkoutAttemptId: String,
+        checkoutId: String?,
+        entitlementStatus: String,
+        didOpen: Bool
+    ) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var properties = checkoutProductProperties
+        properties["checkout_attempt_id"] = checkoutAttemptId
+        properties["entitlement_status"] = entitlementStatus
+        properties["did_open"] = didOpen
+        if let checkoutId {
+            properties["checkout_id"] = checkoutId
+        }
+        PostHogSDK.shared.capture("skilly_checkout_url_opened", properties: properties)
+    }
+
+    static func trackCheckoutFailed(
+        checkoutAttemptId: String,
+        checkoutId: String? = nil,
+        entitlementStatus: String,
+        reason: String,
+        httpStatus: Int = 0
+    ) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var properties = checkoutProductProperties
+        properties["checkout_attempt_id"] = checkoutAttemptId
+        properties["entitlement_status"] = entitlementStatus
+        properties["reason"] = reason
+        properties["http_status"] = httpStatus
+        if let checkoutId {
+            properties["checkout_id"] = checkoutId
+        }
+        PostHogSDK.shared.capture("skilly_checkout_failed", properties: properties)
     }
 
     static func trackSubscriptionActivated(userId: String) {

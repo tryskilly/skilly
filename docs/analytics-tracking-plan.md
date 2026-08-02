@@ -81,9 +81,17 @@ Allowed:
 | `skilly_session_ended` | Mac app | Beta telemetry session summary | token counts, costs, durations |
 | `trial_started` | Mac app | Trial lifecycle | `user_id` |
 | `trial_exhausted` | Mac app | Trial lifecycle | `user_id` |
-| `skilly_checkout_started` | Mac app | User opened checkout | `user_id` |
+| `skilly_checkout_started` | Mac app | Eligible checkout creation began | `checkout_attempt_id`, `entitlement_status`, product/plan context |
+| `skilly_checkout_blocked` | Mac app / Worker | Duplicate or active-subscriber checkout prevented | `reason`, `checkout_attempt_id`, `entitlement_status`, product/plan context |
+| `skilly_checkout_url_created` | Mac app | Polar returned a checkout URL | `checkout_attempt_id`, `checkout_id`, product/plan context |
+| `skilly_checkout_url_opened` | Mac app | Browser open was attempted | `checkout_attempt_id`, `checkout_id`, `did_open`, product/plan context |
+| `skilly_checkout_failed` | Mac app | Checkout failed before Polar completion | `checkout_attempt_id`, `checkout_id`, `reason`, `http_status`, product/plan context |
+| `skilly_checkout_expired` | Worker webhook | Polar checkout expired without payment | `checkout_attempt_id`, `checkout_id`, product/plan context |
+| `skilly_checkout_provider_status` | Worker webhook | Polar checkout reached confirmed, succeeded, or failed | `checkout_attempt_id`, `checkout_id`, `reason`, product/plan context |
 | `skilly_subscription_activated` | Mac app | Subscription active | `user_id` |
 | `skilly_silent_failure` | Mac app / Worker | Swallowed upstream/backend failure | `source`, `subsystem`, `error_code`, `surface` |
+
+The Polar webhook endpoint must subscribe to `checkout.updated` and `checkout.expired` for provider-status events. Report checkout conversion by unique person and by `checkout_attempt_id`; raw event totals overcount double-clicks and repeat sessions from existing subscribers.
 
 ## GA4 Conversions
 
