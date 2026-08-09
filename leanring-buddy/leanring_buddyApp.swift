@@ -30,6 +30,7 @@ struct leanring_buddyApp: App {
 @MainActor
 final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarPanelManager: MenuBarPanelManager?
+    private var captureActivityIndicatorWindowController: CaptureActivityIndicatorWindowController?
     private let companionManager = CompanionManager()
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
@@ -72,6 +73,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             companionManager: companionManager,
             skillManager: skillManager,
             authManager: authManager
+        )
+        captureActivityIndicatorWindowController = CaptureActivityIndicatorWindowController(
+            companionManager: companionManager
         )
         companionManager.start()
         if authManager.isAuthenticated {

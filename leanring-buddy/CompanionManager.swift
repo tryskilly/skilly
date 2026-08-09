@@ -138,7 +138,7 @@ final class CompanionManager: ObservableObject {
     private var latestRustRealtimePhaseName: String = "idle"
 
     // MARK: - Skilly — Live Tutor mode state
-    private var isLiveTutorModeActive = false
+    @Published private(set) var isLiveTutorModeActive = false
     private var liveTutorAudioEngine: AVAudioEngine?
     private var liveTutorAutoSleepTask: Task<Void, Never>?
     private var liveTutorSettingsCancellable: AnyCancellable?
@@ -152,6 +152,13 @@ final class CompanionManager: ObservableObject {
     /// Whether the blue cursor overlay is currently visible on screen.
     /// Used by the panel to show accurate status text ("Active" vs "Ready").
     @Published private(set) var isOverlayVisible: Bool = false
+
+    var activityIndicatorState: CompanionActivityIndicatorState? {
+        CompanionActivityIndicatorState.resolve(
+            voiceState: voiceState,
+            isLiveTutorModeActive: isLiveTutorModeActive
+        )
+    }
 
     /// User preference for whether the Skilly cursor should be shown.
     /// When toggled off, the overlay is hidden and push-to-talk is disabled.
@@ -322,6 +329,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func stop() {
+        stopActiveInteraction(source: "app_termination")
         globalPushToTalkShortcutMonitor.stop()
         overlayWindowManager.hideOverlay()
         isWaitingForRealtimeAudioQueueDrain = false
@@ -641,64 +649,41 @@ final class CompanionManager: ObservableObject {
         print("🛑 Escape handler: voiceState=\(voiceState), isModelSpeaking=\(openAIRealtimeClient.isModelSpeaking)")
         #endif
 
-        // Check if the model is speaking even if voiceState hasn't updated
-        if openAIRealtimeClient.isModelSpeaking {
-            // MARK: - Skilly — Debug logging (stripped in release)
-            #if DEBUG
-            print("🛑 Escape: stopping AI response (model still speaking)")
-            #endif
-            openAIRealtimeClient.cancelResponse()
-            realtimeAudioPlayer?.stop()
-            isWaitingForRealtimeAudioQueueDrain = false
-            voiceState = .idle
-            clearRealtimeResponseBubble()
-            resetRustRealtimeTracking()
+        stopActiveInteraction(source: "escape_key")
+    }
+
+    /// Stops every active input/output path behind both Escape and the visible
+    /// activity indicator. Keeping one stop boundary prevents Live Tutor,
+    /// push-to-talk, response generation, or buffered speech from surviving a
+    /// user stop request.
+    func stopActiveInteraction(source: String) {
+        guard let activityState = activityIndicatorState ??
+                (openAIRealtimeClient.isModelSpeaking ? .responding : nil) else {
             return
         }
 
-        switch voiceState {
-        case .listening:
-            // MARK: - Skilly — Debug logging (stripped in release)
-            #if DEBUG
-            print("🛑 Escape: cancelling recording")
-            #endif
-            realtimeAudioEngine?.stop()
-            realtimeAudioEngine?.inputNode.removeTap(onBus: 0)
-            realtimeAudioEngine = nil
-            realtimePushToTalkTask?.cancel()
-            realtimePushToTalkTask = nil
-            openAIRealtimeClient.clearAudioBuffer()
-            isWaitingForRealtimeAudioQueueDrain = false
-            voiceState = .idle
-            clearRealtimeResponseBubble()
-            resetRustRealtimeTracking()
+        let mode = activityState.analyticsMode
 
-        case .processing:
-            // MARK: - Skilly — Debug logging (stripped in release)
-            #if DEBUG
-            print("🛑 Escape: cancelling pending response")
-            #endif
-            openAIRealtimeClient.cancelResponse()
-            isWaitingForRealtimeAudioQueueDrain = false
-            voiceState = .idle
-            clearRealtimeResponseBubble()
-            resetRustRealtimeTracking()
-
-        case .responding:
-            // MARK: - Skilly — Debug logging (stripped in release)
-            #if DEBUG
-            print("🛑 Escape: stopping AI response")
-            #endif
-            openAIRealtimeClient.cancelResponse()
-            realtimeAudioPlayer?.stop()
-            isWaitingForRealtimeAudioQueueDrain = false
-            voiceState = .idle
-            clearRealtimeResponseBubble()
-            resetRustRealtimeTracking()
-
-        case .idle:
-            break
+        if isLiveTutorModeActive {
+            stopLiveTutorMode()
         }
+
+        realtimeAudioEngine?.stop()
+        realtimeAudioEngine?.inputNode.removeTap(onBus: 0)
+        realtimeAudioEngine = nil
+        realtimePushToTalkTask?.cancel()
+        realtimePushToTalkTask = nil
+        realtimeAudioChunksSent = 0
+
+        openAIRealtimeClient.clearAudioBuffer()
+        openAIRealtimeClient.cancelResponse()
+        realtimeAudioPlayer?.stop()
+        isWaitingForRealtimeAudioQueueDrain = false
+        voiceState = .idle
+        clearRealtimeResponseBubble()
+        resetRustRealtimeTracking()
+
+        SkillyAnalytics.trackCaptureStopped(source: source, mode: mode)
     }
 
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
@@ -1187,6 +1172,7 @@ final class CompanionManager: ObservableObject {
                     #endif
                 }
 
+                guard !Task.isCancelled else { return }
                 RealtimeTelemetry.shared.beginUserSpeech()
 
                 // Start audio capture and stream to OpenAI
@@ -1289,6 +1275,7 @@ final class CompanionManager: ObservableObject {
             do {
                 try await ensureRealtimeSessionReadyForTurn()
                 try await openAIRealtimeClient.updateTurnDetection(enabled: true)
+                guard isLiveTutorModeActive else { return }
             } catch {
                 #if DEBUG
                 print("⚠️ Live Tutor: failed to start session: \(error)")

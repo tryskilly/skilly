@@ -118,6 +118,21 @@ enum SkillyAnalytics {
         ])
     }
 
+    static func trackCaptureIndicatorShown(mode: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("capture_indicator_shown", properties: [
+            "mode": mode
+        ])
+    }
+
+    static func trackCaptureStopped(source: String, mode: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("capture_stopped", properties: [
+            "source": source,
+            "mode": mode
+        ])
+    }
+
     static func trackPushToTalkStarted() {
         guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("push_to_talk_started")
