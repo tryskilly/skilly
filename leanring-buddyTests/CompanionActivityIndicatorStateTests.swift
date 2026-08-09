@@ -1,5 +1,5 @@
 import XCTest
-@testable import leanring_buddy
+@testable import Skilly
 
 final class CompanionActivityIndicatorStateTests: XCTestCase {
     func testIdlePushToTalkHasNoIndicator() {
