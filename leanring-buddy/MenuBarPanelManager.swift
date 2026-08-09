@@ -34,6 +34,7 @@ private class KeyablePanel: NSPanel {
 final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
+    private var onboardingDemoWindowController: OnboardingDemoWindowController?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
     // MARK: - Skilly — Observer for auth-expired event (stale Worker session token)
@@ -52,6 +53,10 @@ final class MenuBarPanelManager: NSObject {
         self.authManager = authManager
         super.init()
         createStatusItem()
+
+        onboardingDemoWindowController = OnboardingDemoWindowController { [weak self] source in
+            self?.completePermissionDemo(source: source)
+        }
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
             forName: .skillyDismissPanel,
@@ -150,16 +155,42 @@ final class MenuBarPanelManager: NSObject {
     func showPanelOnLaunch() {
         // Small delay so the status item has time to appear in the menu bar
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.showPanel()
+            if self.shouldPresentPermissionDemo {
+                self.showPermissionDemo()
+            } else {
+                self.showPanel()
+            }
         }
     }
 
     @objc private func statusItemClicked() {
-        if let panel, panel.isVisible {
+        if onboardingDemoWindowController?.isVisible == true {
+            onboardingDemoWindowController?.close()
+        } else if shouldPresentPermissionDemo {
+            showPermissionDemo()
+        } else if let panel, panel.isVisible {
             hidePanel()
         } else {
             showPanel()
         }
+    }
+
+    private var shouldPresentPermissionDemo: Bool {
+        !companionManager.hasCompletedOnboarding
+            && !companionManager.allPermissionsGranted
+            && !UserDefaults.standard.bool(forKey: "hasViewedPermissionDemo")
+    }
+
+    private func showPermissionDemo() {
+        hidePanel()
+        onboardingDemoWindowController?.show()
+    }
+
+    private func completePermissionDemo(source: String) {
+        UserDefaults.standard.set(true, forKey: "hasViewedPermissionDemo")
+        SkillyAnalytics.trackPermissionSetupStarted(source: source)
+        onboardingDemoWindowController?.close()
+        showPanel()
     }
 
     // MARK: - Panel Lifecycle
