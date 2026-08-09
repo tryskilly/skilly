@@ -3,6 +3,14 @@
     <channel>
         <title>Skilly</title>
         <item>
+            <title>2.7</title>
+            <pubDate>Sun, 09 Aug 2026 23:21:45 +0300</pubDate>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>2.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v2.7/Skilly.dmg" length="11618274" type="application/octet-stream" sparkle:edSignature="b7aNkTzbc95baIwvksrCaP1u0+gOOLada29hTuAunsA0PgcUdyT9HW3OHezcuEsjNuf1ruqVwtEGcdrYzfNmCQ=="/>
+        </item>
+        <item>
             <title>2.6</title>
             <pubDate>Sun, 09 Aug 2026 22:27:24 +0300</pubDate>
             <sparkle:version>17</sparkle:version>
@@ -17,14 +25,6 @@
             <sparkle:shortVersionString>2.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/tryskilly/skilly/releases/download/v2.5/Skilly.dmg" length="11434043" type="application/octet-stream" sparkle:edSignature="h4+2uZuSjnLrI9fEpon7OLY7tVJODWKpbX86n6P747LJQGyl7dyyI3Pun804h6jKhaZ593cZ39p7SpI/9BugAQ=="/>
-        </item>
-        <item>
-            <title>2.4</title>
-            <pubDate>Thu, 30 Jul 2026 20:02:50 +0300</pubDate>
-            <sparkle:version>15</sparkle:version>
-            <sparkle:shortVersionString>2.4</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/tryskilly/skilly/releases/download/v2.4/Skilly.dmg" length="11425708" type="application/octet-stream" sparkle:edSignature="6jRVzORpS1ZFd0rH7I1UKHJroeF9RzhCJ/yd98yCWWBNRxKLTnth0fsyqOGv5BUeXaBnY6VkN+c/KrrJW7j0BA=="/>
         </item>
         <item>
             <title>2.0</title>
