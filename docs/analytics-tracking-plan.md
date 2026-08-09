@@ -1,6 +1,6 @@
 # Skilly Analytics Tracking Plan
 
-Last updated: 2026-06-13
+Last updated: 2026-08-10
 
 ## Overview
 
@@ -77,6 +77,14 @@ Allowed:
 | `onboarding_started` | Mac app | Onboarding started | WorkOS distinct ID |
 | `all_permissions_granted` | Mac app | Required permissions complete | WorkOS distinct ID |
 | `push_to_talk_started` | Mac app | Voice turn started | WorkOS distinct ID |
+| `text_prompt_started` | Mac app | User began composing a typed screen-aware question | WorkOS distinct ID |
+| `text_prompt_submitted` | Mac app | Typed question entered the shared Realtime pipeline | `character_count`, `screen_count`, `has_screen_context` |
+| `text_guidance_completed` | Mac app | Typed turn completed with cursor/text/audio guidance | `response_character_count`, `has_audio`, `did_point` |
+| `text_to_voice_started` | Mac app | User continued a completed typed turn through voice | WorkOS distinct ID |
+| `conversation_history_opened` | Mac app | Local conversation history opened | `turn_count` |
+| `conversation_history_turn_reopened` | Mac app | Stored answer shown beside the cursor | `input_mode`, `has_audio` |
+| `conversation_audio_replayed` | Mac app | Stored local response audio replayed | `input_mode` |
+| `conversation_history_cleared` | Mac app | Local messages and replay audio cleared | `turn_count` |
 | `skilly_turn_completed` | Mac app | Beta telemetry turn summary | token counts, costs, durations |
 | `skilly_session_ended` | Mac app | Beta telemetry session summary | token counts, costs, durations |
 | `trial_started` | Mac app | Trial lifecycle | `user_id` |

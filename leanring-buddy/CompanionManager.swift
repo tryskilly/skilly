@@ -49,6 +49,12 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var realtimeResponseBubbleText: String = ""
     /// True while the response transcript bubble should be visible beside the cursor.
     @Published private(set) var isShowingRealtimeResponseBubble: Bool = false
+    /// Typed prompts use the same screen-aware Realtime turn as voice prompts.
+    @Published private(set) var isSubmittingTextPrompt: Bool = false
+    /// Identifies the history turn currently replaying through the local PCM player.
+    @Published private(set) var replayingConversationTurnID: UUID?
+
+    let conversationHistoryStore = ConversationHistoryStore.shared
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
@@ -106,16 +112,14 @@ final class CompanionManager: ObservableObject {
     // MARK: - Skilly — Realtime transcript accumulation
     private var realtimeResponseText: String = ""
     private var currentTurnUserTranscript: String?
+    private var currentTurnInputMode: ConversationInputMode = .voice
+    private var currentTurnAssistantAudioData = Data()
     /// Screen capture metadata for the current turn, used to map [POINT:x,y]
     /// tags from screenshot pixel space back into global AppKit screen space.
     private var currentTurnScreenCaptures: [CompanionScreenCapture] = []
     /// When the user pressed push-to-talk for the current turn. Used to
     /// measure turn duration for usage tracking (recorded on response.done).
     private var currentTurnStartTime: Date?
-
-    /// Conversation history so Claude remembers prior exchanges within a session.
-    /// Each entry is the user's transcript and Claude's response.
-    private var conversationHistory: [(userTranscript: String, assistantResponse: String)] = []
 
     private var shortcutTransitionCancellable: AnyCancellable?
     // MARK: - Skilly — Escape key cancel
@@ -128,7 +132,11 @@ final class CompanionManager: ObservableObject {
     /// True after `responseDone` while waiting for the realtime audio queue
     /// to finish playing. Prevents transcript bubble from hiding too early.
     private var isWaitingForRealtimeAudioQueueDrain = false
+    private var conversationAudioReplayPlayer: RealtimeAudioPlayer?
+    private var reopenedConversationBubbleHideTask: Task<Void, Never>?
+    private var didCompleteTextTurnAwaitingVoiceContinuation = false
     private var voiceSettingCancellable: AnyCancellable?
+    private var conversationHistoryUserCancellable: AnyCancellable?
     private var permissionReturnCancellable: AnyCancellable?
     private var prewarmConnectionTask: Task<Void, Error>?
     private let minimumAudioChunksRequiredToCommit = 1
@@ -276,6 +284,7 @@ final class CompanionManager: ObservableObject {
         startPermissionPolling()
         bindShortcutTransitions()
         bindSettingsObservers()
+        bindConversationHistoryToAuthenticatedUser()
         bindPermissionReturnTracking()
 
         // If the user already completed onboarding AND all permissions are
@@ -750,6 +759,16 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    private func bindConversationHistoryToAuthenticatedUser() {
+        conversationHistoryUserCancellable = AuthManager.shared.$currentUser
+            .map { $0?.id }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] authenticatedUserID in
+                self?.conversationHistoryStore.activateUser(authenticatedUserID)
+            }
+    }
+
     private func startRealtimeSessionPrewarmIfNeeded() {
         guard prewarmConnectionTask == nil else { return }
         guard !openAIRealtimeClient.isConnected else { return }
@@ -857,6 +876,7 @@ final class CompanionManager: ObservableObject {
         openAIRealtimeClient.clearAudioBuffer()
         openAIRealtimeClient.cancelResponse()
         realtimeAudioPlayer?.stop()
+        currentTurnAssistantAudioData = Data()
         isWaitingForRealtimeAudioQueueDrain = false
         voiceState = .idle
         clearRealtimeResponseBubble()
@@ -981,6 +1001,12 @@ final class CompanionManager: ObservableObject {
             return Self.realtimeCompanionBasePrompt.replacingOccurrences(
                 of: "the user just spoke to you via push-to-talk",
                 with: "you're in live tutor mode — always listening. the user is working and talking to you naturally without pressing any buttons. they might think aloud, ask quick questions, or narrate what they're doing. be extra concise unless they ask for detail — they're in a flow state and interruptions should be short"
+            )
+        }
+        if currentTurnInputMode == .text {
+            return Self.realtimeCompanionBasePrompt.replacingOccurrences(
+                of: "the user just spoke to you via push-to-talk",
+                with: "the user typed a question and you can see their screen(s). answer through the same spoken and cursor-guided experience as a voice question"
             )
         }
         return Self.realtimeCompanionBasePrompt
@@ -1294,10 +1320,186 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    // MARK: - Skilly — Typed screen-aware turns and conversation history
+
+    var canSubmitTextPrompt: Bool {
+        voiceState == .idle && !isSubmittingTextPrompt && !isLiveTutorModeActive
+    }
+
+    @discardableResult
+    func submitTextPrompt(_ untrimmedTextPrompt: String) async -> Bool {
+        let textPrompt = untrimmedTextPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !textPrompt.isEmpty, canSubmitTextPrompt else { return false }
+
+        isSubmittingTextPrompt = true
+        currentTurnInputMode = .text
+        currentTurnUserTranscript = textPrompt
+        currentTurnAssistantAudioData = Data()
+        realtimeResponseText = ""
+        currentTurnScreenCaptures = []
+        hasEndedAssistantSpeechForCurrentTurn = false
+        didReceivePointToolCallForCurrentTurn = false
+        didReceiveAnyAudioChunkForCurrentTurn = false
+        pendingToolCallIdForCurrentTurn = nil
+        isAwaitingForcedSpokenFollowUp = false
+        isWaitingForRealtimeAudioQueueDrain = false
+        currentTurnStartTime = Date()
+        lastTranscript = textPrompt
+        reopenedConversationBubbleHideTask?.cancel()
+        clearDetectedElementLocation()
+        clearRealtimeResponseBubble()
+        ensureOverlayVisibleForConversation()
+        voiceState = .processing
+
+        do {
+            try await ensureRealtimeSessionReadyForTurn()
+            RealtimeTelemetry.shared.beginTurn()
+            beginRustRealtimeTurnTracking(turnPrefix: "text")
+
+            var realtimeScreenshotInputs: [RealtimeScreenshotInput] = []
+            do {
+                let allScreenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                currentTurnScreenCaptures = allScreenCaptures
+                RealtimeTelemetry.shared.recordVisionUsed()
+                realtimeScreenshotInputs = allScreenCaptures.enumerated().map { screenIndex, screenCapture in
+                    RealtimeScreenshotInput(
+                        jpegData: screenCapture.imageData,
+                        description: """
+                        \(screenCapture.label). \
+                        coordinate space: \(screenCapture.screenshotWidthInPixels)x\(screenCapture.screenshotHeightInPixels) pixels. \
+                        app display frame in points: \(Int(screenCapture.displayFrame.width))x\(Int(screenCapture.displayFrame.height)). \
+                        screen number: \(screenIndex + 1).
+                        """
+                    )
+                }
+            } catch {
+                #if DEBUG
+                print("⚠️ Typed prompt: screen capture unavailable, continuing without visual context: \(error)")
+                #endif
+            }
+
+            try await openAIRealtimeClient.sendTextAndRespond(
+                text: textPrompt,
+                screenshots: realtimeScreenshotInputs
+            )
+            SkillyAnalytics.trackUserMessageSent(transcript: textPrompt)
+            SkillyAnalytics.trackTextPromptSubmitted(
+                characterCount: textPrompt.count,
+                screenCount: realtimeScreenshotInputs.count
+            )
+            NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
+            isSubmittingTextPrompt = false
+            return true
+        } catch {
+            isSubmittingTextPrompt = false
+            currentTurnStartTime = nil
+            currentTurnUserTranscript = nil
+            currentTurnAssistantAudioData = Data()
+            voiceState = .idle
+            clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
+            SkillyAnalytics.trackTextPromptFailed(reason: "turn_setup_failed")
+
+            if case OpenAIRealtimeClient.OpenAIRealtimeError.authExpired = error {
+                do {
+                    try await AuthManager.shared.refreshAccessToken()
+                } catch {
+                    AuthManager.shared.signOut()
+                    NotificationCenter.default.post(name: .skillyAuthExpired, object: nil)
+                }
+            }
+            return false
+        }
+    }
+
+    func showConversationTurnBesideCursor(_ conversationTurn: ConversationTurn) {
+        ensureOverlayVisibleForConversation()
+        reopenedConversationBubbleHideTask?.cancel()
+        realtimeResponseBubbleText = conversationTurn.assistantMessage
+        isShowingRealtimeResponseBubble = true
+        scheduleReopenedConversationBubbleHide(after: 8)
+        NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
+        SkillyAnalytics.trackConversationHistoryTurnReopened(
+            inputMode: conversationTurn.inputMode.rawValue,
+            hasAudio: conversationTurn.hasReplayableAudio
+        )
+    }
+
+    func replayConversationAudio(_ conversationTurn: ConversationTurn) {
+        if replayingConversationTurnID == conversationTurn.id {
+            conversationAudioReplayPlayer?.stop()
+            conversationAudioReplayPlayer = nil
+            replayingConversationTurnID = nil
+            return
+        }
+
+        guard voiceState == .idle,
+              let assistantAudioData = conversationHistoryStore.audioData(for: conversationTurn),
+              !assistantAudioData.isEmpty else {
+            showConversationTurnBesideCursor(conversationTurn)
+            return
+        }
+
+        conversationAudioReplayPlayer?.stop()
+        let conversationAudioReplayPlayer = RealtimeAudioPlayer()
+        conversationAudioReplayPlayer.onQueueDrained = { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.replayingConversationTurnID = nil
+                self?.conversationAudioReplayPlayer = nil
+                self?.scheduleReopenedConversationBubbleHide(after: 2)
+            }
+        }
+        self.conversationAudioReplayPlayer = conversationAudioReplayPlayer
+        replayingConversationTurnID = conversationTurn.id
+        ensureOverlayVisibleForConversation()
+        reopenedConversationBubbleHideTask?.cancel()
+        realtimeResponseBubbleText = conversationTurn.assistantMessage
+        isShowingRealtimeResponseBubble = true
+        conversationAudioReplayPlayer.enqueueAudio(assistantAudioData)
+        NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
+        SkillyAnalytics.trackConversationAudioReplayed(inputMode: conversationTurn.inputMode.rawValue)
+    }
+
+    func clearConversationHistory() {
+        let numberOfTurns = conversationHistoryStore.turns.count
+        conversationAudioReplayPlayer?.stop()
+        conversationAudioReplayPlayer = nil
+        replayingConversationTurnID = nil
+        conversationHistoryStore.clearHistory()
+        SkillyAnalytics.trackConversationHistoryCleared(numberOfTurns: numberOfTurns)
+    }
+
+    private func ensureOverlayVisibleForConversation() {
+        guard !isOverlayVisible else { return }
+        overlayWindowManager.hasShownOverlayBefore = true
+        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+        isOverlayVisible = true
+    }
+
+    private func scheduleReopenedConversationBubbleHide(after delayInSeconds: TimeInterval) {
+        reopenedConversationBubbleHideTask?.cancel()
+        reopenedConversationBubbleHideTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delayInSeconds))
+            guard !Task.isCancelled else { return }
+            self?.clearRealtimeResponseBubble()
+            self?.scheduleTransientHideIfNeeded()
+        }
+    }
+
     // MARK: - Skilly — OpenAI Realtime Push-to-Talk Pipeline
 
     private func startOpenAIRealtimePushToTalk() {
         realtimePushToTalkTask?.cancel()
+        if didCompleteTextTurnAwaitingVoiceContinuation {
+            SkillyAnalytics.trackTextToVoiceStarted()
+            didCompleteTextTurnAwaitingVoiceContinuation = false
+        }
+        currentTurnInputMode = .voice
+        currentTurnAssistantAudioData = Data()
+        conversationAudioReplayPlayer?.stop()
+        conversationAudioReplayPlayer = nil
+        replayingConversationTurnID = nil
+        reopenedConversationBubbleHideTask?.cancel()
         // MARK: - Skilly — Reset response transcript buffer for each new turn
         realtimeResponseText = ""
         currentTurnUserTranscript = nil
@@ -1553,6 +1755,7 @@ final class CompanionManager: ObservableObject {
             // audio. If a response completes with a tool call but no audio,
             // we force a spoken follow-up in .responseDone below.
             didReceiveAnyAudioChunkForCurrentTurn = true
+            currentTurnAssistantAudioData.append(pcm16Data)
             realtimeAudioPlayer?.enqueueAudio(pcm16Data)
 
         case .audioTranscriptDelta(let text):
@@ -1634,18 +1837,33 @@ final class CompanionManager: ObservableObject {
             if !didReceivePointToolCallForCurrentTurn {
                 applyPointDirectiveIfPresent(in: realtimeResponseText)
             }
+            let cleanedAssistantResponse = realtimeResponseText.replacingOccurrences(
+                of: #"\s*\[POINT:[^\]]+\]\s*$"#,
+                with: "",
+                options: .regularExpression
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
             if let currentTurnUserTranscript {
-                let cleanedAssistantResponse = realtimeResponseText.replacingOccurrences(
-                    of: #"\s*\[POINT:[^\]]+\]\s*$"#,
-                    with: "",
-                    options: .regularExpression
-                )
                 skillManager?.didReceiveInteraction(
                     transcript: currentTurnUserTranscript,
-                    assistantResponse: cleanedAssistantResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+                    assistantResponse: cleanedAssistantResponse
                 )
+                conversationHistoryStore.recordCompletedTurn(
+                    userMessage: currentTurnUserTranscript,
+                    assistantMessage: cleanedAssistantResponse,
+                    inputMode: currentTurnInputMode,
+                    assistantPCM16Audio: currentTurnAssistantAudioData
+                )
+                if currentTurnInputMode == .text {
+                    didCompleteTextTurnAwaitingVoiceContinuation = true
+                    SkillyAnalytics.trackTextGuidanceCompleted(
+                        responseCharacterCount: cleanedAssistantResponse.count,
+                        hasAudio: !currentTurnAssistantAudioData.isEmpty,
+                        didPoint: didReceivePointToolCallForCurrentTurn || detectedElementScreenLocation != nil
+                    )
+                }
             }
             self.currentTurnUserTranscript = nil
+            currentTurnAssistantAudioData = Data()
             // Wait for audio queue drain instead of a fixed timer so the
             // transcript remains visible for the full spoken response.
             isWaitingForRealtimeAudioQueueDrain = true
@@ -1676,6 +1894,12 @@ final class CompanionManager: ObservableObject {
             resetLiveTutorAutoSleepTimer()
 
             // Reset per-turn state
+            currentTurnInputMode = .voice
+            currentTurnAssistantAudioData = Data()
+            conversationAudioReplayPlayer?.stop()
+            conversationAudioReplayPlayer = nil
+            replayingConversationTurnID = nil
+            reopenedConversationBubbleHideTask?.cancel()
             realtimeResponseText = ""
             currentTurnUserTranscript = nil
             currentTurnScreenCaptures = []
@@ -1744,6 +1968,9 @@ final class CompanionManager: ObservableObject {
             }
             hasEndedAssistantSpeechForCurrentTurn = false
             isWaitingForRealtimeAudioQueueDrain = false
+            currentTurnUserTranscript = nil
+            currentTurnAssistantAudioData = Data()
+            currentTurnStartTime = nil
             voiceState = .idle
             clearRealtimeResponseBubble()
             resetRustRealtimeTracking()

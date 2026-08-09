@@ -40,6 +40,9 @@ Singletons created at startup (all `@StateObject` or `@EnvironmentObject` inject
 | `SettingsView.swift` | Gear popover with three tabs: Account (auth, `PlanCard`, subscription), Voice (language/shortcuts/voice), General (auto-load, startup, help). |
 | `OverlayWindow.swift` | Full-screen transparent `NSWindow` per screen (non-activating, all Spaces). Hosts `BlueCursorView` (triangle/waveform/spinner states), 60fps mouse tracking, bezier arc flight animation, streaming text bubble. |
 | `CompanionResponseOverlay.swift` | Floating `NSPanel` response text near cursor. Auto-repositions + clamps to screen, auto-hides after 6s. |
+| `ConversationHistoryStore.swift` | Persists up to 100 completed voice/typed turns locally with optional PCM16 response audio for replay. |
+| `ConversationHistoryView.swift` | History popover with local-only disclosure, text selection, cursor re-open, audio replay, and clear controls. |
+| `TypedPromptRealtimePayload.swift` | Pure typed-turn event builder that sends each screenshot separately before the final question and response request. |
 | `DesignSystem.swift` | Design tokens: `DS.Colors`, `DS.CornerRadius`, `DS.Spacing`, all button styles (primary/secondary/tertiary/text/outlined/destructive/icon), animation durations, pointer cursor system. |
 | `WindowPositionManager.swift` | Permission checks (`AXIsProcessTrusted`, `CGPreflightScreenCaptureAccess`). Window-shrink via Accessibility API. |
 | `BYOKSection.swift` | "Bring Your Own Key" Settings section — user-supplied OpenAI API key bypasses proxy+billing. |

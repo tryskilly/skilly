@@ -17,6 +17,10 @@ struct CompanionPanelView: View {
     @State private var emailInput: String = ""
     // MARK: - Skilly — Settings
     @State private var showSettings = false
+    @State private var showConversationHistory = false
+    @State private var typedPrompt = ""
+    @State private var didTrackCurrentTextPromptStart = false
+    @FocusState private var isTypedPromptFocused: Bool
     @State private var viewedPermissionSteps: Set<OnboardingPermission> = []
 
     var body: some View {
@@ -60,6 +64,13 @@ struct CompanionPanelView: View {
             } else if let skillManager {
                 // Main content — single unified view, no navigation
                 PanelBodyView(skillManager: skillManager)
+
+                Divider()
+                    .background(DS.Colors.borderSubtle)
+
+                typedPromptComposer
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
             }
 
             Divider()
@@ -213,6 +224,36 @@ struct CompanionPanelView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textTertiary)
 
+            // MARK: - Skilly — Conversation history
+            if authManager?.isSignedIn == true {
+                Button(action: {
+                    showConversationHistory.toggle()
+                    if showConversationHistory {
+                        SkillyAnalytics.trackConversationHistoryOpened(
+                            numberOfTurns: companionManager.conversationHistoryStore.turns.count
+                        )
+                    }
+                }) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .popover(isPresented: $showConversationHistory) {
+                    ConversationHistoryView(
+                        conversationHistoryStore: companionManager.conversationHistoryStore,
+                        replayingConversationTurnID: companionManager.replayingConversationTurnID,
+                        showTurnBesideCursor: companionManager.showConversationTurnBesideCursor,
+                        replayTurnAudio: companionManager.replayConversationAudio,
+                        clearHistory: companionManager.clearConversationHistory
+                    )
+                }
+                .accessibilityLabel("Conversation history")
+                .accessibilityHint("Opens previous typed and spoken conversations")
+            }
+
             // MARK: - Skilly — Settings gear button
             Button(action: { showSettings.toggle() }) {
                 Image(systemName: "gearshape")
@@ -254,6 +295,90 @@ struct CompanionPanelView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+    }
+
+    // MARK: - Skilly — Typed screen-aware prompt
+
+    private var typedPromptComposer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 7) {
+                TextField("Ask about your screen…", text: $typedPrompt, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1...3)
+                    .focused($isTypedPromptFocused)
+                    .onSubmit(submitTypedPrompt)
+                    .onChange(of: typedPrompt) { updatedTextPrompt in
+                        let hasTypedContent = !updatedTextPrompt
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .isEmpty
+                        if hasTypedContent && !didTrackCurrentTextPromptStart {
+                            didTrackCurrentTextPromptStart = true
+                            SkillyAnalytics.trackTextPromptStarted()
+                        } else if !hasTypedContent {
+                            didTrackCurrentTextPromptStart = false
+                        }
+                    }
+
+                Button(action: submitTypedPrompt) {
+                    Group {
+                        if companionManager.isSubmittingTextPrompt {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.75)
+                        } else {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                    }
+                    .foregroundColor(DS.Colors.textOnAccent)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        Circle()
+                            .fill(canSubmitTypedPrompt ? DS.Colors.accent : DS.Colors.surface2)
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .disabled(!canSubmitTypedPrompt)
+                .accessibilityLabel("Send typed question")
+                .accessibilityHint("Captures the current screen and asks Skilly without using the microphone")
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
+            .padding(.vertical, 7)
+            .background(DS.Colors.surfaceSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .stroke(isTypedPromptFocused ? DS.Colors.accent.opacity(0.7) : DS.Colors.borderSubtle, lineWidth: 0.8)
+            }
+
+            Text("Type here or hold Control + Option to talk")
+                .font(.system(size: 9))
+                .foregroundColor(DS.Colors.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private var canSubmitTypedPrompt: Bool {
+        !typedPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && companionManager.canSubmitTextPrompt
+    }
+
+    private func submitTypedPrompt() {
+        guard canSubmitTypedPrompt else { return }
+        let submittedTextPrompt = typedPrompt
+        Task { @MainActor in
+            if await companionManager.submitTextPrompt(submittedTextPrompt) {
+                typedPrompt = ""
+                didTrackCurrentTextPromptStart = false
+                isTypedPromptFocused = false
+            } else {
+                didTrackCurrentTextPromptStart = false
+            }
+        }
     }
 
     // MARK: - Permissions Copy

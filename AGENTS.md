@@ -62,6 +62,8 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 **Transient Cursor Mode**: When "Show Skilly" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
+**Typed Turns and Local History**: Typed questions use the same entitlement gate, multi-screen capture, Realtime response, spoken audio, and pointing pipeline as push-to-talk. Completed voice and typed turns are stored locally under Application Support with optional PCM replay audio; message contents are never sent to analytics. The menu panel exposes a compact composer and a separate history popover so long conversations do not overload the status-item panel.
+
 **Skill Prompt Composition**: When a skill is active, the system prompt is composed in 5 layers: base Skilly prompt → teaching instructions → curriculum context → UI vocabulary (budget-trimmed) → pointing mode instruction. When no skill is active, the original base prompt is used unchanged.
 
 **WorkOS Auth Flow**: User clicks "Sign in" → app generates OAuth `state` → browser opens WorkOS AuthKit via Worker `/auth/url?state=...` → WorkOS redirects to Worker `/auth/callback` → Worker serves HTML that redirects to `skilly://auth/callback?code=XXX&state=YYY` → app validates `state` and exchanges code via Worker `/auth/token` → stores access/refresh + Worker session token in Keychain.
@@ -83,6 +85,9 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 | `SettingsView.swift` | ~430 | Popover settings from the gear icon. Three tabs: Account (auth, privacy, `PlanCard`, subscription management), Voice (language/shortcuts/voice config), General (skills auto-load, startup, help). |
 | `OverlayWindow.swift` | ~970 | Full-screen transparent overlay per screen. `BlueCursorView` with cursor states (triangle/waveform/spinner), 60fps mouse tracking, bezier arc flight animation, navigation bubble with character-by-character streaming text. |
 | `CompanionResponseOverlay.swift` | ~230 | Floating response text panel that follows cursor. NSPanel-based, auto-repositions near cursor, clamps to visible screen bounds, auto-hides after 6s. |
+| `ConversationHistoryStore.swift` | ~190 | Local persisted typed/voice turn history with bounded retention and optional PCM16 replay audio. |
+| `ConversationHistoryView.swift` | ~220 | Dedicated history popover with selectable text, cursor re-open, audio replay, and clear-history confirmation. |
+| `TypedPromptRealtimePayload.swift` | ~60 | Deterministic bounded Realtime event construction for typed questions and multi-screen context. |
 | `CompanionScreenCaptureUtility.swift` | ~130 | Multi-monitor screenshot via ScreenCaptureKit. Filters out own app's windows, sorts displays by cursor position, returns AppKit coordinates. |
 | `OpenAIRealtimeClient.swift` | ~770 | OpenAI Realtime WebSocket client. Connects to `wss://api.openai.com/v1/realtime`. Handles audio in/out, screenshots, session pre-warm, usage reporting via `response.done`. Events published via `PassthroughSubject`. |
 | `RealtimeAudioPlayer.swift` | ~115 | PCM16 24kHz audio playback via `AVAudioEngine` + `AVAudioPlayerNode`. Converts Int16 → Float32 normalized to [-1, 1]. |

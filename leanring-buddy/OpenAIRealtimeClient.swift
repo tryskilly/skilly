@@ -735,6 +735,28 @@ final class OpenAIRealtimeClient: ObservableObject {
         }
     }
 
+    /// Sends one typed question and its screen context as a single ordered
+    /// conversation item, then requests the same spoken response used by voice.
+    func sendTextAndRespond(
+        text: String,
+        screenshots: [RealtimeScreenshotInput]
+    ) async throws {
+        guard isConnected else {
+            throw OpenAIRealtimeError.connectionFailed("No active Realtime session")
+        }
+
+        let typedPromptEvents = TypedPromptRealtimePayload.makeEvents(text: text, screenshots: screenshots)
+
+        for conversationItem in typedPromptEvents.conversationItems {
+            try await sendEvent(conversationItem)
+        }
+        try await sendEvent(typedPromptEvents.responseRequest)
+
+        #if DEBUG
+        print("⌨️ OpenAI Realtime: sent typed prompt with \(screenshots.count) screen(s)")
+        #endif
+    }
+
     // MARK: - Private — Sending
 
     private func sendEvent(_ event: [String: Any]) async throws {
