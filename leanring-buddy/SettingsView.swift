@@ -126,6 +126,11 @@ struct SettingsView: View {
             )
         )
 
+        Text("Conversation history and replay audio stay on this Mac. Open History to review or clear them.")
+            .font(.system(size: 10))
+            .foregroundColor(DS.Colors.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+
         // MARK: - Skilly — Admin-only diagnostics
         //
         // Skilly admins (per AdminAllowlist) bypass the trial + paywall

@@ -177,6 +177,76 @@ enum SkillyAnalytics {
         ])
     }
 
+    // MARK: - Skilly — Typed guidance and local conversation history
+
+    static func trackTextPromptStarted() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("text_prompt_started")
+    }
+
+    static func trackTextPromptSubmitted(characterCount: Int, screenCount: Int) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("text_prompt_submitted", properties: [
+            "character_count": characterCount,
+            "screen_count": screenCount,
+            "has_screen_context": screenCount > 0,
+        ])
+    }
+
+    static func trackTextPromptFailed(reason: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("text_prompt_failed", properties: [
+            "reason": reason,
+        ])
+    }
+
+    static func trackTextGuidanceCompleted(
+        responseCharacterCount: Int,
+        hasAudio: Bool,
+        didPoint: Bool
+    ) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("text_guidance_completed", properties: [
+            "response_character_count": responseCharacterCount,
+            "has_audio": hasAudio,
+            "did_point": didPoint,
+        ])
+    }
+
+    static func trackTextToVoiceStarted() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("text_to_voice_started")
+    }
+
+    static func trackConversationHistoryOpened(numberOfTurns: Int) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("conversation_history_opened", properties: [
+            "turn_count": numberOfTurns,
+        ])
+    }
+
+    static func trackConversationHistoryTurnReopened(inputMode: String, hasAudio: Bool) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("conversation_history_turn_reopened", properties: [
+            "input_mode": inputMode,
+            "has_audio": hasAudio,
+        ])
+    }
+
+    static func trackConversationAudioReplayed(inputMode: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("conversation_audio_replayed", properties: [
+            "input_mode": inputMode,
+        ])
+    }
+
+    static func trackConversationHistoryCleared(numberOfTurns: Int) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("conversation_history_cleared", properties: [
+            "turn_count": numberOfTurns,
+        ])
+    }
+
     // MARK: - Skilly — Privacy: response text is never sent to analytics, only character count.
     static func trackAIResponseReceived(response: String) {
         guard AppSettings.shared.analyticsEnabled else { return }
