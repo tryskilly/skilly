@@ -106,6 +106,32 @@ enum SkillyAnalytics {
         ])
     }
 
+    static func trackPermissionStepViewed(permission: String, step: Int, totalSteps: Int, grantedCount: Int) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("permission_step_viewed", properties: [
+            "permission": permission,
+            "step": step,
+            "total_steps": totalSteps,
+            "granted_count": grantedCount
+        ])
+    }
+
+    static func trackPermissionRequestClicked(permission: String, presentation: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("permission_request_clicked", properties: [
+            "permission": permission,
+            "presentation": presentation
+        ])
+    }
+
+    static func trackPermissionRequestResolved(permission: String, outcome: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("permission_request_resolved", properties: [
+            "permission": permission,
+            "outcome": outcome
+        ])
+    }
+
     static func trackAllPermissionsGranted() {
         guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("all_permissions_granted")

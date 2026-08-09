@@ -35,6 +35,7 @@ Singletons created at startup (all `@StateObject` or `@EnvironmentObject` inject
 |------|---------|
 | `MenuBarPanelManager.swift` | `NSStatusItem` + borderless non-activating `NSPanel`. Auto-dismisses on outside click (0.3s delay for permission dialogs). |
 | `CompanionPanelView.swift` | SwiftUI panel shell. Hosts `PlanStrip`, `PanelBodyView`, header, permissions, model picker, footer. Sign-in/sign-out flow; settings gear → `SettingsView`. |
+| `OnboardingPermission.swift` | Pure ordered permission model for the guided first-run setup. Keeps sequencing and progress calculations testable outside SwiftUI. |
 | `PanelBodyView.swift` | Scrollable panel body. "ACTIVE NOW" + "INSTALLED" skill sections. Hover-reveal `SkillRowActionMenu` overflow (Pause/Resume, Reset, View details, Show in Finder, Remove with confirmation). |
 | `SettingsView.swift` | Gear popover with three tabs: Account (auth, `PlanCard`, subscription), Voice (language/shortcuts/voice), General (auto-load, startup, help). |
 | `OverlayWindow.swift` | Full-screen transparent `NSWindow` per screen (non-activating, all Spaces). Hosts `BlueCursorView` (triangle/waveform/spinner states), 60fps mouse tracking, bezier arc flight animation, streaming text bubble. |

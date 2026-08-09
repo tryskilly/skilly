@@ -23,6 +23,9 @@ enum CompanionVoiceState {
 
 @MainActor
 final class CompanionManager: ObservableObject {
+    private static let pendingOnboardingPermissionKey = "pendingOnboardingPermission"
+    private static let pendingOnboardingPermissionPresentationKey = "pendingOnboardingPermissionPresentation"
+
     @Published private(set) var voiceState: CompanionVoiceState = .idle
     @Published private(set) var lastTranscript: String?
     @Published private(set) var currentAudioPowerLevel: CGFloat = 0
@@ -126,6 +129,7 @@ final class CompanionManager: ObservableObject {
     /// to finish playing. Prevents transcript bubble from hiding too early.
     private var isWaitingForRealtimeAudioQueueDrain = false
     private var voiceSettingCancellable: AnyCancellable?
+    private var permissionReturnCancellable: AnyCancellable?
     private var prewarmConnectionTask: Task<Void, Error>?
     private let minimumAudioChunksRequiredToCommit = 1
     private var hasEndedAssistantSpeechForCurrentTurn = false
@@ -147,6 +151,65 @@ final class CompanionManager: ObservableObject {
     /// microphone) are granted. Used by the panel to show a single "all good" state.
     var allPermissionsGranted: Bool {
         hasAccessibilityPermission && hasScreenRecordingPermission && hasMicrophonePermission && hasScreenContentPermission
+    }
+
+    var nextOnboardingPermission: OnboardingPermission? {
+        OnboardingPermission.nextRequired(
+            hasMicrophone: hasMicrophonePermission,
+            hasScreenRecording: hasScreenRecordingPermission,
+            hasScreenContent: hasScreenContentPermission,
+            hasAccessibility: hasAccessibilityPermission
+        )
+    }
+
+    var completedOnboardingPermissionCount: Int {
+        OnboardingPermission.completedCount(
+            hasMicrophone: hasMicrophonePermission,
+            hasScreenRecording: hasScreenRecordingPermission,
+            hasScreenContent: hasScreenContentPermission,
+            hasAccessibility: hasAccessibilityPermission
+        )
+    }
+
+    func isOnboardingPermissionGranted(_ permission: OnboardingPermission) -> Bool {
+        switch permission {
+        case .microphone:
+            return hasMicrophonePermission
+        case .screenRecording:
+            return hasScreenRecordingPermission
+        case .screenContent:
+            return hasScreenContentPermission
+        case .accessibility:
+            return hasAccessibilityPermission
+        }
+    }
+
+    func trackPermissionStepViewed(_ permission: OnboardingPermission) {
+        SkillyAnalytics.trackPermissionStepViewed(
+            permission: permission.rawValue,
+            step: permission.stepNumber,
+            totalSteps: OnboardingPermission.allCases.count,
+            grantedCount: completedOnboardingPermissionCount
+        )
+    }
+
+    func requestOnboardingPermission(_ permission: OnboardingPermission) {
+        switch permission {
+        case .microphone:
+            requestMicrophonePermission()
+        case .screenRecording:
+            requestScreenRecordingPermission()
+        case .screenContent:
+            requestScreenContentPermission()
+        case .accessibility:
+            requestAccessibilityPermission()
+        }
+    }
+
+    func showAccessibilityPermissionRecovery() {
+        beginPermissionRequest(.accessibility, presentation: "system_settings_finder")
+        WindowPositionManager.revealAppInFinder()
+        WindowPositionManager.openAccessibilitySettings()
     }
 
     /// Whether the blue cursor overlay is currently visible on screen.
@@ -213,6 +276,7 @@ final class CompanionManager: ObservableObject {
         startPermissionPolling()
         bindShortcutTransitions()
         bindSettingsObservers()
+        bindPermissionReturnTracking()
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
@@ -337,6 +401,7 @@ final class CompanionManager: ObservableObject {
         transientHideTask?.cancel()
         shortcutTransitionCancellable?.cancel()
         voiceSettingCancellable?.cancel()
+        permissionReturnCancellable?.cancel()
         prewarmConnectionTask?.cancel()
         prewarmConnectionTask = nil
         accessibilityCheckTimer?.invalidate()
@@ -425,12 +490,15 @@ final class CompanionManager: ObservableObject {
         // Track individual permission grants as they happen
         if !previouslyHadAccessibility && hasAccessibilityPermission {
             SkillyAnalytics.trackPermissionGranted(permission: "accessibility")
+            resolvePendingPermissionIfNeeded(.accessibility)
         }
         if !previouslyHadScreenRecording && hasScreenRecordingPermission {
             SkillyAnalytics.trackPermissionGranted(permission: "screen_recording")
+            resolvePendingPermissionIfNeeded(.screenRecording)
         }
         if !previouslyHadMicrophone && hasMicrophonePermission {
             SkillyAnalytics.trackPermissionGranted(permission: "microphone")
+            resolvePendingPermissionIfNeeded(.microphone)
         }
         // Screen content permission is persisted — once the user has approved the
         // SCShareableContent picker, we don't need to re-check it.
@@ -453,12 +521,16 @@ final class CompanionManager: ObservableObject {
 
     func requestScreenContentPermission() {
         guard !isRequestingScreenContent else { return }
+        beginPermissionRequest(.screenContent, presentation: "system_prompt")
         isRequestingScreenContent = true
         Task {
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                 guard let display = content.displays.first else {
-                    await MainActor.run { isRequestingScreenContent = false }
+                    await MainActor.run {
+                        isRequestingScreenContent = false
+                        resolvePendingPermission(permission: .screenContent, outcome: "not_granted")
+                    }
                     return
                 }
                 let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -475,10 +547,14 @@ final class CompanionManager: ObservableObject {
                 #endif
                 await MainActor.run {
                     isRequestingScreenContent = false
-                    guard didCapture else { return }
+                    guard didCapture else {
+                        resolvePendingPermission(permission: .screenContent, outcome: "not_granted")
+                        return
+                    }
                     hasScreenContentPermission = true
                     UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
                     SkillyAnalytics.trackPermissionGranted(permission: "screen_content")
+                    resolvePendingPermissionIfNeeded(.screenContent)
 
                     // If onboarding was already completed, show the cursor overlay now
                     if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isSkillyCursorEnabled {
@@ -492,9 +568,112 @@ final class CompanionManager: ObservableObject {
                 #if DEBUG
                 print("⚠️ Screen content permission request failed: \(error)")
                 #endif
-                await MainActor.run { isRequestingScreenContent = false }
+                await MainActor.run {
+                    isRequestingScreenContent = false
+                    resolvePendingPermission(permission: .screenContent, outcome: "not_granted")
+                }
             }
         }
+    }
+
+    private func requestMicrophonePermission() {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .authorized:
+            refreshAllPermissions()
+        case .notDetermined:
+            beginPermissionRequest(.microphone, presentation: "system_prompt")
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if granted {
+                        self.refreshAllPermissions()
+                    } else {
+                        self.resolvePendingPermission(permission: .microphone, outcome: "denied")
+                    }
+                }
+            }
+        default:
+            beginPermissionRequest(.microphone, presentation: "system_settings")
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    private func requestScreenRecordingPermission() {
+        let destination = WindowPositionManager.requestScreenRecordingPermission()
+        guard destination != .alreadyGranted else {
+            refreshAllPermissions()
+            return
+        }
+        beginPermissionRequest(.screenRecording, presentation: analyticsName(for: destination))
+    }
+
+    private func requestAccessibilityPermission() {
+        let destination = WindowPositionManager.requestAccessibilityPermission()
+        guard destination != .alreadyGranted else {
+            refreshAllPermissions()
+            return
+        }
+        beginPermissionRequest(.accessibility, presentation: analyticsName(for: destination))
+    }
+
+    private func analyticsName(for destination: PermissionRequestPresentationDestination) -> String {
+        switch destination {
+        case .alreadyGranted:
+            return "already_granted"
+        case .systemPrompt:
+            return "system_prompt"
+        case .systemSettings:
+            return "system_settings"
+        }
+    }
+
+    private func beginPermissionRequest(_ permission: OnboardingPermission, presentation: String) {
+        UserDefaults.standard.set(permission.rawValue, forKey: Self.pendingOnboardingPermissionKey)
+        UserDefaults.standard.set(presentation, forKey: Self.pendingOnboardingPermissionPresentationKey)
+        SkillyAnalytics.trackPermissionRequestClicked(
+            permission: permission.rawValue,
+            presentation: presentation
+        )
+    }
+
+    private func resolvePendingPermissionIfNeeded(_ permission: OnboardingPermission) {
+        guard UserDefaults.standard.string(forKey: Self.pendingOnboardingPermissionKey) == permission.rawValue else { return }
+        resolvePendingPermission(permission: permission, outcome: "granted")
+    }
+
+    private func resolvePendingPermission(permission: OnboardingPermission, outcome: String) {
+        UserDefaults.standard.removeObject(forKey: Self.pendingOnboardingPermissionKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingOnboardingPermissionPresentationKey)
+        SkillyAnalytics.trackPermissionRequestResolved(
+            permission: permission.rawValue,
+            outcome: outcome
+        )
+    }
+
+    private func bindPermissionReturnTracking() {
+        permissionReturnCancellable?.cancel()
+        permissionReturnCancellable = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self,
+                      UserDefaults.standard.string(forKey: Self.pendingOnboardingPermissionPresentationKey)?.hasPrefix("system_settings") == true,
+                      let rawPermission = UserDefaults.standard.string(forKey: Self.pendingOnboardingPermissionKey),
+                      let permission = OnboardingPermission(rawValue: rawPermission) else { return }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self else { return }
+                    self.refreshAllPermissions()
+                    guard UserDefaults.standard.string(forKey: Self.pendingOnboardingPermissionKey) == permission.rawValue,
+                          !self.isOnboardingPermissionGranted(permission) else { return }
+                    let outcome = permission == .screenRecording
+                        ? "returned_restart_required"
+                        : "returned_without_grant"
+                    self.resolvePendingPermission(permission: permission, outcome: outcome)
+                }
+            }
     }
 
     // MARK: - Private
