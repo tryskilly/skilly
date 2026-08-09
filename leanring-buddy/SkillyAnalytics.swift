@@ -89,6 +89,23 @@ enum SkillyAnalytics {
         PostHogSDK.shared.capture("onboarding_demo_triggered")
     }
 
+    static func trackPermissionDemoStarted() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("permission_demo_started")
+    }
+
+    static func trackPermissionDemoCompleted() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("permission_demo_completed")
+    }
+
+    static func trackPermissionSetupStarted(source: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("permission_setup_started", properties: [
+            "source": source
+        ])
+    }
+
     static func trackAllPermissionsGranted() {
         guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("all_permissions_granted")

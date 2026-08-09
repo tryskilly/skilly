@@ -10,12 +10,26 @@
 import AVFoundation
 import SwiftUI
 
+private enum PermissionDemoStage: Int, Comparable {
+    case ready
+    case thinking
+    case pointing
+    case answering
+    case complete
+
+    static func < (lhs: PermissionDemoStage, rhs: PermissionDemoStage) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
     // MARK: - Skilly
     var skillManager: SkillManager?
     var authManager: AuthManager?
     @State private var emailInput: String = ""
+    @AppStorage("hasViewedPermissionDemo") private var hasViewedPermissionDemo = false
+    @State private var permissionDemoStage: PermissionDemoStage = .ready
     // MARK: - Skilly — Settings
     @State private var showSettings = false
 
@@ -27,7 +41,12 @@ struct CompanionPanelView: View {
                 .background(DS.Colors.borderSubtle)
                 .padding(.horizontal, 16)
 
-            if !companionManager.allPermissionsGranted {
+            if !companionManager.allPermissionsGranted && shouldShowPermissionFreeDemo {
+                permissionFreeDemoSection
+                    .padding(.top, 14)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            } else if !companionManager.allPermissionsGranted {
                 permissionsCopySection
                     .padding(.top, 16)
                     .padding(.horizontal, 16)
@@ -84,6 +103,170 @@ struct CompanionPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
         .background(panelBackground)
         .preferredColorScheme(.dark)
+    }
+
+    private var shouldShowPermissionFreeDemo: Bool {
+        !companionManager.hasCompletedOnboarding && !hasViewedPermissionDemo
+    }
+
+    // MARK: - Permission-free Demo
+
+    private var permissionFreeDemoSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("See Skilly before you share")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(DS.Colors.textPrimary)
+
+                Text("This sample uses a fake Blender screen. Skilly cannot see or hear your Mac yet.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            permissionDemoCanvas
+
+            if permissionDemoStage == .ready {
+                demoPrimaryButton(title: "Play the sample") {
+                    runPermissionDemo()
+                }
+            } else if permissionDemoStage == .complete {
+                demoPrimaryButton(title: "Try Skilly on my screen") {
+                    SkillyAnalytics.trackPermissionSetupStarted(source: "demo")
+                    hasViewedPermissionDemo = true
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Skilly is finding the right control…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DS.Colors.textSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+
+            Button("Skip sample and set up permissions") {
+                SkillyAnalytics.trackPermissionSetupStarted(source: "skip")
+                hasViewedPermissionDemo = true
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(DS.Colors.textTertiary)
+            .frame(maxWidth: .infinity)
+            .pointerCursor()
+            .accessibilityHint("Shows the permissions Skilly needs without playing the sample")
+        }
+    }
+
+    private var permissionDemoCanvas: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                VStack(spacing: 5) {
+                    demoToolIcon(systemName: "move.3d", highlighted: false)
+                    demoToolIcon(systemName: "cube", highlighted: false)
+                    demoToolIcon(systemName: "square.stack.3d.up", highlighted: permissionDemoStage >= .pointing)
+                }
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .fill(DS.Colors.surface1)
+
+                    Image(systemName: "cube.transparent")
+                        .font(.system(size: 40, weight: .light))
+                        .foregroundColor(DS.Colors.textSecondary)
+
+                    if permissionDemoStage >= .pointing {
+                        Image(systemName: "cursorarrow")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(DS.Colors.accent)
+                            .offset(x: -45, y: 20)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .frame(height: 88)
+            }
+
+            Text("How do I add a bevel to this cube?")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(DS.Colors.surfaceSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous))
+
+            if permissionDemoStage >= .answering {
+                HStack(alignment: .top, spacing: 6) {
+                    Circle()
+                        .fill(DS.Colors.accent)
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 4)
+                    Text("Click the Bevel modifier — third tool on the left.")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .padding(10)
+        .background(DS.Colors.surface2)
+        .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Permission-free Skilly sample")
+    }
+
+    private func demoToolIcon(systemName: String, highlighted: Bool) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(highlighted ? DS.Colors.textOnAccent : DS.Colors.textTertiary)
+            .frame(width: 26, height: 23)
+            .background(highlighted ? DS.Colors.accent : DS.Colors.surface1)
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
+            .animation(.easeInOut(duration: 0.25), value: highlighted)
+    }
+
+    private func demoPrimaryButton(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textOnAccent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(DS.Colors.accent)
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    private func runPermissionDemo() {
+        guard permissionDemoStage == .ready else { return }
+        SkillyAnalytics.trackPermissionDemoStarted()
+        permissionDemoStage = .thinking
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            withAnimation(.easeOut(duration: 0.35)) {
+                permissionDemoStage = .pointing
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            withAnimation(.easeOut(duration: 0.35)) {
+                permissionDemoStage = .answering
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            withAnimation(.easeOut(duration: 0.25)) {
+                permissionDemoStage = .complete
+            }
+            SkillyAnalytics.trackPermissionDemoCompleted()
+        }
     }
 
     // MARK: - Push-to-talk Hint Strip (always visible)
@@ -304,9 +487,9 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Nothing runs in the background. Skilly will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
+                Text("Skilly captures a screen image only when you ask for screen-aware help. Capture is visible, and you can revoke access at any time in System Settings.")
                     .font(.system(size: 11))
-                    .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
+                    .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
