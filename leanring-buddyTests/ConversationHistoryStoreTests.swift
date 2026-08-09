@@ -118,6 +118,7 @@ struct ConversationHistoryStoreTests {
 }
 
 private enum ConversationHistoryStoreForAccountIsolationTests {
+    @MainActor
     static func makeStore(applicationSupportDirectoryURL: URL) -> ConversationHistoryStore {
         ConversationHistoryStore(
             rootDirectoryURLForAuthenticatedUsers: applicationSupportDirectoryURL
