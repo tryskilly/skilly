@@ -565,7 +565,6 @@ struct SkillPanelSection: View {
     // MARK: - Import Actions
 
     private func openFilePicker() {
-        let fileManager = FileManager.default
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -575,22 +574,11 @@ struct SkillPanelSection: View {
         panel.allowedContentTypes = [.folder, .plainText, UTType(filenameExtension: "md") ?? .plainText]
         panel.allowsOtherFileTypes = true
         panel.prompt = "Import"
-        panel.message = "Select a skill folder (or a SKILL.md file inside it)."
+        panel.message = "Select a skill folder or a downloaded Markdown skill file."
 
         if panel.runModal() == .OK, let selectedURL = panel.url {
-            let importDirectoryURL: URL
-            var isDirectory = ObjCBool(false)
-            if fileManager.fileExists(atPath: selectedURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                importDirectoryURL = selectedURL
-            } else if selectedURL.lastPathComponent.lowercased() == "skill.md" {
-                importDirectoryURL = selectedURL.deletingLastPathComponent()
-            } else {
-                importError = "Select a folder containing SKILL.md, or select SKILL.md directly."
-                return
-            }
-
             do {
-                _ = try skillManager.importSkillFromDirectory(at: importDirectoryURL)
+                try skillManager.importSkill(from: selectedURL)
                 importError = nil
             } catch {
                 importError = "Failed to import: \(error.localizedDescription)"
