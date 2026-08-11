@@ -79,11 +79,11 @@ struct PanelBodyView: View {
         }
         .fileImporter(
             isPresented: $showImportPicker,
-            allowedContentTypes: [.folder],
+            allowedContentTypes: [.folder, UTType(filenameExtension: "md") ?? .plainText],
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                try? skillManager.importSkillFromDirectory(url)
+                try? skillManager.importSkill(from: url)
             }
         }
     }

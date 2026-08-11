@@ -437,6 +437,58 @@ final class SkillManager: ObservableObject {
         }
     }
 
+    /// Imports either a skill bundle directory or a standalone Markdown file.
+    /// Standalone files may have descriptive download names; they are normalized to
+    /// `SKILL.md` inside Skilly's managed skill directory during installation.
+    func importSkill(from sourceURL: URL) throws {
+        let fileManager = FileManager.default
+        var isDirectory = ObjCBool(false)
+
+        guard fileManager.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory) else {
+            throw SkillManagerError.missingSkillFile(sourceURL.path)
+        }
+
+        if isDirectory.boolValue {
+            try importSkillFromDirectory(sourceURL)
+            return
+        }
+
+        guard sourceURL.pathExtension.lowercased() == "md" else {
+            throw SkillManagerError.unsupportedSkillFile(sourceURL.lastPathComponent)
+        }
+
+        let rawSkillContent = try String(contentsOf: sourceURL, encoding: .utf8)
+        let parsedSkill = try SkillDefinition.parse(
+            from: rawSkillContent,
+            sourceDirectoryPath: sourceURL.deletingLastPathComponent().path
+        )
+
+        let validationResult = SkillValidation.validate(skill: parsedSkill, rawContent: rawSkillContent)
+        guard validationResult.isValid else {
+            throw SkillManagerError.validationFailed(validationResult.violations)
+        }
+
+        store.ensureDirectoriesExist()
+        let installedSkillDirectoryURL = URL(fileURLWithPath: store.baseDirectoryPath)
+            .appendingPathComponent("skills")
+            .appendingPathComponent(parsedSkill.metadata.id)
+
+        if fileManager.fileExists(atPath: installedSkillDirectoryURL.path) {
+            try fileManager.removeItem(at: installedSkillDirectoryURL)
+        }
+
+        try fileManager.createDirectory(at: installedSkillDirectoryURL, withIntermediateDirectories: true)
+        try fileManager.copyItem(
+            at: sourceURL,
+            to: installedSkillDirectoryURL.appendingPathComponent("SKILL.md")
+        )
+
+        loadInstalledSkills()
+        if let importedSkill = installedSkills.first(where: { $0.metadata.id == parsedSkill.metadata.id }) {
+            activateSkill(importedSkill, isManualSelection: true)
+        }
+    }
+
     @discardableResult
     func importSkillFromDirectory(at url: URL) throws -> SkillDefinition? {
         let directoryName = url.lastPathComponent
@@ -614,6 +666,7 @@ final class SkillManager: ObservableObject {
 
 enum SkillManagerError: LocalizedError {
     case missingSkillFile(String)
+    case unsupportedSkillFile(String)
     case invalidURL(String)
     case invalidSkillEncoding
     case validationFailed([String])
@@ -623,6 +676,8 @@ enum SkillManagerError: LocalizedError {
         switch self {
         case .missingSkillFile(let directoryPath):
             return "No SKILL.md file found at: \(directoryPath)"
+        case .unsupportedSkillFile(let fileName):
+            return "Unsupported skill file '\(fileName)'. Select a Markdown (.md) file or a folder containing SKILL.md."
         case .invalidURL(let value):
             return "Invalid URL: \(value)"
         case .invalidSkillEncoding:
