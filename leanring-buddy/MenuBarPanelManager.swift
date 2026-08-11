@@ -44,13 +44,20 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Skilly
     private let skillManager: SkillManager?
     private let authManager: AuthManager?
+    private let checkForUpdates: () -> Void
     private let panelWidth: CGFloat = 300
     private let panelHeight: CGFloat = 380
 
-    init(companionManager: CompanionManager, skillManager: SkillManager? = nil, authManager: AuthManager? = nil) {
+    init(
+        companionManager: CompanionManager,
+        skillManager: SkillManager? = nil,
+        authManager: AuthManager? = nil,
+        checkForUpdates: @escaping () -> Void = {}
+    ) {
         self.companionManager = companionManager
         self.skillManager = skillManager
         self.authManager = authManager
+        self.checkForUpdates = checkForUpdates
         super.init()
         createStatusItem()
 
@@ -214,7 +221,12 @@ final class MenuBarPanelManager: NSObject {
 
     private func createPanel() {
         // MARK: - Skilly — Pass skill manager and auth manager to panel view
-        let companionPanelView = CompanionPanelView(companionManager: companionManager, skillManager: skillManager, authManager: authManager)
+        let companionPanelView = CompanionPanelView(
+            companionManager: companionManager,
+            skillManager: skillManager,
+            authManager: authManager,
+            checkForUpdates: checkForUpdates
+        )
             .frame(width: panelWidth)
 
         let hostingView = NSHostingView(rootView: companionPanelView)

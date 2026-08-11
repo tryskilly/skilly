@@ -14,6 +14,7 @@ struct CompanionPanelView: View {
     // MARK: - Skilly
     var skillManager: SkillManager?
     var authManager: AuthManager?
+    var checkForUpdates: () -> Void = {}
     @State private var emailInput: String = ""
     // MARK: - Skilly — Settings
     @State private var showSettings = false
@@ -268,7 +269,8 @@ struct CompanionPanelView: View {
                     settings: AppSettings.shared,
                     skillManager: skillManager,
                     authManager: authManager,
-                    companionManager: companionManager
+                    companionManager: companionManager,
+                    checkForUpdates: checkForUpdates
                 )
             }
             // MARK: - Skilly — Accessibility

@@ -16,6 +16,7 @@ struct SettingsView: View {
     var skillManager: SkillManager?
     var authManager: AuthManager?
     var companionManager: CompanionManager?
+    var checkForUpdates: () -> Void = {}
 
     enum Tab: String, CaseIterable {
         case account = "Account"
@@ -381,12 +382,17 @@ struct SettingsView: View {
         divider
 
         sectionHeader("APP")
+        helpRow(label: "Check for Updates…", icon: "arrow.triangle.2.circlepath") {
+            SkillyAnalytics.trackManualUpdateCheck()
+            checkForUpdates()
+        }
+
         HStack {
             Text("Version")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textSecondary)
             Spacer()
-            Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+            Text(versionDisplay)
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
         }
@@ -412,6 +418,13 @@ struct SettingsView: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .padding(.top, 4)
+    }
+
+    private var versionDisplay: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "\(version) (\($0))" } ?? version
     }
 
     private func helpRow(label: String, icon: String, action: @escaping () -> Void) -> some View {
