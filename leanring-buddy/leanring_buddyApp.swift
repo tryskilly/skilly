@@ -72,7 +72,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         menuBarPanelManager = MenuBarPanelManager(
             companionManager: companionManager,
             skillManager: skillManager,
-            authManager: authManager
+            authManager: authManager,
+            checkForUpdates: { [weak self] in
+                self?.checkForUpdates()
+            }
         )
         captureActivityIndicatorWindowController = CaptureActivityIndicatorWindowController(
             companionManager: companionManager
@@ -178,6 +181,16 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             // Sparkle failed to start; release builds silently skip auto-update this launch.
         }
+        #endif
+    }
+
+    private func checkForUpdates() {
+        // MARK: - Skilly — Manual update checks use the same Sparkle controller as
+        // scheduled checks, so the feed, signing validation, and update UI stay aligned.
+        #if DEBUG
+        return
+        #else
+        sparkleUpdaterController?.checkForUpdates(nil)
         #endif
     }
 }

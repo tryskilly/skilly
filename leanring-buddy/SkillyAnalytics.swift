@@ -66,6 +66,14 @@ enum SkillyAnalytics {
         ])
     }
 
+    static func trackManualUpdateCheck() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        PostHogSDK.shared.capture("manual_update_check_clicked", properties: [
+            "app_version": version
+        ])
+    }
+
     // MARK: - Onboarding
 
     /// User clicked the Start button to begin onboarding for the first time.
