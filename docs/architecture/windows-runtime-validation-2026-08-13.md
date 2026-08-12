@@ -29,9 +29,14 @@ Validated commit: `8567503d06c72c4f74b50a0ed39e2bbe02ce4201`
 
 ## Distribution boundary
 
-The developer installer is intentionally unsigned. Public release remains fail-closed
-until the repository contains the Authenticode PFX/password and the matching Tauri
-updater private/public keys documented in `docs/windows-build.md`.
+The developer installer is intentionally unsigned. The Tauri updater signing identity
+was generated after runtime validation and is backed up in both GitHub repository
+secrets and the macOS login Keychain. The plaintext temporary key files were removed.
+
+Signed-release workflow run `31649279800` verified that the workflow now reaches the
+credential gate and stops specifically at `WINDOWS_CERTIFICATE`. Public release
+therefore remains fail-closed only until a publicly trusted Authenticode PFX and its
+password are configured as documented in `docs/windows-build.md`.
 
 ## Interactive account boundary
 

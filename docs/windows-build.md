@@ -35,6 +35,13 @@ Required repository secrets:
 - `SKILLY_UPDATER_PUBLIC_KEY`: matching Tauri updater public key
 - `SKILLY_POSTHOG_KEY`: optional PostHog project key for remote product analytics
 
+Current release readiness (2026-08-13): the Tauri updater private key, password,
+and public key are configured in GitHub Secrets, with recovery copies in the macOS
+login Keychain under the `app.tryskilly.skilly.tauri-updater-*` service names.
+`WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD` remain the only required
+external release credentials. Workflow run `31649279800` proves the fail-closed
+credential gate stops at `WINDOWS_CERTIFICATE`.
+
 Never rotate or discard the updater private key without a migration plan: every
 installed app trusts the embedded matching public key. Local JSONL telemetry is
 always written to `%LOCALAPPDATA%\Skilly\skilly-telemetry.jsonl`; remote PostHog
