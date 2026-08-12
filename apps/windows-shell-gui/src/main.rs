@@ -23,6 +23,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "windows")]
 use tauri::Emitter;
 
+#[cfg(target_os = "windows")]
+mod windows_audio;
+
+#[derive(Clone, Debug, Default, Serialize)]
+struct MicrophoneCaptureStatus {
+    state: &'static str,
+    bytes_captured: usize,
+    duration_ms: u64,
+    sample_rate: u32,
+    channels: u16,
+    bits_per_sample: u16,
+    error: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct CapabilityWireStatus {
     status: &'static str,
@@ -92,6 +106,23 @@ fn push_to_talk_active() -> bool {
     PUSH_TO_TALK_ACTIVE.load(Ordering::Relaxed)
 }
 
+#[tauri::command]
+fn microphone_capture_status() -> MicrophoneCaptureStatus {
+    #[cfg(target_os = "windows")]
+    {
+        windows_audio::current_status()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        MicrophoneCaptureStatus {
+            state: "unavailable",
+            error: Some("Microphone capture is only available on Windows".to_owned()),
+            ..MicrophoneCaptureStatus::default()
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum ModifierChordTransition {
     Pressed,
@@ -136,10 +167,12 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
             match transition {
                 Some(ModifierChordTransition::Pressed) => {
                     PUSH_TO_TALK_ACTIVE.store(true, Ordering::Relaxed);
+                    windows_audio::start();
                     let _ = app_handle.emit("push_to_talk_pressed", ());
                 }
                 Some(ModifierChordTransition::Released) => {
                     PUSH_TO_TALK_ACTIVE.store(false, Ordering::Relaxed);
+                    windows_audio::stop();
                     let _ = app_handle.emit("push_to_talk_released", ());
                 }
                 None => {}
@@ -151,14 +184,15 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
 
 fn main() {
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "windows")]
-            start_push_to_talk_listener(app.handle().clone());
+            start_push_to_talk_listener(_app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             capability_snapshot,
-            push_to_talk_active
+            push_to_talk_active,
+            microphone_capture_status
         ])
         .run(tauri::generate_context!())
         .expect("failed to launch Skilly Windows host app");
