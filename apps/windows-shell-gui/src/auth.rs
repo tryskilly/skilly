@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+#[cfg(not(target_os = "windows"))]
 use std::fs::File;
+#[cfg(not(target_os = "windows"))]
 use std::io::Read;
 
 const DEFAULT_STATE_BYTES: usize = 32;

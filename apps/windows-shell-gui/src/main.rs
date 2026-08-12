@@ -25,7 +25,7 @@ use std::sync::{
     Mutex,
 };
 #[cfg(target_os = "windows")]
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 mod app_state;
 mod auth;
