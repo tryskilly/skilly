@@ -1,0 +1,39 @@
+name: Windows GUI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-gui.yml"
+      - "apps/windows-shell/**"
+      - "apps/windows-shell-gui/**"
+      - "core/**"
+      - "scripts/build-windows-installer.ps1"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/windows-gui.yml"
+      - "apps/windows-shell/**"
+      - "apps/windows-shell-gui/**"
+      - "core/**"
+      - "scripts/build-windows-installer.ps1"
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/windows-shell-gui
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Build NSIS installer
+        shell: pwsh
+        run: ./scripts/build-windows-installer.ps1
+      - name: Upload unsigned developer installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: skilly-windows-developer-installer
+          path: apps/windows-shell-gui/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
