@@ -1875,7 +1875,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{ModifierChordState, ModifierChordTransition};
+    use super::{backend_client, ModifierChordState, ModifierChordTransition, RuntimeStore};
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn modifier_chord_emits_only_on_press_and_release_edges() {
@@ -1886,5 +1887,34 @@ mod tests {
         assert_eq!(state.update(true), None);
         assert_eq!(state.update(false), Some(ModifierChordTransition::Released));
         assert_eq!(state.update(false), None);
+    }
+
+    #[test]
+    fn free_trial_and_paid_period_use_separate_policy_counters() {
+        let runtime = RuntimeStore::default();
+        runtime.trial_seconds_used.store(900, Ordering::Relaxed);
+        assert!(runtime.can_start_turn().is_err());
+
+        *runtime.entitlement.lock().expect("entitlement") =
+            Some(backend_client::EntitlementResponse {
+                user_id: "user_1".to_owned(),
+                status: "active".to_owned(),
+                entitlement_type: None,
+                period_start: Some("2026-08-01".to_owned()),
+                period_end: Some("2026-09-01".to_owned()),
+                plan: None,
+                polar_customer_id: None,
+            });
+        assert!(runtime.can_start_turn().is_ok());
+        runtime.paid_seconds_used.store(10_800, Ordering::Relaxed);
+        assert!(runtime.can_start_turn().is_err());
+    }
+
+    #[test]
+    fn data_protection_round_trips_history_payloads() {
+        let payload = br#"[{"user_text":"private"}]"#;
+        let protected = super::data_protection::protect(payload).expect("protect");
+        let restored = super::data_protection::unprotect(&protected).expect("unprotect");
+        assert_eq!(restored, payload);
     }
 }
