@@ -14,6 +14,12 @@
     windows_subsystem = "windows"
 )]
 
+use auth::OAuthEntropySource;
+use backend_client::{
+    BackendRequest, BackendResponse, BackendTransport, HttpMethod, TransportError,
+};
+use base64::Engine;
+use credential_store::CredentialStore;
 use serde::Serialize;
 use skilly_windows_shell::{
     stub::StubPlatformAdapters, AdapterCapabilityStatus, PlatformAdapters,
@@ -24,14 +30,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
 };
-#[cfg(target_os = "windows")]
 use tauri::{Emitter, Manager};
 
 mod app_state;
 mod auth;
+mod backend_client;
 mod credential_store;
 mod overlay;
 mod platform;
+mod realtime_client;
+mod realtime_protocol;
 mod skills;
 mod turn_runtime;
 
@@ -39,11 +47,173 @@ mod turn_runtime;
 mod audio_format;
 #[cfg(target_os = "windows")]
 mod windows_audio;
+#[cfg(target_os = "windows")]
+mod windows_audio_output;
+#[cfg(target_os = "windows")]
+mod windows_overlay;
+#[cfg(target_os = "windows")]
+mod windows_screen_capture;
 
 #[derive(Debug, Default)]
 struct RuntimeStore {
     reduced_motion_override: Mutex<Option<bool>>,
     turn_runtime: Mutex<turn_runtime::TurnRuntime>,
+    auth_session: Mutex<Option<auth::PersistedAuthSession>>,
+    entitlement: Mutex<Option<backend_client::EntitlementResponse>>,
+    auth_error: Mutex<Option<String>>,
+    pending_oauth: Mutex<Option<auth::PendingOAuthState>>,
+}
+
+const AUTH_CREDENTIAL_TARGET: &str = "app.tryskilly.skilly.auth";
+const AUTH_PENDING_TARGET: &str = "app.tryskilly.skilly.oauth.pending";
+const SESSION_TTL_SECONDS: u64 = 60 * 60 * 24 * 30;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ReqwestTransport;
+
+impl BackendTransport for ReqwestTransport {
+    fn send(&self, request: BackendRequest) -> Result<BackendResponse, TransportError> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|error| TransportError::new(format!("network client unavailable: {error}")))?;
+        let method = match request.method {
+            HttpMethod::Get => reqwest::Method::GET,
+            HttpMethod::Post => reqwest::Method::POST,
+        };
+        let mut builder = client.request(method, &request.url);
+        for (name, value) in request.headers {
+            builder = builder.header(&name, &value);
+        }
+        if let Some(body) = request.body {
+            builder = builder.body(body);
+        }
+        let response = builder
+            .send()
+            .map_err(|error| TransportError::new(format!("backend request failed: {error}")))?;
+        let status = response.status().as_u16();
+        let headers = response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|value| (name.to_string(), value.to_owned()))
+            })
+            .collect();
+        let body = response
+            .bytes()
+            .map_err(|error| TransportError::new(format!("backend response failed: {error}")))?
+            .to_vec();
+        Ok(BackendResponse {
+            status,
+            headers,
+            body,
+        })
+    }
+}
+
+fn backend_client() -> Result<backend_client::BackendClient<ReqwestTransport>, String> {
+    backend_client::BackendClient::with_default_base_url(ReqwestTransport)
+        .map_err(|error| error.to_string())
+}
+
+fn load_saved_session() -> Option<auth::PersistedAuthSession> {
+    credential_store::WindowsCredentialStore
+        .load_json(AUTH_CREDENTIAL_TARGET)
+        .ok()
+        .flatten()
+}
+
+fn save_session(session: &auth::PersistedAuthSession) -> Result<(), String> {
+    credential_store::WindowsCredentialStore
+        .save_json(AUTH_CREDENTIAL_TARGET, Some(session.email.clone()), session)
+        .map_err(|error| error.to_string())
+}
+
+fn fresh_oauth_state() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    auth::OsEntropy
+        .fill_bytes(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn open_external_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()
+            .map_err(|error| format!("failed to open browser: {error}"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map_err(|error| format!("failed to open browser: {error}"))?;
+        Ok(())
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        let _ = url;
+        Err("opening the browser is unsupported on this platform".to_owned())
+    }
+}
+
+fn complete_auth_callback(runtime: &RuntimeStore, callback_url: &str) -> Result<(), String> {
+    let callback = auth::parse_oauth_callback(callback_url).map_err(|error| error.to_string())?;
+    let returned_state = callback
+        .state
+        .as_deref()
+        .ok_or("sign-in callback omitted OAuth state")?;
+    let pending = runtime
+        .pending_oauth
+        .lock()
+        .map_err(|_| "sign-in state unavailable")?
+        .take()
+        .or_else(|| {
+            credential_store::WindowsCredentialStore
+                .load_json(AUTH_PENDING_TARGET)
+                .ok()
+                .flatten()
+        })
+        .ok_or("no sign-in attempt is pending")?;
+    let _ = credential_store::WindowsCredentialStore.delete(AUTH_PENDING_TARGET);
+    if pending.expires_at_ms < current_time_ms() || pending.state != returned_state {
+        return Err("sign-in callback state is invalid or expired".to_owned());
+    }
+    let code = callback.auth_code().map_err(|error| error.to_string())?;
+    let exchange = backend_client()?
+        .exchange_auth_code(code)
+        .map_err(|error| error.to_string())?;
+    let session = auth::PersistedAuthSession {
+        email: exchange.user.email,
+        session_token: exchange.session_token,
+        expires_at: current_time_ms() / 1000 + SESSION_TTL_SECONDS,
+        refresh_token: exchange.refresh_token,
+        user_id: Some(exchange.user.id),
+    };
+    save_session(&session)?;
+    let entitlement = backend_client()?
+        .fetch_entitlement(&session.session_token)
+        .ok();
+    *runtime
+        .auth_session
+        .lock()
+        .map_err(|_| "auth state unavailable")? = Some(session);
+    *runtime
+        .entitlement
+        .lock()
+        .map_err(|_| "entitlement state unavailable")? = entitlement;
+    *runtime
+        .auth_error
+        .lock()
+        .map_err(|_| "auth state unavailable")? = None;
+    Ok(())
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -201,7 +371,7 @@ impl RuntimeStore {
             })
     }
 
-    fn commit_capture(&self, capture: &MicrophoneCaptureStatus) {
+    fn commit_capture(&self, capture: &MicrophoneCaptureStatus) -> Option<u64> {
         if let Ok(mut runtime) = self.turn_runtime.lock() {
             if let Some(generation) = runtime.active_generation() {
                 let duration_ms = (capture.duration_ms > 0).then_some(capture.duration_ms);
@@ -211,7 +381,50 @@ impl RuntimeStore {
                     capture_duration_ms: duration_ms,
                     capture_bytes,
                 });
+                return Some(generation);
             }
+        }
+        None
+    }
+
+    fn authenticated_session(&self) -> Option<auth::PersistedAuthSession> {
+        self.auth_session
+            .lock()
+            .ok()
+            .and_then(|session| session.clone())
+    }
+
+    fn finish_teaching_turn(&self, generation: u64, result: &realtime_client::TeachingTurnResult) {
+        if let Ok(mut runtime) = self.turn_runtime.lock() {
+            let _ = runtime.apply_event(turn_runtime::TurnRuntimeEvent::UserTranscript {
+                generation,
+                transcript: result.transcript.clone(),
+            });
+            if !result.response_text.is_empty() {
+                let _ = runtime.apply_event(turn_runtime::TurnRuntimeEvent::AssistantTextDelta {
+                    generation,
+                    delta: result.response_text.clone(),
+                });
+            }
+            if !result.audio_pcm16.is_empty() {
+                let _ = runtime.apply_event(turn_runtime::TurnRuntimeEvent::AssistantAudioDelta {
+                    generation,
+                    bytes: result.audio_pcm16.len(),
+                });
+            }
+            let _ = runtime.apply_event(turn_runtime::TurnRuntimeEvent::AssistantCompleted {
+                generation,
+                completed_at_ms: current_time_ms(),
+            });
+        }
+    }
+
+    fn fail_teaching_turn(&self, generation: u64, message: String) {
+        if let Ok(mut runtime) = self.turn_runtime.lock() {
+            let _ = runtime.apply_event(turn_runtime::TurnRuntimeEvent::Failed {
+                generation,
+                message,
+            });
         }
     }
 }
@@ -303,6 +516,90 @@ fn current_active_skill_name() -> Option<String> {
     })
 }
 
+#[cfg(target_os = "windows")]
+fn process_committed_turn(app_handle: tauri::AppHandle, generation: u64) {
+    std::thread::spawn(move || {
+        let runtime = app_handle.state::<RuntimeStore>();
+        let Some(session) = runtime.authenticated_session() else {
+            runtime.fail_teaching_turn(
+                generation,
+                "Sign in before starting a teaching turn.".to_owned(),
+            );
+            return;
+        };
+        let Some(audio) = windows_audio::take_last_capture() else {
+            runtime.fail_teaching_turn(generation, "No microphone audio was captured.".to_owned());
+            return;
+        };
+        let token = match backend_client().and_then(|client| {
+            client
+                .fetch_openai_token(
+                    &session.session_token,
+                    Some(realtime_protocol::DEFAULT_REALTIME_MODEL),
+                )
+                .map_err(|error| error.to_string())
+        }) {
+            Ok(token) => token,
+            Err(error) => {
+                runtime.fail_teaching_turn(generation, error);
+                return;
+            }
+        };
+        let capture = windows_screen_capture::capture_primary_monitor_for_realtime(1280).ok();
+        let screenshot_data_url = capture.as_ref().map(|frame| {
+            format!(
+                "data:{};base64,{}",
+                frame.mime_type,
+                base64::engine::general_purpose::STANDARD.encode(&frame.bytes)
+            )
+        });
+        let skill = current_active_skill_name().unwrap_or_else(|| "General guidance".to_owned());
+        let instructions = format!(
+            "You are Skilly, a concise screen-aware voice teacher. Teach one actionable step at a time using the active skill: {skill}."
+        );
+        match realtime_client::run_teaching_turn(
+            &token.client_secret,
+            &token.model,
+            &audio.bytes,
+            screenshot_data_url,
+            &instructions,
+        ) {
+            Ok(result) => {
+                if !result.audio_pcm16.is_empty() {
+                    let _ = windows_audio_output::enqueue_pcm16_mono_24k(&result.audio_pcm16);
+                }
+                runtime.finish_teaching_turn(generation, &result);
+                if let Some(frame) = capture {
+                    let screen = windows_overlay::ScreenBounds::new(
+                        frame.display_origin.x,
+                        frame.display_origin.y,
+                        frame.display_size.width,
+                        frame.display_size.height,
+                    );
+                    let overlay = windows_overlay::WindowsOverlayAdapter::new(
+                        windows_overlay::OverlayInitOptions::new(screen),
+                    );
+                    let anchor = windows_overlay::ScreenPoint {
+                        x: screen.origin_x + screen.width as i32 / 2,
+                        y: screen.origin_y + screen.height as i32 / 2,
+                    };
+                    let _ = overlay.show(windows_overlay::OverlayFrame {
+                        cursor: None,
+                        transcript: Some(windows_overlay::TranscriptBubble::new(
+                            anchor,
+                            result.response_text,
+                        )),
+                    });
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let _ = overlay.hide();
+                }
+            }
+            Err(error) => runtime.fail_teaching_turn(generation, error.to_string()),
+        }
+        let _ = app_handle.emit("runtime_state_changed", ());
+    });
+}
+
 fn format_started_at_label(started_at_ms: u64) -> String {
     let elapsed_ms = current_time_ms().saturating_sub(started_at_ms);
     match elapsed_ms {
@@ -392,6 +689,32 @@ fn build_app_state(runtime_store: &RuntimeStore) -> app_state::AppState {
             .collect(),
         ..app_state::AppRuntimeSnapshot::default()
     };
+    if let Ok(session) = runtime_store.auth_session.lock() {
+        if let Some(session) = session.as_ref() {
+            runtime.account_email = Some(session.email.clone());
+            runtime.account_display_name = Some(
+                session
+                    .email
+                    .split('@')
+                    .next()
+                    .unwrap_or("Skilly user")
+                    .to_owned(),
+            );
+        }
+    }
+    if let Ok(entitlement) = runtime_store.entitlement.lock() {
+        if let Some(entitlement) = entitlement.as_ref() {
+            runtime.plan_label = entitlement
+                .plan
+                .clone()
+                .or_else(|| entitlement.entitlement_type.clone());
+            runtime.usage_label = Some(if entitlement.status == "active" {
+                "Plan active".to_owned()
+            } else {
+                format!("Plan status: {}", entitlement.status)
+            });
+        }
+    }
     let mut skill_items = Vec::new();
     if let Ok(store) = skill_store() {
         if let Ok(items) = store.list_skill_items() {
@@ -448,8 +771,31 @@ fn open_account_settings() -> PanelCommandResult {
 }
 
 #[tauri::command]
-fn open_sign_in() -> PanelCommandResult {
-    PanelCommandResult::ok("Sign-in flow wiring still needs the backend client")
+fn open_sign_in(
+    runtime_store: tauri::State<'_, RuntimeStore>,
+) -> Result<PanelCommandResult, String> {
+    let state = fresh_oauth_state()?;
+    let now = current_time_ms();
+    let pending = auth::PendingOAuthState {
+        state: state.clone(),
+        next_path: "/".to_owned(),
+        issued_at_ms: now,
+        expires_at_ms: now + 10 * 60 * 1000,
+        intent: auth::AuthIntent::SignIn,
+    };
+    credential_store::WindowsCredentialStore
+        .save_json(AUTH_PENDING_TARGET, None, &pending)
+        .map_err(|error| error.to_string())?;
+    *runtime_store
+        .pending_oauth
+        .lock()
+        .map_err(|_| "sign-in state unavailable")? = Some(pending);
+    let url = backend_client()?
+        .fetch_auth_url(&state)
+        .map_err(|error| error.to_string())?
+        .url;
+    open_external_url(&url)?;
+    Ok(PanelCommandResult::ok("Sign-in opened in your browser"))
 }
 
 #[tauri::command]
@@ -683,7 +1029,11 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
                     PUSH_TO_TALK_ACTIVE.store(false, Ordering::Relaxed);
                     windows_audio::stop();
                     let capture = windows_audio::current_status();
-                    app_handle.state::<RuntimeStore>().commit_capture(&capture);
+                    if let Some(generation) =
+                        app_handle.state::<RuntimeStore>().commit_capture(&capture)
+                    {
+                        process_committed_turn(app_handle.clone(), generation);
+                    }
                     let _ = app_handle.emit("push_to_talk_released", ());
                 }
                 None => {}
@@ -695,10 +1045,43 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(callback) = args
+                .iter()
+                .find(|arg| arg.starts_with("skilly://auth/callback"))
+            {
+                let result = complete_auth_callback(&app.state::<RuntimeStore>(), callback);
+                let _ = app.emit(
+                    "auth_state_changed",
+                    result.as_ref().map(|_| "signed_in").unwrap_or("error"),
+                );
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .manage(RuntimeStore::default())
-        .setup(|_app| {
+        .setup(|app| {
+            if let Some(session) = load_saved_session() {
+                *app.state::<RuntimeStore>()
+                    .auth_session
+                    .lock()
+                    .expect("auth state poisoned") = Some(session);
+            }
+            #[cfg(all(debug_assertions, target_os = "windows"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.deep_link().register_all()?;
+            }
+            for arg in std::env::args() {
+                if arg.starts_with("skilly://auth/callback") {
+                    let _ = complete_auth_callback(&app.state::<RuntimeStore>(), &arg);
+                }
+            }
             #[cfg(target_os = "windows")]
-            start_push_to_talk_listener(_app.handle().clone());
+            start_push_to_talk_listener(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

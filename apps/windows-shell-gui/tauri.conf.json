@@ -23,6 +23,13 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["skilly"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

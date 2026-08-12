@@ -16,11 +16,19 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tungstenite = { version = "0.27", default-features = false, features = ["handshake", "rustls-tls-native-roots"] }
+url = "2"
 skilly-core-domain = { path = "../../core/domain" }
 skilly-core-policy = { path = "../../core/policy" }
 skilly-core-realtime = { path = "../../core/realtime" }
 skilly-core-skills = { path = "../../core/skills" }
 skilly-windows-shell = { path = "../windows-shell" }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
