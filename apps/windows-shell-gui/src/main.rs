@@ -1685,7 +1685,7 @@ fn show_main_window(app: &tauri::AppHandle, settings: bool) {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(callback) = args
                 .iter()
@@ -1702,8 +1702,14 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init());
+    let builder = if option_env!("SKILLY_UPDATER_PUBLIC_KEY").is_some() {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
+
+    builder
         .manage(RuntimeStore::default())
         .setup(|app| {
             let tray_menu = tauri::menu::MenuBuilder::new(app)
