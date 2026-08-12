@@ -560,10 +560,17 @@ mod imp {
 
             let thread_handle = thread::spawn(move || {
                 let result = unsafe {
-                    overlay_thread_main(state_for_thread, screen, class_name, window_title)
+                    overlay_thread_main(
+                        state_for_thread,
+                        screen,
+                        class_name,
+                        window_title,
+                        &init_tx,
+                    )
+                };
+                if let Err(reason) = result {
+                    let _ = init_tx.send(Err(reason));
                 }
-                .map(|hwnd| hwnd as isize);
-                let _ = init_tx.send(result);
             });
 
             match init_rx.recv_timeout(Duration::from_secs(3)) {
@@ -586,7 +593,8 @@ mod imp {
         screen: ScreenBounds,
         class_name: String,
         window_title: String,
-    ) -> Result<HWND, String> {
+        init_tx: &std::sync::mpsc::SyncSender<Result<isize, String>>,
+    ) -> Result<(), String> {
         let instance = GetModuleHandleW(null());
         if instance.is_null() {
             return Err("GetModuleHandleW failed".to_string());
@@ -640,6 +648,9 @@ mod imp {
 
         ShowWindow(hwnd, SW_HIDE);
         UpdateWindow(hwnd);
+        init_tx
+            .send(Ok(hwnd as isize))
+            .map_err(|_| "Overlay initialization receiver closed".to_string())?;
 
         let mut message: MSG = zeroed();
         loop {
@@ -651,7 +662,7 @@ mod imp {
             DispatchMessageW(&message);
         }
 
-        Ok(hwnd)
+        Ok(())
     }
 
     unsafe extern "system" fn window_proc(
