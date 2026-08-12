@@ -86,6 +86,7 @@ enum OpenAIRealtimeEvent {
     // MARK: - Skilly
     case speechStarted           // Server VAD detected user started speaking
     case speechStopped           // Server VAD detected user stopped speaking
+    case sessionExpired          // Expected OpenAI 60-minute session lifecycle boundary
     case error(String)
 }
 
@@ -93,6 +94,23 @@ enum OpenAIRealtimeEvent {
 
 @MainActor
 final class OpenAIRealtimeClient: ObservableObject {
+
+    enum ServerErrorDisposition: Equatable {
+        case benignNoOp
+        case sessionExpired
+        case failure
+    }
+
+    static func disposition(forServerErrorCode errorCode: String) -> ServerErrorDisposition {
+        switch errorCode {
+        case "response_cancel_not_active", "input_audio_buffer_commit_empty":
+            return .benignNoOp
+        case "session_expired":
+            return .sessionExpired
+        default:
+            return .failure
+        }
+    }
 
     private static let realtimeEndpoint = "wss://api.openai.com/v1/realtime"
     private static let defaultModel = "gpt-realtime"
@@ -908,15 +926,20 @@ final class OpenAIRealtimeClient: ObservableObject {
                 // as silent failures pollutes the metric and triggers false alarms,
                 // so we swallow them (no telemetry, no UI error) and keep reporting
                 // every other code (insufficient_quota, unknown_parameter, …).
-                let benignErrorCodes: Set<String> = [
-                    "response_cancel_not_active",
-                    "input_audio_buffer_commit_empty",
-                ]
-                if benignErrorCodes.contains(errorCode) {
+                switch Self.disposition(forServerErrorCode: errorCode) {
+                case .benignNoOp:
                     #if DEBUG
                     print("ℹ️ OpenAI Realtime: benign no-op (\(errorCode)) — not reported")
                     #endif
-                } else {
+                case .sessionExpired:
+                    // OpenAI Realtime sessions have a fixed 60-minute lifetime.
+                    // This is an expected lifecycle boundary, not a product outage.
+                    // Tear down immediately so the next turn mints a fresh session,
+                    // and notify the manager to stop any active audio path cleanly.
+                    disconnect()
+                    SkillyAnalytics.trackRealtimeSessionExpired()
+                    eventPublisher.send(.sessionExpired)
+                case .failure:
                     SkillyAnalytics.trackSilentFailure(
                         subsystem: "openai_realtime_session",
                         errorCode: errorCode,

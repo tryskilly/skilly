@@ -515,4 +515,14 @@ enum SkillyAnalytics {
             "source": "app",
         ])
     }
+
+    /// Records OpenAI's expected 60-minute Realtime lifecycle boundary without
+    /// polluting the actionable `skilly_silent_failure` alert stream.
+    static func trackRealtimeSessionExpired() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skilly_realtime_session_expired", properties: [
+            "recovery": "reconnect_on_next_turn",
+            "source": "app",
+        ])
+    }
 }
