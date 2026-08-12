@@ -27,9 +27,18 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.png", "icons/icon.ico"],
+    "publisher": "Triskay Ltd",
+    "resources": {
+      "../../skills/": "skills/"
+    },
     "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": ["English", "Arabic"]
       }
     }
   }
