@@ -63,12 +63,27 @@
       button:hover {
         background: #3b73ff;
       }
+      #pushToTalkStatus {
+        border: 1px solid #34343c;
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: #a8a8b0;
+        font-size: 13px;
+      }
+      #pushToTalkStatus[data-active="true"] {
+        border-color: #2a64ff;
+        color: #f1f1f4;
+        box-shadow: 0 0 0 2px rgb(42 100 255 / 20%);
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>Skilly Windows host</h1>
       <h2>Windows developer preview</h2>
+      <div id="pushToTalkStatus" data-active="false">
+        Hold Ctrl + Alt to test push-to-talk
+      </div>
       <button id="snapshotButton" type="button">
         Read capability snapshot
       </button>
@@ -78,6 +93,34 @@
       const { invoke } = window.__TAURI__.core;
       const snapshotButton = document.getElementById("snapshotButton");
       const snapshotOutput = document.getElementById("snapshotOutput");
+      const pushToTalkStatus = document.getElementById("pushToTalkStatus");
+
+      const showPushToTalkPressed = () => {
+        pushToTalkStatus.dataset.active = "true";
+        pushToTalkStatus.textContent = "Listening — release Ctrl or Alt to commit";
+      };
+      const showPushToTalkReleased = () => {
+        pushToTalkStatus.dataset.active = "false";
+        pushToTalkStatus.textContent = "Released — push-to-talk event committed";
+      };
+
+      let observedPushToTalkActive = false;
+      setInterval(async () => {
+        try {
+          const active = await invoke("push_to_talk_active");
+          if (active !== observedPushToTalkActive) {
+            observedPushToTalkActive = active;
+            if (active) {
+              showPushToTalkPressed();
+            } else {
+              showPushToTalkReleased();
+            }
+          }
+        } catch {
+          // Event delivery remains the primary path. A transient state-query
+          // failure must not disrupt the rest of the developer panel.
+        }
+      }, 50);
       snapshotButton.addEventListener("click", async () => {
         try {
           const snapshot = await invoke("capability_snapshot");

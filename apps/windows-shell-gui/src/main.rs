@@ -19,6 +19,9 @@ use skilly_windows_shell::{
     stub::StubPlatformAdapters, AdapterCapabilityStatus, PlatformAdapters,
     PlatformCapabilitySnapshot,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "windows")]
+use tauri::Emitter;
 
 #[derive(Debug, Serialize)]
 struct CapabilityWireStatus {
@@ -77,9 +80,109 @@ fn capability_snapshot() -> CapabilitySnapshotPayload {
     (&snapshot).into()
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ModifierChordState {
+    active: bool,
+}
+
+static PUSH_TO_TALK_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+fn push_to_talk_active() -> bool {
+    PUSH_TO_TALK_ACTIVE.load(Ordering::Relaxed)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ModifierChordTransition {
+    Pressed,
+    Released,
+}
+
+impl ModifierChordState {
+    fn update(&mut self, control_down: bool, alt_down: bool) -> Option<ModifierChordTransition> {
+        let next_active = control_down && alt_down;
+        if next_active == self.active {
+            return None;
+        }
+
+        self.active = next_active;
+        Some(if next_active {
+            ModifierChordTransition::Pressed
+        } else {
+            ModifierChordTransition::Released
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        const VK_CONTROL: i32 = 0x11;
+        const VK_MENU: i32 = 0x12;
+
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetAsyncKeyState(virtual_key: i32) -> i16;
+        }
+
+        fn is_key_down(virtual_key: i32) -> bool {
+            // The high bit is set while the key is currently held.
+            unsafe { GetAsyncKeyState(virtual_key) < 0 }
+        }
+
+        let mut chord_state = ModifierChordState::default();
+        loop {
+            let transition = chord_state.update(is_key_down(VK_CONTROL), is_key_down(VK_MENU));
+            match transition {
+                Some(ModifierChordTransition::Pressed) => {
+                    PUSH_TO_TALK_ACTIVE.store(true, Ordering::Relaxed);
+                    let _ = app_handle.emit("push_to_talk_pressed", ());
+                }
+                Some(ModifierChordTransition::Released) => {
+                    PUSH_TO_TALK_ACTIVE.store(false, Ordering::Relaxed);
+                    let _ = app_handle.emit("push_to_talk_released", ());
+                }
+                None => {}
+            }
+            std::thread::sleep(std::time::Duration::from_millis(12));
+        }
+    });
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![capability_snapshot])
+        .setup(|app| {
+            #[cfg(target_os = "windows")]
+            start_push_to_talk_listener(app.handle().clone());
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            capability_snapshot,
+            push_to_talk_active
+        ])
         .run(tauri::generate_context!())
         .expect("failed to launch Skilly Windows host app");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ModifierChordState, ModifierChordTransition};
+
+    #[test]
+    fn modifier_chord_emits_only_on_press_and_release_edges() {
+        let mut state = ModifierChordState::default();
+
+        assert_eq!(state.update(false, false), None);
+        assert_eq!(state.update(true, false), None);
+        assert_eq!(
+            state.update(true, true),
+            Some(ModifierChordTransition::Pressed)
+        );
+        assert_eq!(state.update(true, true), None);
+        assert_eq!(
+            state.update(false, true),
+            Some(ModifierChordTransition::Released)
+        );
+        assert_eq!(state.update(false, false), None);
+    }
 }
