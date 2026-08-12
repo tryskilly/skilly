@@ -89,6 +89,20 @@ pub(super) fn stop() {
     CAPTURE_ACTIVE.store(false, Ordering::Release);
 }
 
+pub(super) fn stop_and_take_capture(timeout: Duration) -> Option<Pcm16MonoChunk> {
+    stop();
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(capture) = take_last_capture() {
+            return Some(capture);
+        }
+        if current_status().state == "error" || std::time::Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(8));
+    }
+}
+
 unsafe fn capture_default_microphone() -> windows::core::Result<()> {
     CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 

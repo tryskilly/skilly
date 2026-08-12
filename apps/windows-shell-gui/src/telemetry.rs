@@ -15,10 +15,8 @@ fn telemetry_path() -> Option<PathBuf> {
 pub fn capture(event: &'static str, distinct_id: String, mut properties: Map<String, Value>) {
     properties.insert("platform".to_owned(), json!("windows"));
     properties.insert("app_version".to_owned(), json!(env!("CARGO_PKG_VERSION")));
-    let payload = json!({
-        "api_key": option_env!("SKILLY_POSTHOG_KEY").unwrap_or(""),
+    let local_payload = json!({
         "event": event,
-        "distinct_id": distinct_id,
         "properties": properties,
         "timestamp_ms": crate::current_time_ms(),
     });
@@ -27,14 +25,19 @@ pub fn capture(event: &'static str, distinct_id: String, mut properties: Map<Str
             let _ = std::fs::create_dir_all(parent);
         }
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{payload}");
+            let _ = writeln!(file, "{local_payload}");
         }
     }
     let Some(api_key) = option_env!("SKILLY_POSTHOG_KEY").filter(|key| !key.is_empty()) else {
         return;
     };
-    let mut remote_payload = payload;
-    remote_payload["api_key"] = json!(api_key);
+    let remote_payload = json!({
+        "api_key": api_key,
+        "event": event,
+        "distinct_id": distinct_id,
+        "properties": local_payload["properties"].clone(),
+        "timestamp_ms": crate::current_time_ms(),
+    });
     std::thread::spawn(move || {
         let _ = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(5))

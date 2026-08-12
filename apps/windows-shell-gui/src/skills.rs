@@ -347,10 +347,16 @@ impl SkillStore {
             let parsed = ParsedSkill::parse(&raw_content)?;
             validate_parsed_skill(&parsed, &raw_content)?;
 
-            let source_kind = if self
-                .bundled_skill_ids
-                .contains(parsed.definition.metadata.id.as_str())
-            {
+            let matches_bundled_source = self
+                .bundled_skills_root
+                .as_ref()
+                .map(|root| {
+                    root.join(&parsed.definition.metadata.id)
+                        .join(SKILL_FILE_NAME)
+                })
+                .and_then(|path| read_utf8_file(&path).ok())
+                .is_some_and(|bundled| bundled == raw_content);
+            let source_kind = if matches_bundled_source {
                 SkillSourceKind::Bundled
             } else {
                 SkillSourceKind::Imported
@@ -384,6 +390,16 @@ impl SkillStore {
             .into_iter()
             .map(|skill| skill.list_item(active_skill_id.as_deref()))
             .collect())
+    }
+
+    pub fn active_skill(&self) -> Result<Option<InstalledSkill>, SkillStoreError> {
+        let Some(active_id) = self.load_config()?.active_skill_id else {
+            return Ok(None);
+        };
+        Ok(self
+            .list_installed_skills()?
+            .into_iter()
+            .find(|skill| skill.definition.metadata.id == active_id))
     }
 
     pub fn activate_skill(
@@ -448,6 +464,15 @@ impl SkillStore {
         let raw_content = read_utf8_file(&skill_file)?;
         let parsed = ParsedSkill::parse(&raw_content)?;
         validate_parsed_skill(&parsed, &raw_content)?;
+        if self
+            .bundled_skill_ids
+            .contains(parsed.definition.metadata.id.as_str())
+        {
+            return Err(SkillStoreError::InvalidSkillId(format!(
+                "{} is reserved for bundled content",
+                parsed.definition.metadata.id
+            )));
+        }
 
         let destination_dir = self
             .skills_dir()
@@ -471,14 +496,7 @@ impl SkillStore {
         }
 
         let active_skill = self.activate_skill(parsed.definition.metadata.id.as_str(), true)?;
-        let source_kind = if self
-            .bundled_skill_ids
-            .contains(parsed.definition.metadata.id.as_str())
-        {
-            SkillSourceKind::Bundled
-        } else {
-            SkillSourceKind::Imported
-        };
+        let source_kind = SkillSourceKind::Imported;
 
         let installed = InstalledSkill {
             definition: parsed.definition,
