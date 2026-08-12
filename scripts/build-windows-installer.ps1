@@ -24,6 +24,9 @@ if (-not $tauriCommand) {
 Push-Location $appDirectory
 try {
     cargo tauri build --bundles nsis
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tauri installer build failed with exit code $LASTEXITCODE."
+    }
 }
 finally {
     Pop-Location
