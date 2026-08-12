@@ -5,6 +5,13 @@ import Testing
 @Suite("OpenAIRealtimeClient typed prompts")
 @MainActor
 struct OpenAIRealtimeClientTypedPromptTests {
+    @Test("Classifies the fixed 60-minute session expiry as lifecycle, not failure")
+    func classifiesExpectedSessionExpiry() {
+        #expect(OpenAIRealtimeClient.disposition(forServerErrorCode: "session_expired") == .sessionExpired)
+        #expect(OpenAIRealtimeClient.disposition(forServerErrorCode: "response_cancel_not_active") == .benignNoOp)
+        #expect(OpenAIRealtimeClient.disposition(forServerErrorCode: "insufficient_quota") == .failure)
+    }
+
     @Test("Sends bounded screen items before the typed question and audio response")
     func createsOrderedMultimodalContent() throws {
         let screenshots = [

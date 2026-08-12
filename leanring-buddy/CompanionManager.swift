@@ -1955,6 +1955,20 @@ final class CompanionManager: ObservableObject {
             print("🎓 Live Tutor: speech ended, server auto-committed")
             #endif
 
+        case .sessionExpired:
+            appendRustRealtimeEvent(type: .sessionReset, message: "OpenAI Realtime session reached its 60-minute limit")
+            if isLiveTutorModeActive {
+                stopLiveTutorMode()
+            }
+            hasEndedAssistantSpeechForCurrentTurn = false
+            isWaitingForRealtimeAudioQueueDrain = false
+            currentTurnUserTranscript = nil
+            currentTurnAssistantAudioData = Data()
+            currentTurnStartTime = nil
+            voiceState = .idle
+            clearRealtimeResponseBubble()
+            resetRustRealtimeTracking()
+
         case .error(let message):
             appendRustRealtimeEvent(type: .sessionError, message: message)
             // MARK: - Skilly — Debug logging (stripped in release)
