@@ -27,7 +27,7 @@ use skilly_windows_shell::{
 };
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Mutex,
 };
 use tauri::{Emitter, Manager};
@@ -41,6 +41,7 @@ mod platform;
 mod realtime_client;
 mod realtime_protocol;
 mod skills;
+mod telemetry;
 mod turn_runtime;
 
 #[cfg(target_os = "windows")]
@@ -54,7 +55,7 @@ mod windows_overlay;
 #[cfg(target_os = "windows")]
 mod windows_screen_capture;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct RuntimeStore {
     reduced_motion_override: Mutex<Option<bool>>,
     turn_runtime: Mutex<turn_runtime::TurnRuntime>,
@@ -62,11 +63,43 @@ struct RuntimeStore {
     entitlement: Mutex<Option<backend_client::EntitlementResponse>>,
     auth_error: Mutex<Option<String>>,
     pending_oauth: Mutex<Option<auth::PendingOAuthState>>,
+    screen_capture_ready: AtomicBool,
+    overlay_ready: AtomicBool,
+    shortcut: Mutex<PushToTalkShortcut>,
+    trial_seconds_used: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PushToTalkShortcut {
+    #[default]
+    ControlAlt,
+    ControlShift,
+    AltShift,
+}
+
+impl PushToTalkShortcut {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ControlAlt => "Ctrl + Alt",
+            Self::ControlShift => "Ctrl + Shift",
+            Self::AltShift => "Alt + Shift",
+        }
+    }
 }
 
 const AUTH_CREDENTIAL_TARGET: &str = "app.tryskilly.skilly.auth";
 const AUTH_PENDING_TARGET: &str = "app.tryskilly.skilly.oauth.pending";
 const SESSION_TTL_SECONDS: u64 = 60 * 60 * 24 * 30;
+const TRIAL_SECONDS: u64 = 15 * 60;
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct AppPreferences {
+    #[serde(default)]
+    reduced_motion: Option<bool>,
+    #[serde(default)]
+    shortcut: PushToTalkShortcut,
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 struct ReqwestTransport;
@@ -132,6 +165,131 @@ fn save_session(session: &auth::PersistedAuthSession) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+fn refresh_session_if_needed(
+    session: auth::PersistedAuthSession,
+) -> Result<auth::PersistedAuthSession, String> {
+    let now = current_time_ms() / 1000;
+    if session.expires_at > now.saturating_add(5 * 60) {
+        return Ok(session);
+    }
+    let refresh_token = session
+        .refresh_token
+        .as_deref()
+        .ok_or("Your saved sign-in expired. Sign in again to continue.")?;
+    let refreshed = backend_client()?
+        .refresh_session(refresh_token)
+        .map_err(|error| error.to_string())?;
+    let updated = auth::PersistedAuthSession {
+        email: refreshed.user.email,
+        session_token: refreshed.session_token,
+        expires_at: current_time_ms() / 1000 + SESSION_TTL_SECONDS,
+        refresh_token: refreshed.refresh_token.or(session.refresh_token),
+        user_id: Some(refreshed.user.id),
+    };
+    save_session(&updated)?;
+    Ok(updated)
+}
+
+fn history_path() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("LOCALAPPDATA"))
+        .map(PathBuf::from)
+        .map(|root| root.join("Skilly").join("conversation-history.json"))
+}
+
+fn load_history() -> Vec<turn_runtime::ConversationTurn> {
+    history_path()
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn persist_history(history: &[turn_runtime::ConversationTurn]) -> Result<(), String> {
+    let Some(path) = history_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    let encoded = serde_json::to_vec_pretty(history).map_err(|error| error.to_string())?;
+    std::fs::write(&temporary, encoded).map_err(|error| error.to_string())?;
+    std::fs::rename(temporary, path).map_err(|error| error.to_string())
+}
+
+fn trial_usage_path() -> Option<PathBuf> {
+    history_path().and_then(|path| {
+        path.parent()
+            .map(|parent| parent.join("trial-usage-seconds"))
+    })
+}
+
+fn preferences_path() -> Option<PathBuf> {
+    history_path().and_then(|path| path.parent().map(|parent| parent.join("preferences.json")))
+}
+
+fn installation_id() -> String {
+    let path =
+        history_path().and_then(|path| path.parent().map(|parent| parent.join("install-id")));
+    if let Some(path) = path {
+        if let Ok(existing) = std::fs::read_to_string(&path) {
+            if !existing.trim().is_empty() {
+                return existing.trim().to_owned();
+            }
+        }
+        let generated = fresh_oauth_state().unwrap_or_else(|_| "windows-anonymous".to_owned());
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, &generated);
+        return generated;
+    }
+    "windows-anonymous".to_owned()
+}
+
+fn telemetry_distinct_id(runtime: &RuntimeStore) -> String {
+    runtime
+        .authenticated_session()
+        .and_then(|session| session.user_id.or(Some(session.email)))
+        .unwrap_or_else(installation_id)
+}
+
+fn load_preferences() -> AppPreferences {
+    preferences_path()
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn persist_preferences(preferences: &AppPreferences) -> Result<(), String> {
+    let Some(path) = preferences_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    let encoded = serde_json::to_vec_pretty(preferences).map_err(|error| error.to_string())?;
+    std::fs::write(&temporary, encoded).map_err(|error| error.to_string())?;
+    std::fs::rename(temporary, path).map_err(|error| error.to_string())
+}
+
+fn load_trial_usage() -> u64 {
+    trial_usage_path()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+fn persist_trial_usage(seconds: u64) {
+    if let Some(path) = trial_usage_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, seconds.to_string());
+    }
+}
+
 fn fresh_oauth_state() -> Result<String, String> {
     let mut bytes = [0_u8; 32];
     auth::OsEntropy
@@ -143,11 +301,39 @@ fn fresh_oauth_state() -> Result<String, String> {
 fn open_external_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()
-            .map_err(|error| format!("failed to open browser: {error}"))?;
-        Ok(())
+        use std::ffi::c_void;
+        #[link(name = "shell32")]
+        extern "system" {
+            fn ShellExecuteW(
+                window: *mut c_void,
+                operation: *const u16,
+                file: *const u16,
+                parameters: *const u16,
+                directory: *const u16,
+                show_command: i32,
+            ) -> isize;
+        }
+        let wide_url = url
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                wide_url.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+            )
+        };
+        if result <= 32 {
+            Err(format!(
+                "failed to open browser (ShellExecuteW code {result})"
+            ))
+        } else {
+            Ok(())
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -213,6 +399,11 @@ fn complete_auth_callback(runtime: &RuntimeStore, callback_url: &str) -> Result<
         .auth_error
         .lock()
         .map_err(|_| "auth state unavailable")? = None;
+    telemetry::capture(
+        "windows_sign_in_completed",
+        telemetry_distinct_id(runtime),
+        telemetry::properties(&[]),
+    );
     Ok(())
 }
 
@@ -277,10 +468,37 @@ impl From<&PlatformCapabilitySnapshot> for CapabilitySnapshotPayload {
     }
 }
 
+fn platform_snapshot(runtime: &RuntimeStore) -> PlatformCapabilitySnapshot {
+    #[cfg(target_os = "windows")]
+    {
+        let available_or = |ready: bool, reason: &str| {
+            if ready {
+                AdapterCapabilityStatus::Available
+            } else {
+                AdapterCapabilityStatus::Unavailable {
+                    reason: reason.to_owned(),
+                }
+            }
+        };
+        PlatformCapabilitySnapshot {
+            capture: available_or(runtime.screen_capture_ready.load(Ordering::Relaxed), "Primary-screen capture initialization failed."),
+            hotkey: AdapterCapabilityStatus::Degraded { reason: "Ctrl + Alt uses a low-latency global key-state listener until shortcut customization is applied.".to_owned() },
+            overlay: available_or(runtime.overlay_ready.load(Ordering::Relaxed), "Native click-through overlay initialization failed."),
+            audio_input: AdapterCapabilityStatus::Available,
+            audio_output: AdapterCapabilityStatus::Available,
+            permissions: AdapterCapabilityStatus::Available,
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = runtime;
+        StubPlatformAdapters::new().capability_snapshot()
+    }
+}
+
 #[tauri::command]
-fn capability_snapshot() -> CapabilitySnapshotPayload {
-    let adapters = StubPlatformAdapters::new();
-    let snapshot = adapters.capability_snapshot();
+fn capability_snapshot(runtime: tauri::State<'_, RuntimeStore>) -> CapabilitySnapshotPayload {
+    let snapshot = platform_snapshot(&runtime);
     (&snapshot).into()
 }
 
@@ -305,6 +523,12 @@ struct ReducedMotionPreferenceArgs {
     reduced_motion: bool,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutPreferenceArgs {
+    shortcut: PushToTalkShortcut,
+}
+
 impl RuntimeStore {
     fn reduced_motion(&self) -> bool {
         self.reduced_motion_override
@@ -317,6 +541,11 @@ impl RuntimeStore {
         if let Ok(mut value) = self.reduced_motion_override.lock() {
             *value = Some(reduced_motion);
         }
+        let shortcut = self.shortcut.lock().map(|value| *value).unwrap_or_default();
+        let _ = persist_preferences(&AppPreferences {
+            reduced_motion: Some(reduced_motion),
+            shortcut,
+        });
     }
 
     fn begin_turn(&self, skill_name: Option<String>) {
@@ -416,6 +645,7 @@ impl RuntimeStore {
                 generation,
                 completed_at_ms: current_time_ms(),
             });
+            let _ = persist_history(&runtime.snapshot().history);
         }
     }
 
@@ -426,6 +656,34 @@ impl RuntimeStore {
                 message,
             });
         }
+        telemetry::capture(
+            "windows_teaching_turn_failed",
+            telemetry_distinct_id(self),
+            telemetry::properties(&[]),
+        );
+    }
+
+    fn can_start_turn(&self) -> Result<(), String> {
+        let paid = self
+            .entitlement
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+            .map(|value| value.status == "active")
+            .unwrap_or(false);
+        if !paid && self.trial_seconds_used.load(Ordering::Relaxed) >= TRIAL_SECONDS {
+            return Err("Your 15-minute free trial has ended. Subscribe to continue.".to_owned());
+        }
+        Ok(())
+    }
+
+    fn record_turn_usage(&self, duration_ms: u64) {
+        let seconds = duration_ms.saturating_add(999) / 1000;
+        let total = self
+            .trial_seconds_used
+            .fetch_add(seconds, Ordering::Relaxed)
+            .saturating_add(seconds);
+        persist_trial_usage(total);
     }
 }
 
@@ -520,6 +778,10 @@ fn current_active_skill_name() -> Option<String> {
 fn process_committed_turn(app_handle: tauri::AppHandle, generation: u64) {
     std::thread::spawn(move || {
         let runtime = app_handle.state::<RuntimeStore>();
+        if let Err(message) = runtime.can_start_turn() {
+            runtime.fail_teaching_turn(generation, message);
+            return;
+        }
         let Some(session) = runtime.authenticated_session() else {
             runtime.fail_teaching_turn(
                 generation,
@@ -569,6 +831,19 @@ fn process_committed_turn(app_handle: tauri::AppHandle, generation: u64) {
                     let _ = windows_audio_output::enqueue_pcm16_mono_24k(&result.audio_pcm16);
                 }
                 runtime.finish_teaching_turn(generation, &result);
+                runtime.record_turn_usage(audio.duration_ms);
+                telemetry::capture(
+                    "windows_teaching_turn_completed",
+                    telemetry_distinct_id(&runtime),
+                    telemetry::properties(&[
+                        ("duration_ms", serde_json::json!(audio.duration_ms)),
+                        ("has_screen_context", serde_json::json!(capture.is_some())),
+                        (
+                            "has_audio_response",
+                            serde_json::json!(!result.audio_pcm16.is_empty()),
+                        ),
+                    ]),
+                );
                 if let Some(frame) = capture {
                     let screen = windows_overlay::ScreenBounds::new(
                         frame.display_origin.x,
@@ -580,11 +855,25 @@ fn process_committed_turn(app_handle: tauri::AppHandle, generation: u64) {
                         windows_overlay::OverlayInitOptions::new(screen),
                     );
                     let anchor = windows_overlay::ScreenPoint {
-                        x: screen.origin_x + screen.width as i32 / 2,
-                        y: screen.origin_y + screen.height as i32 / 2,
+                        x: result.point.as_ref().map_or(
+                            screen.origin_x + screen.width as i32 / 2,
+                            |point| {
+                                screen.origin_x
+                                    + (point.normalized_x * f64::from(screen.width)) as i32
+                            },
+                        ),
+                        y: result.point.as_ref().map_or(
+                            screen.origin_y + screen.height as i32 / 2,
+                            |point| {
+                                screen.origin_y
+                                    + (point.normalized_y * f64::from(screen.height)) as i32
+                            },
+                        ),
                     };
                     let _ = overlay.show(windows_overlay::OverlayFrame {
-                        cursor: None,
+                        cursor: result.point.as_ref().map(|point| {
+                            windows_overlay::CursorPoint::new(anchor, 14, Some(point.label.clone()))
+                        }),
                         transcript: Some(windows_overlay::TranscriptBubble::new(
                             anchor,
                             result.response_text,
@@ -649,8 +938,7 @@ fn deactivate_skill() -> Result<skills::SkillActivationDto, String> {
 }
 
 fn build_app_state(runtime_store: &RuntimeStore) -> app_state::AppState {
-    let adapters = StubPlatformAdapters::new();
-    let snapshot = adapters.capability_snapshot();
+    let snapshot = platform_snapshot(runtime_store);
     let capture = microphone_capture_status();
     let turn_snapshot = runtime_store.sync_capture_status(&capture);
     let mut runtime = app_state::AppRuntimeSnapshot {
@@ -715,6 +1003,12 @@ fn build_app_state(runtime_store: &RuntimeStore) -> app_state::AppState {
             });
         }
     }
+    if runtime.account_email.is_some() && runtime.usage_label.is_none() {
+        let used = runtime_store.trial_seconds_used.load(Ordering::Relaxed);
+        let remaining = TRIAL_SECONDS.saturating_sub(used);
+        runtime.plan_label = Some("Free trial".to_owned());
+        runtime.usage_label = Some(format!("{} min remaining", remaining.div_ceil(60)));
+    }
     let mut skill_items = Vec::new();
     if let Ok(store) = skill_store() {
         if let Ok(items) = store.list_skill_items() {
@@ -727,12 +1021,26 @@ fn build_app_state(runtime_store: &RuntimeStore) -> app_state::AppState {
         }
     }
     let mut state = app_state::AppState::from_runtime_snapshot(&snapshot, &runtime);
+    if let Ok(shortcut) = runtime_store.shortcut.lock() {
+        state.live_turn.shortcut_label = shortcut.label().to_owned();
+        state.settings.push_to_talk.shortcut_label = shortcut.label().to_owned();
+        state.settings.push_to_talk.customizable = true;
+    }
     if !skill_items.is_empty() {
         state.skills.items = skill_items;
     }
     if state.skills.items.is_empty() {
         state.skills.empty_detail =
             "Bundled skills will appear here after the Windows host seeds them.".to_owned();
+    }
+    if let Ok(error) = runtime_store.auth_error.lock() {
+        if let Some(error) = error.as_ref() {
+            state.notices.push(app_state::NoticeBanner {
+                tone: platform::ReadinessStatus::Blocked,
+                title: "Sign-in needs attention".to_owned(),
+                detail: error.clone(),
+            });
+        }
     }
     state
 }
@@ -753,6 +1061,29 @@ fn set_reduced_motion_preference(
     } else {
         "Reduced motion disabled"
     })
+}
+
+#[tauri::command]
+fn set_shortcut_preference(
+    args: ShortcutPreferenceArgs,
+    runtime_store: tauri::State<'_, RuntimeStore>,
+) -> Result<PanelCommandResult, String> {
+    *runtime_store
+        .shortcut
+        .lock()
+        .map_err(|_| "shortcut state unavailable")? = args.shortcut;
+    persist_preferences(&AppPreferences {
+        reduced_motion: runtime_store
+            .reduced_motion_override
+            .lock()
+            .ok()
+            .and_then(|value| *value),
+        shortcut: args.shortcut,
+    })?;
+    Ok(PanelCommandResult::ok(format!(
+        "Push-to-talk set to {}",
+        args.shortcut.label()
+    )))
 }
 
 #[tauri::command]
@@ -795,7 +1126,111 @@ fn open_sign_in(
         .map_err(|error| error.to_string())?
         .url;
     open_external_url(&url)?;
+    telemetry::capture(
+        "windows_sign_in_started",
+        telemetry_distinct_id(&runtime_store),
+        telemetry::properties(&[]),
+    );
     Ok(PanelCommandResult::ok("Sign-in opened in your browser"))
+}
+
+#[tauri::command]
+fn sign_out(runtime_store: tauri::State<'_, RuntimeStore>) -> Result<PanelCommandResult, String> {
+    credential_store::WindowsCredentialStore
+        .delete(AUTH_CREDENTIAL_TARGET)
+        .map_err(|error| error.to_string())?;
+    credential_store::WindowsCredentialStore
+        .delete(AUTH_PENDING_TARGET)
+        .map_err(|error| error.to_string())?;
+    *runtime_store
+        .auth_session
+        .lock()
+        .map_err(|_| "auth state unavailable")? = None;
+    *runtime_store
+        .entitlement
+        .lock()
+        .map_err(|_| "entitlement state unavailable")? = None;
+    *runtime_store
+        .pending_oauth
+        .lock()
+        .map_err(|_| "sign-in state unavailable")? = None;
+    Ok(PanelCommandResult::ok("Signed out of Skilly"))
+}
+
+#[tauri::command]
+fn start_checkout(
+    runtime_store: tauri::State<'_, RuntimeStore>,
+) -> Result<PanelCommandResult, String> {
+    let session = runtime_store
+        .authenticated_session()
+        .ok_or("Sign in before starting checkout.")?;
+    let user_id = session
+        .user_id
+        .clone()
+        .ok_or("Your account is missing its user identifier. Sign in again.")?;
+    let checkout = backend_client()?
+        .create_checkout(
+            &session.session_token,
+            &backend_client::CheckoutCreateRequest {
+                user_id,
+                email: session.email,
+                checkout_attempt_id: fresh_oauth_state()?,
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    open_external_url(&checkout.checkout_url)?;
+    telemetry::capture(
+        "windows_checkout_started",
+        telemetry_distinct_id(&runtime_store),
+        telemetry::properties(&[]),
+    );
+    Ok(PanelCommandResult::ok("Checkout opened in your browser"))
+}
+
+#[tauri::command]
+fn open_customer_portal(
+    runtime_store: tauri::State<'_, RuntimeStore>,
+) -> Result<PanelCommandResult, String> {
+    let session = runtime_store
+        .authenticated_session()
+        .ok_or("Sign in before managing your subscription.")?;
+    let portal = backend_client()?
+        .open_portal(&session.session_token, Some(&session.email))
+        .map_err(|error| error.to_string())?;
+    open_external_url(&portal.portal_url)?;
+    Ok(PanelCommandResult::ok(
+        "Account portal opened in your browser",
+    ))
+}
+
+#[tauri::command]
+fn refresh_account(
+    runtime_store: tauri::State<'_, RuntimeStore>,
+) -> Result<PanelCommandResult, String> {
+    let session = runtime_store
+        .authenticated_session()
+        .ok_or("Sign in before refreshing your account.")?;
+    let entitlement = backend_client()?
+        .fetch_entitlement(&session.session_token)
+        .map_err(|error| error.to_string())?;
+    *runtime_store
+        .entitlement
+        .lock()
+        .map_err(|_| "entitlement state unavailable")? = Some(entitlement);
+    Ok(PanelCommandResult::ok("Account and plan refreshed"))
+}
+
+#[tauri::command]
+fn clear_history(
+    runtime_store: tauri::State<'_, RuntimeStore>,
+) -> Result<PanelCommandResult, String> {
+    let mut runtime = runtime_store
+        .turn_runtime
+        .lock()
+        .map_err(|_| "conversation history unavailable")?;
+    runtime.restore_history(Vec::new());
+    persist_history(&[])?;
+    Ok(PanelCommandResult::ok("Conversation history cleared"))
 }
 
 #[tauri::command]
@@ -982,8 +1417,7 @@ enum ModifierChordTransition {
 }
 
 impl ModifierChordState {
-    fn update(&mut self, control_down: bool, alt_down: bool) -> Option<ModifierChordTransition> {
-        let next_active = control_down && alt_down;
+    fn update(&mut self, next_active: bool) -> Option<ModifierChordTransition> {
         if next_active == self.active {
             return None;
         }
@@ -1002,6 +1436,7 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
     std::thread::spawn(move || {
         const VK_CONTROL: i32 = 0x11;
         const VK_MENU: i32 = 0x12;
+        const VK_SHIFT: i32 = 0x10;
 
         #[link(name = "user32")]
         extern "system" {
@@ -1015,7 +1450,20 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
 
         let mut chord_state = ModifierChordState::default();
         loop {
-            let transition = chord_state.update(is_key_down(VK_CONTROL), is_key_down(VK_MENU));
+            let shortcut = app_handle
+                .state::<RuntimeStore>()
+                .shortcut
+                .lock()
+                .map(|shortcut| *shortcut)
+                .unwrap_or_default();
+            let active = match shortcut {
+                PushToTalkShortcut::ControlAlt => is_key_down(VK_CONTROL) && is_key_down(VK_MENU),
+                PushToTalkShortcut::ControlShift => {
+                    is_key_down(VK_CONTROL) && is_key_down(VK_SHIFT)
+                }
+                PushToTalkShortcut::AltShift => is_key_down(VK_MENU) && is_key_down(VK_SHIFT),
+            };
+            let transition = chord_state.update(active);
             match transition {
                 Some(ModifierChordTransition::Pressed) => {
                     PUSH_TO_TALK_ACTIVE.store(true, Ordering::Relaxed);
@@ -1023,6 +1471,11 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
                         .state::<RuntimeStore>()
                         .begin_turn(current_active_skill_name());
                     windows_audio::start();
+                    telemetry::capture(
+                        "windows_teaching_turn_started",
+                        telemetry_distinct_id(&app_handle.state::<RuntimeStore>()),
+                        telemetry::properties(&[]),
+                    );
                     let _ = app_handle.emit("push_to_talk_pressed", ());
                 }
                 Some(ModifierChordTransition::Released) => {
@@ -1041,6 +1494,17 @@ fn start_push_to_talk_listener(app_handle: tauri::AppHandle) {
             std::thread::sleep(std::time::Duration::from_millis(12));
         }
     });
+}
+
+fn show_main_window(app: &tauri::AppHandle, settings: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        if settings {
+            let _ = window.eval("document.querySelector('[data-view=\"settings\"]')?.click()");
+        }
+    }
 }
 
 fn main() {
@@ -1064,12 +1528,96 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .manage(RuntimeStore::default())
         .setup(|app| {
-            if let Some(session) = load_saved_session() {
-                *app.state::<RuntimeStore>()
-                    .auth_session
-                    .lock()
-                    .expect("auth state poisoned") = Some(session);
+            let tray_menu = tauri::menu::MenuBuilder::new(app)
+                .text("open", "Open Skilly")
+                .text("toggle_skill", "Toggle active skill")
+                .text("settings", "Settings")
+                .separator()
+                .text("quit", "Quit Skilly")
+                .build()?;
+            let mut tray = tauri::tray::TrayIconBuilder::with_id("skilly")
+                .menu(&tray_menu)
+                .tooltip("Skilly — voice-first teaching companion")
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open" => show_main_window(app, false),
+                    "settings" => show_main_window(app, true),
+                    "toggle_skill" => {
+                        if let Ok(store) = skill_store() {
+                            if let Ok(items) = store.list_skill_items() {
+                                if items.iter().any(|item| item.is_active) {
+                                    let _ = store.deactivate_skill();
+                                } else if let Some(skill) = items.first() {
+                                    let _ = store.activate_skill(&skill.id, true);
+                                }
+                            }
+                        }
+                        let _ = app.emit("runtime_state_changed", ());
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle(), false);
+                    }
+                });
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray = tray.icon(icon);
             }
+            tray.build(app)?;
+            let preferences = load_preferences();
+            *app.state::<RuntimeStore>()
+                .reduced_motion_override
+                .lock()
+                .expect("preference state poisoned") = preferences.reduced_motion;
+            *app.state::<RuntimeStore>()
+                .shortcut
+                .lock()
+                .expect("shortcut state poisoned") = preferences.shortcut;
+            if let Some(session) = load_saved_session() {
+                match refresh_session_if_needed(session) {
+                    Ok(session) => {
+                        let entitlement = backend_client()
+                            .and_then(|client| {
+                                client
+                                    .fetch_entitlement(&session.session_token)
+                                    .map_err(|error| error.to_string())
+                            })
+                            .ok();
+                        *app.state::<RuntimeStore>()
+                            .auth_session
+                            .lock()
+                            .expect("auth state poisoned") = Some(session);
+                        *app.state::<RuntimeStore>()
+                            .entitlement
+                            .lock()
+                            .expect("entitlement state poisoned") = entitlement;
+                    }
+                    Err(error) => {
+                        *app.state::<RuntimeStore>()
+                            .auth_error
+                            .lock()
+                            .expect("auth state poisoned") = Some(error);
+                    }
+                }
+            }
+            if let Ok(mut runtime) = app.state::<RuntimeStore>().turn_runtime.lock() {
+                runtime.restore_history(load_history());
+            }
+            app.state::<RuntimeStore>()
+                .trial_seconds_used
+                .store(load_trial_usage(), Ordering::Relaxed);
+            telemetry::capture(
+                "windows_app_launched",
+                telemetry_distinct_id(&app.state::<RuntimeStore>()),
+                telemetry::properties(&[]),
+            );
             #[cfg(all(debug_assertions, target_os = "windows"))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -1081,11 +1629,37 @@ fn main() {
                 }
             }
             #[cfg(target_os = "windows")]
-            start_push_to_talk_listener(app.handle().clone());
+            {
+                let runtime = app.state::<RuntimeStore>();
+                if let Ok(frame) = windows_screen_capture::capture_primary_monitor_for_realtime(320)
+                {
+                    runtime.screen_capture_ready.store(true, Ordering::Relaxed);
+                    let screen = windows_overlay::ScreenBounds::new(
+                        frame.display_origin.x,
+                        frame.display_origin.y,
+                        frame.display_size.width,
+                        frame.display_size.height,
+                    );
+                    let overlay = windows_overlay::WindowsOverlayAdapter::new(
+                        windows_overlay::OverlayInitOptions::new(screen),
+                    );
+                    runtime
+                        .overlay_ready
+                        .store(overlay.availability().available(), Ordering::Relaxed);
+                }
+                start_push_to_talk_listener(app.handle().clone());
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             activate_skill,
+            clear_history,
             get_app_state,
             capability_snapshot,
             deactivate_skill,
@@ -1098,6 +1672,7 @@ fn main() {
             open_audio_output_settings,
             open_audio_settings,
             open_capture_settings,
+            open_customer_portal,
             open_overlay_settings,
             open_permissions_settings,
             open_readiness,
@@ -1106,10 +1681,14 @@ fn main() {
             open_skills_folder,
             open_windows_update,
             push_to_talk_active,
+            refresh_account,
             refresh_platform_facts,
             microphone_capture_status,
             set_reduced_motion_preference,
-            seed_bundled_skills
+            set_shortcut_preference,
+            seed_bundled_skills,
+            sign_out,
+            start_checkout
         ])
         .run(tauri::generate_context!())
         .expect("failed to launch Skilly Windows host app");
@@ -1123,17 +1702,10 @@ mod tests {
     fn modifier_chord_emits_only_on_press_and_release_edges() {
         let mut state = ModifierChordState::default();
 
-        assert_eq!(state.update(false, false), None);
-        assert_eq!(state.update(true, false), None);
-        assert_eq!(
-            state.update(true, true),
-            Some(ModifierChordTransition::Pressed)
-        );
-        assert_eq!(state.update(true, true), None);
-        assert_eq!(
-            state.update(false, true),
-            Some(ModifierChordTransition::Released)
-        );
-        assert_eq!(state.update(false, false), None);
+        assert_eq!(state.update(false), None);
+        assert_eq!(state.update(true), Some(ModifierChordTransition::Pressed));
+        assert_eq!(state.update(true), None);
+        assert_eq!(state.update(false), Some(ModifierChordTransition::Released));
+        assert_eq!(state.update(false), None);
     }
 }

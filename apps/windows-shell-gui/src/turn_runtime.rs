@@ -218,6 +218,22 @@ impl TurnRuntime {
         self.active.as_ref().map(|turn| turn.generation)
     }
 
+    pub fn restore_history(&mut self, history: Vec<ConversationTurn>) {
+        self.history.clear();
+        for turn in history
+            .into_iter()
+            .rev()
+            .take(self.history_limit)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
+            self.generation_clock
+                .fetch_max(turn.generation, Ordering::SeqCst);
+            self.history.push_back(turn);
+        }
+    }
+
     pub fn apply_event(
         &mut self,
         event: TurnRuntimeEvent,

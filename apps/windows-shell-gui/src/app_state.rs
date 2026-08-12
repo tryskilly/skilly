@@ -361,7 +361,7 @@ impl AppState {
                     "Sign in".to_string()
                 },
                 primary_action_command: if signed_in {
-                    "open_account_settings".to_string()
+                    "open_customer_portal".to_string()
                 } else {
                     "open_sign_in".to_string()
                 },

@@ -7,85 +7,1157 @@
     <style>
       :root {
         color-scheme: dark;
-        font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+        font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+        --bg: #07090f;
+        --shell: rgba(13, 17, 27, 0.98);
+        --panel: rgba(20, 24, 36, 0.96);
+        --panel-soft: rgba(255, 255, 255, 0.04);
+        --border: rgba(255, 255, 255, 0.08);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --text: #f7f8fc;
+        --text-muted: #b6bed4;
+        --text-dim: #8790ab;
+        --accent: #ffb443;
+        --accent-soft: rgba(255, 180, 67, 0.16);
+        --ready: #41d39d;
+        --ready-soft: rgba(65, 211, 157, 0.18);
+        --warn: #ff9256;
+        --warn-soft: rgba(255, 146, 86, 0.18);
+        --danger: #ff6f84;
+        --danger-soft: rgba(255, 111, 132, 0.18);
+        --shadow: 0 22px 44px rgba(0, 0, 0, 0.35);
       }
+
+      * {
+        box-sizing: border-box;
+      }
+
       html,
       body {
         margin: 0;
-        padding: 0;
-        height: 100%;
-        background: #0d0d10;
-        color: #f1f1f4;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at top left, rgba(255, 180, 67, 0.12), transparent 30%),
+          radial-gradient(circle at bottom right, rgba(66, 138, 255, 0.14), transparent 34%),
+          var(--bg);
+        color: var(--text);
       }
-      main {
-        padding: 20px;
+
+      body {
         display: flex;
-        flex-direction: column;
-        gap: 14px;
-        height: 100%;
-        box-sizing: border-box;
+        justify-content: center;
+        padding: 14px;
       }
-      h1 {
-        font-size: 14px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin: 0;
-        color: #8a8a92;
+
+      button,
+      input {
+        font: inherit;
       }
-      h2 {
-        font-size: 18px;
-        margin: 0;
-      }
-      pre {
-        background: #18181d;
-        border: 1px solid #26262d;
-        border-radius: 8px;
-        padding: 12px;
-        font-size: 12px;
-        line-height: 1.5;
-        margin: 0;
-        white-space: pre-wrap;
-        word-break: break-word;
-        flex: 1;
-        overflow: auto;
-      }
+
       button {
-        appearance: none;
-        background: #2a64ff;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 14px;
-        font-size: 13px;
-        font-weight: 600;
         cursor: pointer;
       }
-      button:hover {
-        background: #3b73ff;
+
+      .shell {
+        width: min(100%, 364px);
+        min-height: calc(100vh - 28px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-radius: 28px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(16, 20, 31, 0.99), rgba(8, 10, 16, 0.99));
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .header {
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .row,
+      .title-row,
+      .skill-actions,
+      .setting-row,
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .logo {
+        width: 38px;
+        height: 38px;
+        border-radius: 13px;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(145deg, rgba(255, 187, 79, 0.98), rgba(255, 121, 74, 0.98));
+        color: #16110a;
+        font-size: 15px;
+        font-weight: 800;
+        box-shadow: 0 12px 28px rgba(255, 180, 67, 0.28);
+      }
+
+      .brand-copy,
+      .title-block,
+      .account-copy,
+      .check-copy,
+      .history-copy,
+      .skill-copy,
+      .setting-copy {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .brand-copy h1,
+      .brand-copy p,
+      .title-block h2,
+      .title-block p,
+      .title-block span,
+      .account-copy strong,
+      .account-copy span {
+        margin: 0;
+      }
+
+      .brand-copy h1 {
+        font-size: 17px;
+        line-height: 1.1;
+      }
+
+      .brand-copy p,
+      .body-copy {
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .eyebrow,
+      .tiny,
+      .mono {
+        margin: 0;
+        color: var(--text-dim);
+        font-size: 10px;
+      }
+
+      .eyebrow,
+      .tiny {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .mono {
+        font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", monospace;
+        font-size: 11px;
+      }
+
+      .account-chip {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .account-copy {
+        text-align: right;
+      }
+
+      .account-copy strong,
+      .account-copy span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .account-copy strong {
+        font-size: 12px;
+      }
+
+      .avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+        display: grid;
+        place-items: center;
+        font-size: 12px;
+        font-weight: 700;
+        flex: 0 0 auto;
+      }
+
+      .tablist {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .tab {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.02);
+        color: var(--text-muted);
+        padding: 10px 12px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .tab[aria-selected="true"] {
+        color: var(--text);
+        border-color: rgba(255, 180, 67, 0.22);
+        background: linear-gradient(180deg, rgba(255, 180, 67, 0.18), rgba(255, 180, 67, 0.06));
+      }
+
+      .hint-strip {
+        padding: 11px 12px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .hint-copy {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-muted);
+        font-size: 12px;
+      }
+
+      .keycaps {
+        display: flex;
+        gap: 4px;
+      }
+
+      .keycap,
+      .badge,
+      .status-pill {
+        border-radius: 999px;
+        border: 1px solid transparent;
+        padding: 5px 9px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .keycap {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: var(--border);
+        color: var(--text);
+      }
+
+      .status-pill[data-tone="ready"],
+      .badge[data-tone="ready"] {
+        background: var(--ready-soft);
+        border-color: rgba(65, 211, 157, 0.24);
+        color: #dffcf3;
+      }
+
+      .status-pill[data-tone="attention"],
+      .badge[data-tone="attention"] {
+        background: var(--accent-soft);
+        border-color: rgba(255, 180, 67, 0.24);
+        color: #fff0cd;
+      }
+
+      .status-pill[data-tone="blocked"],
+      .badge[data-tone="blocked"] {
+        background: var(--danger-soft);
+        border-color: rgba(255, 111, 132, 0.24);
+        color: #ffdfe5;
+      }
+
+      .status-pill[data-tone="idle"],
+      .status-pill[data-tone="transcribing"],
+      .status-pill[data-tone="responding"],
+      .status-pill[data-tone="speaking"],
+      .status-pill[data-tone="listening"],
+      .status-pill[data-tone="error"] {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: var(--border);
+        color: var(--text-muted);
+      }
+
+      .surface {
+        flex: 1;
+        overflow: auto;
+        padding: 16px 18px 18px;
+      }
+
+      .panel {
+        display: grid;
+        gap: 14px;
+      }
+
+      .card,
+      .notice,
+      .skill-item,
+      .history-item,
+      .setting-group,
+      .state-card,
+      .check-item {
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        padding: 15px;
+      }
+
+      .notice[data-tone="blocked"] {
+        background: linear-gradient(180deg, rgba(255, 111, 132, 0.12), rgba(20, 24, 36, 0.98));
+      }
+
+      .notice[data-tone="attention"] {
+        background: linear-gradient(180deg, rgba(255, 180, 67, 0.1), rgba(20, 24, 36, 0.98));
+      }
+
+      .title-block h2 {
+        font-size: 14px;
+      }
+
+      .title-row {
+        align-items: flex-start;
+      }
+
+      .score {
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .progress {
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .progress > span {
+        display: block;
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #ffb443, #ffd37a);
+      }
+
+      .checklist,
+      .skill-list,
+      .history-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .check-item,
+      .skill-item,
+      .history-item,
+      .setting-row {
+        background: var(--panel-soft);
+      }
+
+      .check-item {
+        display: grid;
+        gap: 8px;
+      }
+
+      .transcript,
+      .response,
+      .import-box {
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        padding: 12px;
+      }
+
+      .response {
+        background: linear-gradient(180deg, rgba(255, 180, 67, 0.08), rgba(255, 255, 255, 0.03));
+      }
+
+      .skill-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .action,
+      .ghost {
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 11px 14px;
+      }
+
+      .action {
+        background: linear-gradient(180deg, rgba(255, 180, 67, 0.97), rgba(255, 150, 67, 0.88));
+        color: #1c1206;
+        border-color: rgba(255, 180, 67, 0.2);
+        font-weight: 700;
+      }
+
+      .ghost {
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text);
+      }
+
+      .ghost:disabled,
+      .action:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .field {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.02);
+        color: var(--text);
+        padding: 10px 12px;
+      }
+
+      .field::placeholder {
+        color: var(--text-dim);
+      }
+
+      .footer {
+        border-top: 1px solid var(--border);
+        padding: 12px 18px 14px;
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+
+      .toggle {
+        position: relative;
+        width: 44px;
+        height: 26px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .toggle::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        transform: translateX(0);
+      }
+
+      .toggle[data-on="true"] {
+        background: rgba(65, 211, 157, 0.26);
+      }
+
+      .toggle[data-on="true"]::after {
+        transform: translateX(18px);
+      }
+
+      .loading,
+      .empty,
+      .error {
+        padding: 18px;
+        border-radius: 18px;
+        border: 1px dashed var(--border-strong);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .error {
+        border-style: solid;
+        background: rgba(255, 111, 132, 0.08);
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
       }
     </style>
   </head>
   <body>
-    <main>
-      <h1>Skilly Windows host</h1>
-      <h2>Phase 7 placeholder</h2>
-      <button id="snapshotButton" type="button">
-        Read capability snapshot
-      </button>
-      <pre id="snapshotOutput">click the button to invoke the Rust adapter snapshot</pre>
-    </main>
+    <div class="shell">
+      <header class="header">
+        <div class="row">
+          <div class="brand">
+            <div class="logo" aria-hidden="true">S</div>
+            <div class="brand-copy">
+              <h1>Skilly</h1>
+              <p id="platformLabel">Windows host</p>
+            </div>
+          </div>
+          <div class="account-chip" id="accountChip">
+            <div class="account-copy">
+              <strong>Loading</strong>
+              <span>Waiting for host state</span>
+            </div>
+            <div class="avatar" aria-hidden="true">S</div>
+          </div>
+        </div>
+
+        <div class="tablist" role="tablist" aria-label="Skilly panel views">
+          <button class="tab" type="button" role="tab" aria-selected="true" data-view="home">Home</button>
+          <button class="tab" type="button" role="tab" aria-selected="false" data-view="history">History</button>
+          <button class="tab" type="button" role="tab" aria-selected="false" data-view="settings">Settings</button>
+        </div>
+
+        <div class="hint-strip" aria-live="polite">
+          <div class="hint-copy">
+            <span>Hold</span>
+            <span class="keycaps">
+              <span class="keycap">Ctrl</span>
+              <span class="keycap">Alt</span>
+            </span>
+            <span id="hintCopy">to talk</span>
+          </div>
+          <span class="status-pill" id="turnBadge" data-tone="idle">Idle</span>
+        </div>
+      </header>
+
+      <main class="surface">
+        <section class="panel" id="view-home" role="tabpanel"></section>
+        <section class="panel" id="view-history" role="tabpanel" hidden></section>
+        <section class="panel" id="view-settings" role="tabpanel" hidden></section>
+      </main>
+
+      <footer class="footer">
+        <span id="footerStatus">Connecting to the Windows host</span>
+        <button class="ghost" id="refreshButton" type="button">Refresh</button>
+      </footer>
+    </div>
+
+    <div class="sr-only" aria-live="polite" id="announcer"></div>
+
     <script type="module">
-      const { invoke } = window.__TAURI__.core;
-      const snapshotButton = document.getElementById("snapshotButton");
-      const snapshotOutput = document.getElementById("snapshotOutput");
-      snapshotButton.addEventListener("click", async () => {
-        try {
-          const snapshot = await invoke("capability_snapshot");
-          snapshotOutput.textContent = JSON.stringify(snapshot, null, 2);
-        } catch (snapshotError) {
-          snapshotOutput.textContent = `error: ${snapshotError}`;
+      const tabs = Array.from(document.querySelectorAll(".tab"));
+      const elements = {
+        platformLabel: document.getElementById("platformLabel"),
+        accountChip: document.getElementById("accountChip"),
+        hintCopy: document.getElementById("hintCopy"),
+        turnBadge: document.getElementById("turnBadge"),
+        home: document.getElementById("view-home"),
+        history: document.getElementById("view-history"),
+        settings: document.getElementById("view-settings"),
+        footerStatus: document.getElementById("footerStatus"),
+        refreshButton: document.getElementById("refreshButton"),
+        announcer: document.getElementById("announcer")
+      };
+
+      const state = {
+        currentView: "home",
+        appState: null,
+        loading: true,
+        inFlight: false,
+        error: null,
+        importSourcePath: "",
+        importMessage: "",
+        footerStatus: "Connecting to the Windows host",
+        reducedMotionLocal: null
+      };
+
+      const viewMap = {
+        home: elements.home,
+        history: elements.history,
+        settings: elements.settings
+      };
+
+      function toneLabel(tone) {
+        switch (tone) {
+          case "ready":
+            return "Ready";
+          case "attention":
+            return "Needs attention";
+          case "blocked":
+            return "Blocked";
+          case "listening":
+            return "Listening";
+          case "transcribing":
+            return "Transcribing";
+          case "responding":
+            return "Responding";
+          case "speaking":
+            return "Speaking";
+          case "error":
+            return "Error";
+          default:
+            return "Idle";
         }
+      }
+
+      function escapeHtml(text) {
+        return String(text ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      async function invoke(command, args = {}) {
+        if (!window.__TAURI__?.core?.invoke) {
+          throw new Error("Tauri host bridge is unavailable");
+        }
+        return window.__TAURI__.core.invoke(command, args);
+      }
+
+      async function safeInvoke(command, args = {}) {
+        try {
+          return await invoke(command, args);
+        } catch (error) {
+          throw new Error(error?.message || String(error));
+        }
+      }
+
+      function renderTabs() {
+        tabs.forEach((tab) => {
+          const selected = tab.dataset.view === state.currentView;
+          tab.setAttribute("aria-selected", String(selected));
+        });
+        Object.entries(viewMap).forEach(([view, element]) => {
+          element.hidden = view !== state.currentView;
+        });
+      }
+
+      function renderAccountChip(appState) {
+        if (!appState) {
+          elements.accountChip.innerHTML = `
+            <div class="account-copy">
+              <strong>Loading</strong>
+              <span>Waiting for host state</span>
+            </div>
+            <div class="avatar" aria-hidden="true">S</div>
+          `;
+          return;
+        }
+
+        const name = appState.account.display_name || "Skilly user";
+        const subline = appState.account.email || appState.account.plan_label;
+        const initial = name.slice(0, 1).toUpperCase() || "S";
+        elements.accountChip.innerHTML = `
+          <div class="account-copy">
+            <strong>${escapeHtml(name)}</strong>
+            <span>${escapeHtml(subline)}</span>
+          </div>
+          <div class="avatar" aria-hidden="true">${escapeHtml(initial)}</div>
+        `;
+      }
+
+      function renderEmptyPanel(title, detail, tone = "attention") {
+        return `
+          <div class="${tone === "blocked" ? "error" : "loading"}">
+            <div class="title-block">
+              <span class="eyebrow">${escapeHtml(toneLabel(tone))}</span>
+              <h2>${escapeHtml(title)}</h2>
+              <p class="body-copy">${escapeHtml(detail)}</p>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderNotices(appState) {
+        if (!appState.notices?.length) {
+          return "";
+        }
+
+        return appState.notices
+          .map(
+            (notice) => `
+              <div class="notice" data-tone="${escapeHtml(notice.tone)}">
+                <div class="title-block">
+                  <span class="eyebrow">${escapeHtml(toneLabel(notice.tone))}</span>
+                  <h2>${escapeHtml(notice.title)}</h2>
+                  <p class="body-copy">${escapeHtml(notice.detail)}</p>
+                </div>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      function renderHome(appState) {
+        if (!appState) {
+          elements.home.innerHTML = renderEmptyPanel(
+            "Waiting for host state",
+            state.error || "The Windows host has not provided app state yet.",
+            state.error ? "blocked" : "attention"
+          );
+          return;
+        }
+
+        const readiness = appState.readiness;
+        const onboarding = appState.onboarding;
+        const liveTurn = appState.live_turn;
+        const skills = appState.skills;
+        const captureMeta = liveTurn.capture_duration_ms
+          ? `
+              <div class="row">
+                <span class="tiny">Captured</span>
+                <span class="mono">${(liveTurn.capture_duration_ms / 1000).toFixed(1)}s · ${Number(liveTurn.capture_bytes || 0).toLocaleString()} bytes</span>
+              </div>
+            `
+          : "";
+
+        const readinessChecks = readiness.checks
+          .map(
+            (check) => `
+              <div class="check-item">
+                <div class="title-row">
+                  <div class="check-copy">
+                    <strong>${escapeHtml(check.title)}</strong>
+                    <span class="body-copy">${escapeHtml(check.detail)}</span>
+                  </div>
+                  <span class="badge" data-tone="${escapeHtml(check.status)}">${escapeHtml(toneLabel(check.status))}</span>
+                </div>
+                ${
+                  check.action_command
+                    ? `
+                      <div class="skill-actions">
+                        <button class="ghost" type="button" data-command="${escapeHtml(check.action_command)}">
+                          ${escapeHtml(check.action_label || "Open")}
+                        </button>
+                      </div>
+                    `
+                    : ""
+                }
+              </div>
+            `
+          )
+          .join("");
+
+        const onboardingSteps = onboarding.steps
+          .map(
+            (step) => `
+              <div class="check-item">
+                <div class="title-row">
+                  <div class="check-copy">
+                    <strong>${escapeHtml(step.title)}</strong>
+                    <span class="body-copy">${escapeHtml(step.detail)}</span>
+                  </div>
+                  <span class="badge" data-tone="${escapeHtml(step.status)}">${escapeHtml(toneLabel(step.status))}</span>
+                </div>
+              </div>
+            `
+          )
+          .join("");
+
+        const skillsMarkup = skills.items?.length
+          ? skills.items
+              .map(
+                (skill) => `
+                  <div class="skill-item">
+                    <div class="title-row">
+                      <div class="skill-copy">
+                        <strong>${escapeHtml(skill.name)}</strong>
+                        <span class="body-copy">${escapeHtml(skill.summary)}</span>
+                      </div>
+                      <span class="badge" data-tone="${escapeHtml(skill.status === "active" ? "ready" : "attention")}">
+                        ${escapeHtml(skill.status === "active" ? "Active" : "Ready")}
+                      </span>
+                    </div>
+                    <div class="skill-actions">
+                      <span class="mono">${escapeHtml(skill.source_label)}</span>
+                      ${
+                        skill.status === "active"
+                          ? `<button class="ghost" type="button" data-command="deactivate_skill">${escapeHtml(skill.action_label)}</button>`
+                          : `<button class="ghost" type="button" data-command="activate_skill" data-skill-id="${escapeHtml(skill.id)}">${escapeHtml(skill.action_label)}</button>`
+                      }
+                    </div>
+                  </div>
+                `
+              )
+              .join("")
+          : `<div class="empty"><p class="body-copy">${escapeHtml(skills.empty_detail)}</p></div>`;
+
+        elements.home.innerHTML = `
+          ${renderNotices(appState)}
+
+          <article class="card">
+            <div class="title-row">
+              <div class="title-block">
+                <span class="eyebrow">Readiness</span>
+                <h2>${escapeHtml(readiness.summary)}</h2>
+                <p class="body-copy">${escapeHtml(readiness.floor_label)}</p>
+              </div>
+              <div class="score">${escapeHtml(String(readiness.score_percent))}%</div>
+            </div>
+            <div class="progress" aria-hidden="true">
+              <span style="width: ${Math.max(0, Math.min(100, readiness.score_percent))}%"></span>
+            </div>
+            <div class="checklist">${readinessChecks}</div>
+          </article>
+
+          <article class="card">
+            <div class="title-row">
+              <div class="title-block">
+                <span class="eyebrow">Onboarding</span>
+                <h2>${escapeHtml(onboarding.headline)}</h2>
+                <p class="body-copy">${escapeHtml(onboarding.detail)}</p>
+              </div>
+              <span class="badge" data-tone="${escapeHtml(appState.readiness.overall_status)}">${escapeHtml(toneLabel(appState.readiness.overall_status))}</span>
+            </div>
+            <div class="checklist">${onboardingSteps}</div>
+            <div class="skill-actions">
+              <button class="action" type="button" data-command="${escapeHtml(onboarding.primary_action_command)}">${escapeHtml(onboarding.primary_action_label)}</button>
+              <button class="ghost" type="button" data-command="${escapeHtml(appState.account.primary_action_command)}">${escapeHtml(appState.account.primary_action_label)}</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="title-row">
+              <div class="title-block">
+                <span class="eyebrow">Live turn</span>
+                <h2>${escapeHtml(liveTurn.headline)}</h2>
+                <p class="body-copy">${escapeHtml(liveTurn.detail)}</p>
+              </div>
+              <span class="status-pill" data-tone="${escapeHtml(liveTurn.phase)}">${escapeHtml(toneLabel(liveTurn.phase))}</span>
+            </div>
+            <div class="row">
+              <span class="tiny">Shortcut</span>
+              <span class="mono">${escapeHtml(liveTurn.shortcut_label)}</span>
+            </div>
+            ${captureMeta}
+            <div class="transcript">
+              <p class="tiny">Transcript</p>
+              <p class="body-copy">${escapeHtml(liveTurn.transcript_preview)}</p>
+            </div>
+            <div class="response">
+              <p class="tiny">Response</p>
+              <p class="body-copy">${escapeHtml(liveTurn.response_preview)}</p>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="title-block">
+              <span class="eyebrow">${escapeHtml(skills.headline)}</span>
+              <h2>Installed skills</h2>
+              <p class="body-copy">${escapeHtml(skills.install_path_label)}</p>
+            </div>
+            <div class="skill-list">${skillsMarkup}</div>
+            <div class="import-box">
+              <div class="title-block">
+                <span class="eyebrow">Import skill</span>
+                <p class="body-copy">Paste a folder path or a path to a SKILL.md file and import it into the Windows skills directory.</p>
+              </div>
+              <div class="skill-actions">
+                <input class="field" id="importSourcePath" type="text" placeholder="C:\\Users\\you\\Downloads\\my-skill" value="${escapeHtml(state.importSourcePath)}" />
+              </div>
+              <div class="skill-actions">
+                <button class="ghost" type="button" data-command="import_skill">Import skill</button>
+                <span class="body-copy">${escapeHtml(state.importMessage)}</span>
+              </div>
+            </div>
+          </article>
+        `;
+
+        const importInput = document.getElementById("importSourcePath");
+        importInput?.addEventListener("input", (event) => {
+          state.importSourcePath = event.target.value;
+        });
+      }
+
+      function renderHistory(appState) {
+        if (!appState) {
+          elements.history.innerHTML = renderEmptyPanel(
+            "No history yet",
+            state.error || "Recent turns will appear here after the host commits them."
+          );
+          return;
+        }
+
+        const itemsMarkup = appState.history.items?.length
+          ? appState.history.items
+              .map(
+                (item) => `
+                  <div class="history-item">
+                    <div class="title-row">
+                      <div class="history-copy">
+                        <strong>${escapeHtml(item.skill_name)}</strong>
+                        <span class="tiny">${escapeHtml(item.started_at_label)} · ${(item.duration_ms / 1000).toFixed(1)}s</span>
+                      </div>
+                    </div>
+                    <div class="transcript">
+                      <p class="tiny">User</p>
+                      <p class="body-copy">${escapeHtml(item.user_text)}</p>
+                    </div>
+                    <div class="response">
+                      <p class="tiny">Skilly</p>
+                      <p class="body-copy">${escapeHtml(item.assistant_text)}</p>
+                    </div>
+                  </div>
+                `
+              )
+              .join("")
+          : `<div class="empty"><p class="body-copy">${escapeHtml(appState.history.empty_detail)}</p></div>`;
+
+        elements.history.innerHTML = `
+          <article class="card">
+            <div class="title-row">
+              <div class="title-block">
+              <span class="eyebrow">History</span>
+              <h2>${escapeHtml(appState.history.headline)}</h2>
+              <p class="body-copy">The Windows host keeps recent committed teaching turns here so users can recover context.</p>
+              </div>
+              ${appState.history.items?.length ? '<button class="ghost" type="button" data-command="clear_history">Clear</button>' : ''}
+            </div>
+          </article>
+          <div class="history-list">${itemsMarkup}</div>
+        `;
+      }
+
+      function renderSettings(appState) {
+        if (!appState) {
+          elements.settings.innerHTML = renderEmptyPanel(
+            "Settings are unavailable",
+            state.error || "The host must load app state before settings can be shown."
+          );
+          return;
+        }
+
+        const reducedMotion =
+          state.reducedMotionLocal === null
+            ? Boolean(appState.settings.accessibility.reduced_motion)
+            : Boolean(state.reducedMotionLocal);
+
+        elements.settings.innerHTML = `
+          <article class="setting-group">
+            <div class="title-block">
+              <span class="eyebrow">Account</span>
+              <h2>${escapeHtml(appState.account.display_name)}</h2>
+              <p class="body-copy">${escapeHtml(appState.account.email || appState.account.plan_label)}</p>
+            </div>
+            <div class="setting-row">
+              <div class="setting-copy">
+                <strong>${escapeHtml(appState.account.plan_label)}</strong>
+                <span class="body-copy">${escapeHtml(appState.account.usage_label)}</span>
+              </div>
+              <button class="ghost" type="button" data-command="${escapeHtml(appState.account.primary_action_command)}">${escapeHtml(appState.account.primary_action_label)}</button>
+            </div>
+            ${appState.account.status === "signed_in" ? `
+              <div class="skill-actions">
+                <button class="action" type="button" data-command="start_checkout">Upgrade plan</button>
+                <button class="ghost" type="button" data-command="open_customer_portal">Billing portal</button>
+                <button class="ghost" type="button" data-command="refresh_account">Refresh plan</button>
+                <button class="ghost" type="button" data-command="sign_out">Sign out</button>
+              </div>
+            ` : ""}
+          </article>
+
+          <article class="setting-group">
+            <div class="title-block">
+              <span class="eyebrow">Push to talk</span>
+              <h2>${escapeHtml(appState.settings.push_to_talk.shortcut_label)}</h2>
+              <p class="body-copy">Hold-to-talk is the active mode. The Windows host can open the system shortcut page directly from here.</p>
+            </div>
+            <div class="setting-row">
+              <div class="setting-copy">
+                <strong>Shortcut settings</strong>
+                <span class="body-copy">${appState.settings.push_to_talk.customizable ? "Ready for customization." : "Locked by host policy."}</span>
+              </div>
+              <select class="field" id="shortcutSelect" aria-label="Push-to-talk shortcut">
+                <option value="control_alt" ${appState.settings.push_to_talk.shortcut_label === "Ctrl + Alt" ? "selected" : ""}>Ctrl + Alt</option>
+                <option value="control_shift" ${appState.settings.push_to_talk.shortcut_label === "Ctrl + Shift" ? "selected" : ""}>Ctrl + Shift</option>
+                <option value="alt_shift" ${appState.settings.push_to_talk.shortcut_label === "Alt + Shift" ? "selected" : ""}>Alt + Shift</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div class="setting-copy">
+                <strong>Capture and overlay</strong>
+                <span class="body-copy">Open the Windows surfaces used for screen capture and cursor guidance.</span>
+              </div>
+              <div class="skill-actions">
+                <button class="ghost" type="button" data-command="open_capture_settings">Capture</button>
+                <button class="ghost" type="button" data-command="open_overlay_settings">Overlay</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="setting-group">
+            <div class="title-block">
+              <span class="eyebrow">Accessibility</span>
+              <h2>Reduced motion</h2>
+              <p class="body-copy">This shell respects the host preference and can store an override through the Rust command surface.</p>
+            </div>
+            <div class="setting-row">
+              <div class="setting-copy">
+                <strong>Motion preference</strong>
+                <span class="body-copy">Source: ${escapeHtml(appState.settings.accessibility.reduced_motion_source)}</span>
+              </div>
+              <button class="toggle" id="reducedMotionToggle" type="button" data-on="${reducedMotion}" aria-pressed="${reducedMotion}" aria-label="Toggle reduced motion"></button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-copy">
+                <strong>Permissions and audio</strong>
+                <span class="body-copy">${escapeHtml(appState.settings.audio.input_device_label)} · ${escapeHtml(appState.settings.audio.output_device_label)}</span>
+              </div>
+              <div class="skill-actions">
+                <button class="ghost" type="button" data-command="open_permissions_settings">Permissions</button>
+                <button class="ghost" type="button" data-command="open_audio_settings">Audio</button>
+              </div>
+            </div>
+          </article>
+        `;
+
+        const toggle = document.getElementById("reducedMotionToggle");
+        toggle?.addEventListener("click", async () => {
+          const next = !reducedMotion;
+          state.reducedMotionLocal = next;
+          render();
+          try {
+            await safeInvoke("set_reduced_motion_preference", { args: { reducedMotion: next } });
+            state.footerStatus = next ? "Reduced motion enabled" : "Reduced motion disabled";
+          } catch (error) {
+            state.error = error.message;
+            state.footerStatus = error.message;
+          }
+          render();
+        });
+        const shortcutSelect = document.getElementById("shortcutSelect");
+        shortcutSelect?.addEventListener("change", async (event) => {
+          try {
+            const result = await safeInvoke("set_shortcut_preference", {
+              args: { shortcut: event.target.value }
+            });
+            state.footerStatus = result.message;
+            await refreshState();
+          } catch (error) {
+            state.error = error.message;
+            state.footerStatus = error.message;
+            render();
+          }
+        });
+      }
+
+      function render() {
+        renderAccountChip(state.appState);
+        renderHome(state.appState);
+        renderHistory(state.appState);
+        renderSettings(state.appState);
+        renderTabs();
+
+        if (state.appState) {
+          elements.platformLabel.textContent = state.appState.meta.platform_label;
+          elements.turnBadge.dataset.tone = state.appState.live_turn.phase;
+          elements.turnBadge.textContent = toneLabel(state.appState.live_turn.phase);
+          elements.hintCopy.textContent =
+            state.appState.live_turn.phase === "listening"
+              ? "release to commit"
+              : "to talk";
+        } else {
+          elements.platformLabel.textContent = "Windows host";
+          elements.turnBadge.dataset.tone = "idle";
+          elements.turnBadge.textContent = state.loading ? "Loading" : "Unavailable";
+          elements.hintCopy.textContent = "to talk";
+        }
+
+        elements.footerStatus.textContent = state.footerStatus;
+      }
+
+      async function refreshState() {
+        if (state.inFlight) {
+          return;
+        }
+
+        state.inFlight = true;
+        try {
+          const appState = await safeInvoke("get_app_state");
+          state.appState = appState;
+          state.loading = false;
+          state.error = null;
+          state.footerStatus = `Updated ${appState.meta.updated_at_label}`;
+        } catch (error) {
+          state.loading = false;
+          state.error = error.message;
+          state.footerStatus = error.message;
+        } finally {
+          state.inFlight = false;
+          render();
+        }
+      }
+
+      async function handleCommand(command, dataset = {}) {
+        try {
+          let result;
+          if (command === "clear_history" && !window.confirm("Clear all saved conversation history?")) {
+            return;
+          }
+          if (command === "activate_skill") {
+            result = await safeInvoke("activate_skill", { skillId: dataset.skillId });
+            state.footerStatus = `Activated ${result.name || dataset.skillId}`;
+          } else if (command === "deactivate_skill") {
+            result = await safeInvoke("deactivate_skill");
+            state.footerStatus = result.active_skill_id
+              ? `Deactivated ${result.active_skill_id}`
+              : "Skill deactivated";
+          } else if (command === "import_skill") {
+            const sourcePath = state.importSourcePath.trim();
+            if (!sourcePath) {
+              state.importMessage = "Enter a skill path first.";
+              render();
+              return;
+            }
+            result = await safeInvoke("import_skill", { sourcePath });
+            state.importMessage = result.message || "Skill imported";
+            state.importSourcePath = "";
+          } else if (command === "open_sign_in") {
+            result = await safeInvoke("open_sign_in");
+            state.footerStatus = result.message || "Opened sign-in";
+          } else {
+            result = await safeInvoke(command);
+            state.footerStatus = result?.message || `Ran ${command}`;
+          }
+
+          state.error = null;
+          elements.announcer.textContent = state.footerStatus;
+          await refreshState();
+        } catch (error) {
+          state.error = error.message;
+          state.footerStatus = error.message;
+          elements.announcer.textContent = error.message;
+          render();
+        }
+      }
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          state.currentView = tab.dataset.view;
+          renderTabs();
+        });
       });
+
+      document.addEventListener("click", async (event) => {
+        const target = event.target.closest("[data-command]");
+        if (!target) {
+          return;
+        }
+        await handleCommand(target.dataset.command, target.dataset);
+      });
+
+      elements.refreshButton.addEventListener("click", refreshState);
+
+      render();
+      refreshState();
+      setInterval(refreshState, 1000);
     </script>
   </body>
 </html>
