@@ -481,9 +481,15 @@ fn platform_snapshot(runtime: &RuntimeStore) -> PlatformCapabilitySnapshot {
             }
         };
         PlatformCapabilitySnapshot {
-            capture: available_or(runtime.screen_capture_ready.load(Ordering::Relaxed), "Primary-screen capture initialization failed."),
-            hotkey: AdapterCapabilityStatus::Degraded { reason: "Ctrl + Alt uses a low-latency global key-state listener until shortcut customization is applied.".to_owned() },
-            overlay: available_or(runtime.overlay_ready.load(Ordering::Relaxed), "Native click-through overlay initialization failed."),
+            capture: available_or(
+                runtime.screen_capture_ready.load(Ordering::Relaxed),
+                "Primary-screen capture initialization failed.",
+            ),
+            hotkey: AdapterCapabilityStatus::Available,
+            overlay: available_or(
+                runtime.overlay_ready.load(Ordering::Relaxed),
+                "Native click-through overlay initialization failed.",
+            ),
             audio_input: AdapterCapabilityStatus::Available,
             audio_output: AdapterCapabilityStatus::Available,
             permissions: AdapterCapabilityStatus::Available,
@@ -942,7 +948,9 @@ fn build_app_state(runtime_store: &RuntimeStore) -> app_state::AppState {
     let capture = microphone_capture_status();
     let turn_snapshot = runtime_store.sync_capture_status(&capture);
     let mut runtime = app_state::AppRuntimeSnapshot {
-        build_number: Some(platform::WINDOWS_MINIMUM_BUILD),
+        build_number: platform::windows_build_number().or_else(|| {
+            cfg!(not(target_os = "windows")).then_some(platform::WINDOWS_MINIMUM_BUILD)
+        }),
         webview2_runtime: Some(true),
         reduced_motion: runtime_store.reduced_motion(),
         live_turn_phase: if turn_snapshot.generation.is_some() || !turn_snapshot.history.is_empty()
@@ -1221,6 +1229,40 @@ fn refresh_account(
 }
 
 #[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<PanelCommandResult, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let public_key = option_env!("SKILLY_UPDATER_PUBLIC_KEY")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("Automatic updates are unavailable in this developer build.")?;
+    let endpoint = "https://github.com/tryskilly/skilly/releases/latest/download/latest.json"
+        .parse()
+        .map_err(|error| format!("invalid updater endpoint: {error}"))?;
+    let updater = app
+        .updater_builder()
+        .pubkey(public_key)
+        .endpoints(vec![endpoint])
+        .map_err(|error| error.to_string())?
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let Some(update) = updater.check().await.map_err(|error| error.to_string())? else {
+        return Ok(PanelCommandResult::ok("Skilly is up to date"));
+    };
+    telemetry::capture(
+        "windows_update_started",
+        telemetry_distinct_id(&app.state::<RuntimeStore>()),
+        telemetry::properties(&[("version", serde_json::json!(update.version))]),
+    );
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(PanelCommandResult::ok(
+        "Update installed. Restart Skilly to use it.",
+    ))
+}
+
+#[tauri::command]
 fn clear_history(
     runtime_store: tauri::State<'_, RuntimeStore>,
 ) -> Result<PanelCommandResult, String> {
@@ -1316,7 +1358,13 @@ fn refresh_platform_facts() -> PanelCommandResult {
 
 #[tauri::command]
 fn install_webview2() -> PanelCommandResult {
-    PanelCommandResult::ok("WebView2 installer flow is not wired yet")
+    match open_external_url("https://go.microsoft.com/fwlink/p/?LinkId=2124703") {
+        Ok(()) => PanelCommandResult::ok("Opened the official WebView2 installer"),
+        Err(message) => PanelCommandResult {
+            status: "error",
+            message,
+        },
+    }
 }
 
 #[tauri::command]
@@ -1526,6 +1574,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(RuntimeStore::default())
         .setup(|app| {
             let tray_menu = tauri::menu::MenuBuilder::new(app)
@@ -1659,6 +1708,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             activate_skill,
+            check_for_updates,
             clear_history,
             get_app_state,
             capability_snapshot,

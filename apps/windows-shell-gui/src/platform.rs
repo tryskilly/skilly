@@ -65,6 +65,37 @@ impl WindowsRuntimeFacts {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn windows_build_number() -> Option<u32> {
+    #[repr(C)]
+    struct OsVersionInfo {
+        size: u32,
+        major: u32,
+        minor: u32,
+        build: u32,
+        platform_id: u32,
+        service_pack: [u16; 128],
+    }
+    #[link(name = "ntdll")]
+    extern "system" {
+        fn RtlGetVersion(version: *mut OsVersionInfo) -> i32;
+    }
+    let mut version = OsVersionInfo {
+        size: std::mem::size_of::<OsVersionInfo>() as u32,
+        major: 0,
+        minor: 0,
+        build: 0,
+        platform_id: 0,
+        service_pack: [0; 128],
+    };
+    (unsafe { RtlGetVersion(&mut version) } >= 0).then_some(version.build)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn windows_build_number() -> Option<u32> {
+    None
+}
+
 pub fn build_platform_readiness(
     snapshot: &PlatformCapabilitySnapshot,
     facts: &WindowsRuntimeFacts,

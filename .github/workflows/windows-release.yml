@@ -1,0 +1,91 @@
+name: Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "windows-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  signed-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/windows-shell-gui
+
+      - name: Validate release credentials
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SKILLY_UPDATER_PUBLIC_KEY: ${{ secrets.SKILLY_UPDATER_PUBLIC_KEY }}
+        run: |
+          @(
+            "WINDOWS_CERTIFICATE",
+            "WINDOWS_CERTIFICATE_PASSWORD",
+            "TAURI_SIGNING_PRIVATE_KEY",
+            "SKILLY_UPDATER_PUBLIC_KEY"
+          ) | ForEach-Object {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "env:$_").Value)) {
+              throw "Required Windows release secret is missing: $_"
+            }
+          }
+
+      - name: Import Authenticode certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "skilly-windows.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          "SKILLY_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Create signed updater configuration
+        shell: pwsh
+        env:
+          SKILLY_UPDATER_PUBLIC_KEY: ${{ secrets.SKILLY_UPDATER_PUBLIC_KEY }}
+        run: |
+          $config = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+              windows = @{
+                certificateThumbprint = $env:SKILLY_CERTIFICATE_THUMBPRINT
+                digestAlgorithm = "sha256"
+                timestampUrl = "http://timestamp.digicert.com"
+              }
+            }
+            plugins = @{
+              updater = @{
+                pubkey = $env:SKILLY_UPDATER_PUBLIC_KEY
+                endpoints = @("https://github.com/tryskilly/skilly/releases/latest/download/latest.json")
+                windows = @{ installMode = "passive" }
+              }
+            }
+          }
+          $config | ConvertTo-Json -Depth 10 | Set-Content apps/windows-shell-gui/tauri.release.conf.json
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SKILLY_UPDATER_PUBLIC_KEY: ${{ secrets.SKILLY_UPDATER_PUBLIC_KEY }}
+          SKILLY_POSTHOG_KEY: ${{ secrets.SKILLY_POSTHOG_KEY }}
+        with:
+          projectPath: apps/windows-shell-gui
+          args: --bundles nsis --config tauri.release.conf.json
+          tagName: windows-v__VERSION__
+          releaseName: Skilly for Windows v__VERSION__
+          releaseBody: Signed Windows 11 installer with automatic updates.
+          releaseDraft: true
+          prerelease: false
