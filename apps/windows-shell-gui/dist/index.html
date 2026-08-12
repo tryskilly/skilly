@@ -116,6 +116,14 @@
               showPushToTalkReleased();
             }
           }
+          const capture = await invoke("microphone_capture_status");
+          if (capture.state === "recording") {
+            pushToTalkStatus.textContent = "Listening — microphone capture active";
+          } else if (capture.state === "committed" && !active) {
+            pushToTalkStatus.textContent = `Captured ${(capture.duration_ms / 1000).toFixed(1)}s (${capture.bytes_captured.toLocaleString()} bytes)`;
+          } else if (capture.state === "error") {
+            pushToTalkStatus.textContent = `Microphone error: ${capture.error}`;
+          }
         } catch {
           // Event delivery remains the primary path. A transient state-query
           // failure must not disrupt the rest of the developer panel.
