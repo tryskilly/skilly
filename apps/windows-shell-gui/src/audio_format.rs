@@ -12,7 +12,7 @@ pub(super) struct InterleavedAudioFormat {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Pcm16MonoChunk {
+pub(crate) struct Pcm16MonoChunk {
     pub bytes: Vec<u8>,
     pub sample_rate: u32,
     pub channels: u16,
