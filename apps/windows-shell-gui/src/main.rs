@@ -1749,15 +1749,13 @@ fn main() {
                 tray = tray.icon(icon);
             }
             tray.build(app)?;
+            let runtime = app.state::<RuntimeStore>();
             let preferences = load_preferences();
-            *app.state::<RuntimeStore>()
+            *runtime
                 .reduced_motion_override
                 .lock()
                 .expect("preference state poisoned") = preferences.reduced_motion;
-            *app.state::<RuntimeStore>()
-                .shortcut
-                .lock()
-                .expect("shortcut state poisoned") = preferences.shortcut;
+            *runtime.shortcut.lock().expect("shortcut state poisoned") = preferences.shortcut;
             if let Some(session) = load_saved_session() {
                 match refresh_session_if_needed(session) {
                     Ok(session) => {
@@ -1768,32 +1766,26 @@ fn main() {
                                     .map_err(|error| error.to_string())
                             })
                             .ok();
-                        *app.state::<RuntimeStore>()
-                            .auth_session
-                            .lock()
-                            .expect("auth state poisoned") = Some(session);
-                        *app.state::<RuntimeStore>()
+                        *runtime.auth_session.lock().expect("auth state poisoned") = Some(session);
+                        *runtime
                             .entitlement
                             .lock()
                             .expect("entitlement state poisoned") = entitlement;
                     }
                     Err(error) => {
-                        *app.state::<RuntimeStore>()
-                            .auth_error
-                            .lock()
-                            .expect("auth state poisoned") = Some(error);
+                        *runtime.auth_error.lock().expect("auth state poisoned") = Some(error);
                     }
                 }
             }
-            if let Ok(mut runtime) = app.state::<RuntimeStore>().turn_runtime.lock() {
-                runtime.restore_history(load_history());
+            if let Ok(mut turn_runtime) = runtime.turn_runtime.lock() {
+                turn_runtime.restore_history(load_history());
             }
-            if let Some(session) = app.state::<RuntimeStore>().authenticated_session() {
-                configure_usage(&app.state::<RuntimeStore>(), &session);
+            if let Some(session) = runtime.authenticated_session() {
+                configure_usage(&runtime, &session);
             }
             telemetry::capture(
                 "windows_app_launched",
-                telemetry_distinct_id(&app.state::<RuntimeStore>()),
+                telemetry_distinct_id(&runtime),
                 telemetry::properties(&[]),
             );
             #[cfg(all(debug_assertions, target_os = "windows"))]
@@ -1803,12 +1795,11 @@ fn main() {
             }
             for arg in std::env::args() {
                 if arg.starts_with("skilly://auth/callback") {
-                    let _ = complete_auth_callback(&app.state::<RuntimeStore>(), &arg);
+                    let _ = complete_auth_callback(&runtime, &arg);
                 }
             }
             #[cfg(target_os = "windows")]
             {
-                let runtime = app.state::<RuntimeStore>();
                 if let Ok(frame) = windows_screen_capture::capture_primary_monitor_for_realtime(320)
                 {
                     runtime.screen_capture_ready.store(true, Ordering::Relaxed);
