@@ -561,13 +561,14 @@ mod imp {
             let thread_handle = thread::spawn(move || {
                 let result = unsafe {
                     overlay_thread_main(state_for_thread, screen, class_name, window_title)
-                };
+                }
+                .map(|hwnd| hwnd as isize);
                 let _ = init_tx.send(result);
             });
 
             match init_rx.recv_timeout(Duration::from_secs(3)) {
                 Ok(Ok(hwnd)) => Ok(Self {
-                    hwnd,
+                    hwnd: hwnd as HWND,
                     state: shared_state,
                     thread_handle: Some(thread_handle),
                 }),
