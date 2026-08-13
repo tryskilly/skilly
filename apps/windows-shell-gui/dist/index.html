@@ -2,1163 +2,686 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Skilly</title>
     <style>
       :root {
         color-scheme: dark;
-        font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-        --bg: #07090f;
-        --shell: rgba(13, 17, 27, 0.98);
-        --panel: rgba(20, 24, 36, 0.96);
-        --panel-soft: rgba(255, 255, 255, 0.04);
-        --border: rgba(255, 255, 255, 0.08);
-        --border-strong: rgba(255, 255, 255, 0.16);
-        --text: #f7f8fc;
-        --text-muted: #b6bed4;
-        --text-dim: #8790ab;
-        --accent: #ffb443;
-        --accent-soft: rgba(255, 180, 67, 0.16);
-        --ready: #41d39d;
-        --ready-soft: rgba(65, 211, 157, 0.18);
-        --warn: #ff9256;
-        --warn-soft: rgba(255, 146, 86, 0.18);
-        --danger: #ff6f84;
-        --danger-soft: rgba(255, 111, 132, 0.18);
-        --shadow: 0 22px 44px rgba(0, 0, 0, 0.35);
+        font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+        --window: #111217;
+        --surface: #17191f;
+        --surface-hover: #1d2027;
+        --surface-strong: #22252d;
+        --line: rgba(255, 255, 255, 0.09);
+        --line-strong: rgba(255, 255, 255, 0.15);
+        --text: #f5f4f1;
+        --text-secondary: #b8b7b2;
+        --text-tertiary: #84837f;
+        --accent: #f3a62f;
+        --accent-soft: rgba(243, 166, 47, 0.13);
+        --accent-text: #ffc96f;
+        --danger: #ff8b98;
+        --success: #69c89c;
+        --radius-panel: 18px;
+        --radius-control: 10px;
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
       html,
       body {
-        margin: 0;
+        width: 100%;
         min-height: 100%;
-        background:
-          radial-gradient(circle at top left, rgba(255, 180, 67, 0.12), transparent 30%),
-          radial-gradient(circle at bottom right, rgba(66, 138, 255, 0.14), transparent 34%),
-          var(--bg);
+        margin: 0;
+        overflow: hidden;
+        background: var(--window);
         color: var(--text);
       }
 
-      body {
-        display: flex;
-        justify-content: center;
-        padding: 14px;
+      body { font-size: 13px; }
+      button, input, select { font: inherit; }
+      button { cursor: pointer; }
+      button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
 
-      button,
-      input {
-        font: inherit;
-      }
-
-      button {
-        cursor: pointer;
-      }
-
-      .shell {
-        width: min(100%, 364px);
-        min-height: calc(100vh - 28px);
+      .app {
+        height: 100vh;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
-        border-radius: 28px;
-        border: 1px solid var(--border);
-        background: linear-gradient(180deg, rgba(16, 20, 31, 0.99), rgba(8, 10, 16, 0.99));
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(18px);
+        background: var(--window);
       }
 
-      .header {
-        padding: 18px;
-        display: grid;
-        gap: 14px;
-        border-bottom: 1px solid var(--border);
-      }
-
-      .row,
-      .title-row,
-      .skill-actions,
-      .setting-row,
-      .footer {
+      .app-header {
+        min-height: 54px;
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 10px;
+        padding: 10px 12px 9px 14px;
+        border-bottom: 1px solid var(--line);
+        user-select: none;
       }
 
       .brand {
+        min-width: 0;
         display: flex;
         align-items: center;
-        gap: 12px;
-        min-width: 0;
+        gap: 9px;
       }
 
-      .logo {
-        width: 38px;
-        height: 38px;
-        border-radius: 13px;
-        display: grid;
-        place-items: center;
-        background:
-          linear-gradient(145deg, rgba(255, 187, 79, 0.98), rgba(255, 121, 74, 0.98));
-        color: #16110a;
-        font-size: 15px;
-        font-weight: 800;
-        box-shadow: 0 12px 28px rgba(255, 180, 67, 0.28);
+      .brand-mark {
+        width: 22px;
+        height: 22px;
+        flex: 0 0 auto;
+        border-radius: 7px;
+        background: var(--accent);
+        clip-path: polygon(12% 5%, 88% 52%, 58% 61%, 48% 94%);
+        filter: drop-shadow(0 4px 7px rgba(243, 166, 47, 0.2));
       }
 
-      .brand-copy,
-      .title-block,
-      .account-copy,
-      .check-copy,
-      .history-copy,
-      .skill-copy,
-      .setting-copy {
-        display: grid;
-        gap: 4px;
-        min-width: 0;
-      }
-
-      .brand-copy h1,
-      .brand-copy p,
-      .title-block h2,
-      .title-block p,
-      .title-block span,
-      .account-copy strong,
-      .account-copy span {
-        margin: 0;
-      }
-
-      .brand-copy h1 {
-        font-size: 17px;
-        line-height: 1.1;
-      }
-
-      .brand-copy p,
-      .body-copy {
-        color: var(--text-muted);
-        font-size: 12px;
-        line-height: 1.55;
-      }
-
-      .eyebrow,
-      .tiny,
-      .mono {
-        margin: 0;
-        color: var(--text-dim);
+      .brand-copy { min-width: 0; }
+      .brand-title { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
+      .brand-subtitle {
+        margin-top: 1px;
+        color: var(--text-tertiary);
         font-size: 10px;
-      }
-
-      .eyebrow,
-      .tiny {
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      .mono {
-        font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", monospace;
-        font-size: 11px;
-      }
-
-      .account-chip {
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .account-copy {
-        text-align: right;
-      }
-
-      .account-copy strong,
-      .account-copy span {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
-      .account-copy strong {
-        font-size: 12px;
+      .header-spacer { flex: 1; }
+      .header-actions { display: flex; align-items: center; gap: 2px; }
+
+      .icon-button,
+      .back-button {
+        border: 0;
+        background: transparent;
+        color: var(--text-tertiary);
       }
 
-      .avatar {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.08);
+      .icon-button {
+        width: 30px;
+        height: 30px;
         display: grid;
         place-items: center;
-        font-size: 12px;
-        font-weight: 700;
-        flex: 0 0 auto;
+        border-radius: 8px;
+        font-size: 15px;
       }
 
-      .tablist {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
+      .icon-button:hover,
+      .icon-button[aria-pressed="true"],
+      .back-button:hover { background: var(--surface-hover); color: var(--text); }
+      .icon-button:active, .back-button:active, .button:active { transform: translateY(1px); }
+
+      .content {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--line-strong) transparent;
       }
 
-      .tab {
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        background: rgba(255, 255, 255, 0.02);
-        color: var(--text-muted);
-        padding: 10px 12px;
-        font-size: 12px;
-        font-weight: 600;
-      }
+      .view { min-height: 100%; }
+      .view[hidden] { display: none !important; }
+      .home-view { padding: 14px; }
+      .secondary-view { padding: 0 14px 16px; }
 
-      .tab[aria-selected="true"] {
-        color: var(--text);
-        border-color: rgba(255, 180, 67, 0.22);
-        background: linear-gradient(180deg, rgba(255, 180, 67, 0.18), rgba(255, 180, 67, 0.06));
-      }
-
-      .hint-strip {
-        padding: 11px 12px;
-        border-radius: 16px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.03);
-      }
-
-      .hint-copy {
+      .view-header {
+        position: sticky;
+        top: 0;
+        z-index: 1;
         display: flex;
         align-items: center;
-        gap: 6px;
-        color: var(--text-muted);
-        font-size: 12px;
+        gap: 8px;
+        min-height: 49px;
+        margin: 0 -14px 12px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(17, 18, 23, 0.96);
+        backdrop-filter: blur(14px);
       }
 
-      .keycaps {
-        display: flex;
-        gap: 4px;
+      .view-header h1 { margin: 0; font-size: 14px; font-weight: 650; }
+      .view-header p { margin: 2px 0 0; color: var(--text-tertiary); font-size: 10px; }
+      .back-button { width: 28px; height: 28px; border-radius: 8px; font-size: 18px; }
+
+      .stack { display: grid; gap: 12px; }
+      .section { display: grid; gap: 10px; }
+      .section + .section { padding-top: 14px; border-top: 1px solid var(--line); }
+      .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+      .section-heading h2 { margin: 0; font-size: 11px; font-weight: 650; color: var(--text-secondary); }
+      .section-heading span { color: var(--text-tertiary); font-size: 10px; }
+
+      .setup-banner,
+      .turn-card,
+      .active-skill,
+      .history-card,
+      .settings-group,
+      .empty-state,
+      .notice {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-panel);
+        background: var(--surface);
       }
 
-      .keycap,
-      .badge,
-      .status-pill {
+      .setup-banner,
+      .turn-card,
+      .active-skill,
+      .history-card,
+      .settings-group,
+      .notice { padding: 13px; }
+
+      .setup-banner { border-color: rgba(243, 166, 47, 0.22); background: var(--accent-soft); }
+      .notice[data-tone="blocked"] { border-color: rgba(255, 139, 152, 0.25); }
+
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .row-start { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+      .copy { min-width: 0; }
+      .copy h2, .copy h3, .copy p { margin: 0; }
+      .copy h2 { font-size: 14px; line-height: 1.3; }
+      .copy h3 { font-size: 12px; line-height: 1.35; }
+      .copy p { margin-top: 4px; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+
+      .active-skill { background: linear-gradient(145deg, rgba(243, 166, 47, 0.12), var(--surface) 50%); }
+      .active-label { color: var(--accent-text); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+      .skill-name { margin: 5px 0 0; font-size: 17px; font-weight: 680; letter-spacing: -0.02em; }
+      .skill-summary { margin: 4px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.4; }
+
+      .status {
+        flex: 0 0 auto;
+        padding: 4px 7px;
+        border: 1px solid var(--line);
         border-radius: 999px;
-        border: 1px solid transparent;
-        padding: 5px 9px;
-        font-size: 11px;
-        font-weight: 600;
+        color: var(--text-secondary);
+        background: rgba(255, 255, 255, 0.035);
+        font-size: 9px;
+        font-weight: 650;
       }
+      .status[data-tone="ready"], .status[data-tone="speaking"] { color: #a8e1c4; border-color: rgba(105, 200, 156, 0.25); }
+      .status[data-tone="listening"], .status[data-tone="responding"], .status[data-tone="transcribing"] { color: var(--accent-text); border-color: rgba(243, 166, 47, 0.28); }
+      .status[data-tone="attention"] { color: var(--accent-text); border-color: rgba(243, 166, 47, 0.28); }
+      .status[data-tone="error"], .status[data-tone="blocked"] { color: #ffc0c7; border-color: rgba(255, 139, 152, 0.25); }
 
-      .keycap {
-        background: rgba(255, 255, 255, 0.06);
-        border-color: var(--border);
-        color: var(--text);
-      }
-
-      .status-pill[data-tone="ready"],
-      .badge[data-tone="ready"] {
-        background: var(--ready-soft);
-        border-color: rgba(65, 211, 157, 0.24);
-        color: #dffcf3;
-      }
-
-      .status-pill[data-tone="attention"],
-      .badge[data-tone="attention"] {
-        background: var(--accent-soft);
-        border-color: rgba(255, 180, 67, 0.24);
-        color: #fff0cd;
-      }
-
-      .status-pill[data-tone="blocked"],
-      .badge[data-tone="blocked"] {
-        background: var(--danger-soft);
-        border-color: rgba(255, 111, 132, 0.24);
-        color: #ffdfe5;
-      }
-
-      .status-pill[data-tone="idle"],
-      .status-pill[data-tone="transcribing"],
-      .status-pill[data-tone="responding"],
-      .status-pill[data-tone="speaking"],
-      .status-pill[data-tone="listening"],
-      .status-pill[data-tone="error"] {
-        background: rgba(255, 255, 255, 0.06);
-        border-color: var(--border);
-        color: var(--text-muted);
-      }
-
-      .surface {
-        flex: 1;
-        overflow: auto;
-        padding: 16px 18px 18px;
-      }
-
-      .panel {
+      .turn-state { display: flex; align-items: center; gap: 10px; }
+      .turn-orb {
+        width: 34px;
+        height: 34px;
         display: grid;
-        gap: 14px;
-      }
-
-      .card,
-      .notice,
-      .skill-item,
-      .history-item,
-      .setting-group,
-      .state-card,
-      .check-item {
-        border-radius: 20px;
-        border: 1px solid var(--border);
-        background: var(--panel);
-        padding: 15px;
-      }
-
-      .notice[data-tone="blocked"] {
-        background: linear-gradient(180deg, rgba(255, 111, 132, 0.12), rgba(20, 24, 36, 0.98));
-      }
-
-      .notice[data-tone="attention"] {
-        background: linear-gradient(180deg, rgba(255, 180, 67, 0.1), rgba(20, 24, 36, 0.98));
-      }
-
-      .title-block h2 {
+        place-items: center;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        color: var(--accent-text);
+        background: var(--accent-soft);
         font-size: 14px;
       }
 
-      .title-row {
-        align-items: flex-start;
-      }
+      .conversation-preview { display: grid; gap: 7px; margin-top: 11px; }
+      .message { padding: 9px 10px; border-radius: var(--radius-control); background: var(--surface-strong); }
+      .message strong { display: block; margin-bottom: 3px; color: var(--text-tertiary); font-size: 9px; }
+      .message p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+      .message.assistant { background: var(--accent-soft); }
+      .message.assistant strong { color: var(--accent-text); }
 
-      .score {
-        font-size: 28px;
-        font-weight: 700;
-        line-height: 1;
-      }
+      .skill-list { display: grid; }
+      .skill-row { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 8px 2px; }
+      .skill-row + .skill-row { border-top: 1px solid var(--line); }
+      .skill-icon { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 8px; background: var(--surface-strong); color: var(--accent-text); font-weight: 700; }
+      .skill-row-copy { flex: 1; min-width: 0; }
+      .skill-row-copy strong, .skill-row-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .skill-row-copy strong { font-size: 11px; }
+      .skill-row-copy span { margin-top: 2px; color: var(--text-tertiary); font-size: 9px; }
 
-      .progress {
-        width: 100%;
-        height: 8px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.06);
+      .button,
+      .text-button {
+        border: 0;
+        border-radius: var(--radius-control);
+        white-space: nowrap;
       }
+      .button { min-height: 32px; padding: 7px 11px; background: var(--surface-strong); color: var(--text); font-size: 10px; font-weight: 650; }
+      .button:hover { background: #2a2e38; }
+      .button.primary { background: var(--accent); color: #241704; }
+      .button.primary:hover { background: #ffb84d; }
+      .button.danger { color: #ffc0c7; }
+      .text-button { padding: 5px 4px; color: var(--text-tertiary); background: transparent; font-size: 10px; }
+      .text-button:hover { color: var(--text); }
+      .button-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
 
-      .progress > span {
-        display: block;
-        height: 100%;
-        width: 0;
-        border-radius: inherit;
-        background: linear-gradient(90deg, #ffb443, #ffd37a);
-      }
-
-      .checklist,
-      .skill-list,
-      .history-list {
-        display: grid;
-        gap: 10px;
-      }
-
-      .check-item,
-      .skill-item,
-      .history-item,
-      .setting-row {
-        background: var(--panel-soft);
-      }
-
-      .check-item {
-        display: grid;
-        gap: 8px;
-      }
-
-      .transcript,
-      .response,
-      .import-box {
-        border-radius: 16px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.03);
-        padding: 12px;
-      }
-
-      .response {
-        background: linear-gradient(180deg, rgba(255, 180, 67, 0.08), rgba(255, 255, 255, 0.03));
-      }
-
-      .skill-actions {
-        justify-content: flex-start;
-        flex-wrap: wrap;
-      }
-
-      .action,
-      .ghost {
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        padding: 11px 14px;
-      }
-
-      .action {
-        background: linear-gradient(180deg, rgba(255, 180, 67, 0.97), rgba(255, 150, 67, 0.88));
-        color: #1c1206;
-        border-color: rgba(255, 180, 67, 0.2);
-        font-weight: 700;
-      }
-
-      .ghost {
-        background: rgba(255, 255, 255, 0.03);
-        color: var(--text);
-      }
-
-      .ghost:disabled,
-      .action:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-
+      details { border-top: 1px solid var(--line); padding-top: 12px; }
+      summary { color: var(--text-secondary); cursor: pointer; font-size: 11px; }
+      .import-form { display: grid; gap: 8px; margin-top: 9px; }
       .field {
         width: 100%;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.02);
+        min-height: 34px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-control);
+        padding: 7px 9px;
+        background: #101116;
         color: var(--text);
-        padding: 10px 12px;
-      }
-
-      .field::placeholder {
-        color: var(--text-dim);
-      }
-
-      .footer {
-        border-top: 1px solid var(--border);
-        padding: 12px 18px 14px;
-        color: var(--text-dim);
         font-size: 11px;
       }
+      .field::placeholder { color: var(--text-tertiary); }
+      select.field { cursor: pointer; }
 
-      .toggle {
-        position: relative;
-        width: 44px;
-        height: 26px;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.08);
+      .history-list { display: grid; gap: 10px; }
+      .history-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--text-tertiary); font-size: 9px; }
+      .history-card .message:first-of-type { margin-top: 10px; }
+      .history-card .message + .message { margin-top: 7px; }
+
+      .settings-list { display: grid; gap: 12px; }
+      .settings-group { display: grid; gap: 0; padding: 0 13px; }
+      .settings-title { padding: 12px 0 8px; color: var(--text-tertiary); font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; }
+      .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 51px; padding: 9px 0; }
+      .setting-row + .setting-row { border-top: 1px solid var(--line); }
+      .setting-copy { flex: 1; min-width: 0; }
+      .setting-copy strong, .setting-copy span { display: block; }
+      .setting-copy strong { font-size: 11px; }
+      .setting-copy span { margin-top: 3px; color: var(--text-tertiary); font-size: 9px; line-height: 1.35; }
+      .setting-row .field { width: 122px; }
+
+      .toggle { position: relative; width: 38px; height: 22px; flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 999px; background: #292c34; }
+      .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--text); transition: transform 150ms ease; }
+      .toggle[data-on="true"] { background: var(--accent); border-color: var(--accent); }
+      .toggle[data-on="true"]::after { transform: translateX(16px); background: #241704; }
+
+      .empty-state { display: grid; place-items: center; min-height: 240px; padding: 28px; text-align: center; }
+      .empty-icon { width: 42px; height: 42px; display: grid; place-items: center; margin: 0 auto 12px; border-radius: 13px; background: var(--surface-strong); color: var(--text-tertiary); font-size: 19px; }
+      .empty-state h2 { margin: 0; font-size: 13px; }
+      .empty-state p { max-width: 230px; margin: 6px 0 0; color: var(--text-tertiary); font-size: 10px; line-height: 1.5; }
+
+      .ptt-strip { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 7px 12px; border-top: 1px solid var(--line); color: var(--text-tertiary); font-size: 10px; }
+      .key { min-width: 22px; height: 21px; display: inline-grid; place-items: center; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--text-secondary); font-size: 9px; font-weight: 650; box-shadow: inset 0 -1px rgba(255,255,255,0.04); }
+      .ptt-strip .status { margin-left: auto; }
+
+      .app-footer { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 14px 8px; border-top: 1px solid var(--line); }
+      .footer-actions { display: flex; align-items: center; gap: 10px; }
+      .footer-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-tertiary); font-size: 9px; }
+
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+      @media (prefers-contrast: more) {
+        :root { --line: rgba(255,255,255,0.28); --line-strong: rgba(255,255,255,0.45); }
       }
-
-      .toggle::after {
-        content: "";
-        position: absolute;
-        top: 3px;
-        left: 3px;
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: #fff;
-        transform: translateX(0);
-      }
-
-      .toggle[data-on="true"] {
-        background: rgba(65, 211, 157, 0.26);
-      }
-
-      .toggle[data-on="true"]::after {
-        transform: translateX(18px);
-      }
-
-      .loading,
-      .empty,
-      .error {
-        padding: 18px;
-        border-radius: 18px;
-        border: 1px dashed var(--border-strong);
-        background: rgba(255, 255, 255, 0.02);
-      }
-
-      .error {
-        border-style: solid;
-        background: rgba(255, 111, 132, 0.08);
-      }
-
-      .sr-only {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: -1px;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-        border: 0;
-      }
-
       @media (prefers-reduced-motion: reduce) {
-        *,
-        *::before,
-        *::after {
-          animation: none !important;
-          transition: none !important;
-          scroll-behavior: auto !important;
-        }
+        *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
       }
     </style>
   </head>
   <body>
-    <div class="shell">
-      <header class="header">
-        <div class="row">
-          <div class="brand">
-            <div class="logo" aria-hidden="true">S</div>
-            <div class="brand-copy">
-              <h1>Skilly</h1>
-              <p id="platformLabel">Windows host</p>
-            </div>
-          </div>
-          <div class="account-chip" id="accountChip">
-            <div class="account-copy">
-              <strong>Loading</strong>
-              <span>Waiting for host state</span>
-            </div>
-            <div class="avatar" aria-hidden="true">S</div>
+    <div class="app">
+      <header class="app-header" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region>
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-copy" data-tauri-drag-region>
+            <div class="brand-title">Skilly</div>
+            <div class="brand-subtitle" id="accountSummary">Connecting</div>
           </div>
         </div>
-
-        <div class="tablist" role="tablist" aria-label="Skilly panel views">
-          <button class="tab" type="button" role="tab" aria-selected="true" data-view="home">Home</button>
-          <button class="tab" type="button" role="tab" aria-selected="false" data-view="history">History</button>
-          <button class="tab" type="button" role="tab" aria-selected="false" data-view="settings">Settings</button>
-        </div>
-
-        <div class="hint-strip" aria-live="polite">
-          <div class="hint-copy">
-            <span>Hold</span>
-            <span class="keycaps">
-              <span class="keycap">Ctrl</span>
-              <span class="keycap">Alt</span>
-            </span>
-            <span id="hintCopy">to talk</span>
-          </div>
-          <span class="status-pill" id="turnBadge" data-tone="idle">Idle</span>
-        </div>
+        <div class="header-spacer" data-tauri-drag-region></div>
+        <nav class="header-actions" aria-label="Skilly tools">
+          <button class="icon-button" type="button" data-view="history" aria-label="Conversation history" aria-pressed="false" title="History">↺</button>
+          <button class="icon-button" type="button" data-view="settings" aria-label="Settings" aria-pressed="false" title="Settings">⚙</button>
+          <button class="icon-button" type="button" data-command="hide_main_window" aria-label="Close Skilly" title="Close">×</button>
+        </nav>
       </header>
 
-      <main class="surface">
-        <section class="panel" id="view-home" role="tabpanel"></section>
-        <section class="panel" id="view-history" role="tabpanel" hidden></section>
-        <section class="panel" id="view-settings" role="tabpanel" hidden></section>
+      <main class="content">
+        <section class="view home-view" id="view-home" role="region" aria-label="Skilly home"></section>
+        <section class="view secondary-view" id="view-history" role="region" aria-label="Conversation history" hidden></section>
+        <section class="view secondary-view" id="view-settings" role="region" aria-label="Settings" hidden></section>
       </main>
 
-      <footer class="footer">
-        <span id="footerStatus">Connecting to the Windows host</span>
-        <button class="ghost" id="refreshButton" type="button">Refresh</button>
+      <div class="ptt-strip" id="pttStrip" aria-live="polite">
+        <span>Hold</span>
+        <span class="key" id="firstKey">Ctrl</span>
+        <span class="key" id="secondKey">Alt</span>
+        <span id="pttHint">to talk</span>
+        <span class="status" id="turnStatus" data-tone="idle">Idle</span>
+      </div>
+
+      <footer class="app-footer">
+        <span class="footer-status" id="footerStatus">Starting Skilly</span>
+        <div class="footer-actions">
+          <button class="text-button" type="button" data-command="refresh_platform_facts">Refresh</button>
+          <button class="text-button" type="button" data-command="quit_app">Quit</button>
+        </div>
       </footer>
     </div>
-
-    <div class="sr-only" aria-live="polite" id="announcer"></div>
+    <div class="sr-only" id="announcer" aria-live="polite"></div>
 
     <script type="module">
-      const tabs = Array.from(document.querySelectorAll(".tab"));
       const elements = {
-        platformLabel: document.getElementById("platformLabel"),
-        accountChip: document.getElementById("accountChip"),
-        hintCopy: document.getElementById("hintCopy"),
-        turnBadge: document.getElementById("turnBadge"),
+        accountSummary: document.getElementById("accountSummary"),
         home: document.getElementById("view-home"),
         history: document.getElementById("view-history"),
         settings: document.getElementById("view-settings"),
+        firstKey: document.getElementById("firstKey"),
+        secondKey: document.getElementById("secondKey"),
+        pttHint: document.getElementById("pttHint"),
+        turnStatus: document.getElementById("turnStatus"),
         footerStatus: document.getElementById("footerStatus"),
-        refreshButton: document.getElementById("refreshButton"),
         announcer: document.getElementById("announcer")
       };
 
+      const viewButtons = Array.from(document.querySelectorAll("[data-view]"));
+      const viewMap = { home: elements.home, history: elements.history, settings: elements.settings };
       const state = {
         currentView: "home",
         appState: null,
+        serializedAppState: "",
         loading: true,
         inFlight: false,
         error: null,
         importSourcePath: "",
         importMessage: "",
-        footerStatus: "Connecting to the Windows host",
         reducedMotionLocal: null
       };
 
-      const viewMap = {
-        home: elements.home,
-        history: elements.history,
-        settings: elements.settings
-      };
-
-      function toneLabel(tone) {
-        switch (tone) {
-          case "ready":
-            return "Ready";
-          case "attention":
-            return "Needs attention";
-          case "blocked":
-            return "Blocked";
-          case "listening":
-            return "Listening";
-          case "transcribing":
-            return "Transcribing";
-          case "responding":
-            return "Responding";
-          case "speaking":
-            return "Speaking";
-          case "error":
-            return "Error";
-          default:
-            return "Idle";
-        }
-      }
-
-      function escapeHtml(text) {
-        return String(text ?? "")
+      function escapeHtml(value) {
+        return String(value ?? "")
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;");
       }
 
-      async function invoke(command, args = {}) {
-        if (!window.__TAURI__?.core?.invoke) {
-          throw new Error("Tauri host bridge is unavailable");
-        }
-        return window.__TAURI__.core.invoke(command, args);
+      function sentenceCase(value) {
+        const text = String(value ?? "idle").replaceAll("_", " ");
+        return text.charAt(0).toUpperCase() + text.slice(1);
+      }
+
+      function splitShortcut(label) {
+        const keys = String(label || "Ctrl + Alt").split("+").map((key) => key.trim());
+        return [keys[0] || "Ctrl", keys[1] || "Alt"];
       }
 
       async function safeInvoke(command, args = {}) {
+        if (!window.__TAURI__?.core?.invoke) throw new Error("Tauri host bridge is unavailable");
         try {
-          return await invoke(command, args);
+          return await window.__TAURI__.core.invoke(command, args);
         } catch (error) {
           throw new Error(error?.message || String(error));
         }
       }
 
-      function renderTabs() {
-        tabs.forEach((tab) => {
-          const selected = tab.dataset.view === state.currentView;
-          tab.setAttribute("aria-selected", String(selected));
-        });
-        Object.entries(viewMap).forEach(([view, element]) => {
-          element.hidden = view !== state.currentView;
-        });
+      function setCurrentView(view, { track = true } = {}) {
+        const next = viewMap[view] ? view : "home";
+        state.currentView = next;
+        Object.entries(viewMap).forEach(([name, element]) => { element.hidden = name !== next; });
+        viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === next)));
+        if (track) safeInvoke("track_panel_view", { view: next }).catch(() => {});
+        document.querySelector(".content")?.scrollTo({ top: 0, behavior: "instant" });
       }
 
-      function renderAccountChip(appState) {
-        if (!appState) {
-          elements.accountChip.innerHTML = `
-            <div class="account-copy">
-              <strong>Loading</strong>
-              <span>Waiting for host state</span>
-            </div>
-            <div class="avatar" aria-hidden="true">S</div>
-          `;
-          return;
-        }
-
-        const name = appState.account.display_name || "Skilly user";
-        const subline = appState.account.email || appState.account.plan_label;
-        const initial = name.slice(0, 1).toUpperCase() || "S";
-        elements.accountChip.innerHTML = `
-          <div class="account-copy">
-            <strong>${escapeHtml(name)}</strong>
-            <span>${escapeHtml(subline)}</span>
-          </div>
-          <div class="avatar" aria-hidden="true">${escapeHtml(initial)}</div>
-        `;
-      }
-
-      function renderEmptyPanel(title, detail, tone = "attention") {
+      function secondaryHeader(title, subtitle) {
         return `
-          <div class="${tone === "blocked" ? "error" : "loading"}">
-            <div class="title-block">
-              <span class="eyebrow">${escapeHtml(toneLabel(tone))}</span>
-              <h2>${escapeHtml(title)}</h2>
-              <p class="body-copy">${escapeHtml(detail)}</p>
-            </div>
-          </div>
-        `;
+          <header class="view-header">
+            <button class="back-button" type="button" data-view="home" aria-label="Back to Skilly">‹</button>
+            <div class="copy"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></div>
+          </header>`;
       }
 
       function renderNotices(appState) {
-        if (!appState.notices?.length) {
-          return "";
-        }
-
-        return appState.notices
-          .map(
-            (notice) => `
-              <div class="notice" data-tone="${escapeHtml(notice.tone)}">
-                <div class="title-block">
-                  <span class="eyebrow">${escapeHtml(toneLabel(notice.tone))}</span>
-                  <h2>${escapeHtml(notice.title)}</h2>
-                  <p class="body-copy">${escapeHtml(notice.detail)}</p>
-                </div>
-              </div>
-            `
-          )
-          .join("");
+        return (appState.notices || []).map((notice) => `
+          <div class="notice" data-tone="${escapeHtml(notice.tone)}">
+            <div class="copy"><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(notice.detail)}</p></div>
+          </div>`).join("");
       }
 
       function renderHome(appState) {
         if (!appState) {
-          elements.home.innerHTML = renderEmptyPanel(
-            "Waiting for host state",
-            state.error || "The Windows host has not provided app state yet.",
-            state.error ? "blocked" : "attention"
-          );
+          elements.home.innerHTML = `<div class="empty-state"><div><div class="empty-icon">…</div><h2>Starting Skilly</h2><p>${escapeHtml(state.error || "Connecting to the Windows companion.")}</p></div></div>`;
           return;
         }
 
-        const readiness = appState.readiness;
-        const onboarding = appState.onboarding;
+        const activeSkill = appState.skills.items?.find((skill) => skill.status === "active");
+        const otherSkills = (appState.skills.items || []).filter((skill) => skill.id !== activeSkill?.id);
+        const needsSetup = appState.readiness.overall_status !== "ready" || appState.account.status !== "signed_in";
         const liveTurn = appState.live_turn;
-        const skills = appState.skills;
-        const captureMeta = liveTurn.capture_duration_ms
-          ? `
-              <div class="row">
-                <span class="tiny">Captured</span>
-                <span class="mono">${(liveTurn.capture_duration_ms / 1000).toFixed(1)}s · ${Number(liveTurn.capture_bytes || 0).toLocaleString()} bytes</span>
-              </div>
-            `
-          : "";
+        const hasConversation = liveTurn.transcript_preview && !liveTurn.transcript_preview.startsWith("Your transcript");
 
-        const readinessChecks = readiness.checks
-          .map(
-            (check) => `
-              <div class="check-item">
-                <div class="title-row">
-                  <div class="check-copy">
-                    <strong>${escapeHtml(check.title)}</strong>
-                    <span class="body-copy">${escapeHtml(check.detail)}</span>
-                  </div>
-                  <span class="badge" data-tone="${escapeHtml(check.status)}">${escapeHtml(toneLabel(check.status))}</span>
-                </div>
-                ${
-                  check.action_command
-                    ? `
-                      <div class="skill-actions">
-                        <button class="ghost" type="button" data-command="${escapeHtml(check.action_command)}">
-                          ${escapeHtml(check.action_label || "Open")}
-                        </button>
-                      </div>
-                    `
-                    : ""
-                }
-              </div>
-            `
-          )
-          .join("");
+        const setupHeadline = appState.account.status === "signed_in"
+          ? appState.onboarding.headline
+          : "Sign in to get started";
+        const setupDetail = appState.account.status === "signed_in"
+          ? appState.onboarding.detail
+          : "Keep your skills, progress, and plan connected across Skilly.";
+        const setupTone = appState.account.status === "signed_in"
+          ? appState.readiness.overall_status
+          : "attention";
+        const setupLabel = appState.account.status === "signed_in"
+          ? sentenceCase(appState.readiness.overall_status)
+          : "Sign in";
 
-        const onboardingSteps = onboarding.steps
-          .map(
-            (step) => `
-              <div class="check-item">
-                <div class="title-row">
-                  <div class="check-copy">
-                    <strong>${escapeHtml(step.title)}</strong>
-                    <span class="body-copy">${escapeHtml(step.detail)}</span>
-                  </div>
-                  <span class="badge" data-tone="${escapeHtml(step.status)}">${escapeHtml(toneLabel(step.status))}</span>
-                </div>
-              </div>
-            `
-          )
-          .join("");
+        const setupMarkup = needsSetup ? `
+          <div class="setup-banner">
+            <div class="row-start">
+              <div class="copy"><h2>${escapeHtml(setupHeadline)}</h2><p>${escapeHtml(setupDetail)}</p></div>
+              <span class="status" data-tone="${escapeHtml(setupTone)}">${escapeHtml(setupLabel)}</span>
+            </div>
+            <div class="button-row">
+              <button class="button primary" type="button" data-command="${escapeHtml(appState.account.status === "signed_in" ? appState.onboarding.primary_action_command : appState.account.primary_action_command)}">${escapeHtml(appState.account.status === "signed_in" ? appState.onboarding.primary_action_label : appState.account.primary_action_label)}</button>
+            </div>
+          </div>` : "";
 
-        const skillsMarkup = skills.items?.length
-          ? skills.items
-              .map(
-                (skill) => `
-                  <div class="skill-item">
-                    <div class="title-row">
-                      <div class="skill-copy">
-                        <strong>${escapeHtml(skill.name)}</strong>
-                        <span class="body-copy">${escapeHtml(skill.summary)}</span>
-                      </div>
-                      <span class="badge" data-tone="${escapeHtml(skill.status === "active" ? "ready" : "attention")}">
-                        ${escapeHtml(skill.status === "active" ? "Active" : "Ready")}
-                      </span>
-                    </div>
-                    <div class="skill-actions">
-                      <span class="mono">${escapeHtml(skill.source_label)}</span>
-                      ${
-                        skill.status === "active"
-                          ? `<button class="ghost" type="button" data-command="deactivate_skill">${escapeHtml(skill.action_label)}</button>`
-                          : `<button class="ghost" type="button" data-command="activate_skill" data-skill-id="${escapeHtml(skill.id)}">${escapeHtml(skill.action_label)}</button>`
-                      }
-                    </div>
-                  </div>
-                `
-              )
-              .join("")
-          : `<div class="empty"><p class="body-copy">${escapeHtml(skills.empty_detail)}</p></div>`;
+        const activeMarkup = activeSkill ? `
+          <div class="active-skill">
+            <div class="row-start">
+              <div>
+                <div class="active-label">Active now</div>
+                <h2 class="skill-name">${escapeHtml(activeSkill.name)}</h2>
+                <p class="skill-summary">${escapeHtml(activeSkill.summary)}</p>
+              </div>
+              <span class="status" data-tone="ready">Ready</span>
+            </div>
+          </div>` : `
+          <div class="active-skill">
+            <div class="copy"><h2>Choose a skill</h2><p>Activate a skill so Skilly can teach with the right course context.</p></div>
+          </div>`;
+
+        const conversationMarkup = hasConversation ? `
+          <div class="conversation-preview">
+            <div class="message"><strong>You</strong><p>${escapeHtml(liveTurn.transcript_preview)}</p></div>
+            <div class="message assistant"><strong>Skilly</strong><p>${escapeHtml(liveTurn.response_preview)}</p></div>
+          </div>` : "";
+
+        const skillRows = otherSkills.map((skill) => `
+          <div class="skill-row">
+            <div class="skill-icon" aria-hidden="true">${escapeHtml(skill.name.slice(0, 1).toUpperCase())}</div>
+            <div class="skill-row-copy"><strong>${escapeHtml(skill.name)}</strong><span>${escapeHtml(skill.summary)}</span></div>
+            <button class="button" type="button" data-command="activate_skill" data-skill-id="${escapeHtml(skill.id)}">Activate</button>
+          </div>`).join("");
 
         elements.home.innerHTML = `
-          ${renderNotices(appState)}
+          <div class="stack">
+            ${renderNotices(appState)}
+            ${setupMarkup}
+            <section class="section">${activeMarkup}</section>
+            <section class="section">
+              <div class="turn-card">
+                <div class="row-start">
+                  <div class="turn-state">
+                    <div class="turn-orb" aria-hidden="true">◖</div>
+                    <div class="copy"><h2>${escapeHtml(liveTurn.headline)}</h2><p>${escapeHtml(liveTurn.detail)}</p></div>
+                  </div>
+                  <span class="status" data-tone="${escapeHtml(liveTurn.phase)}">${escapeHtml(sentenceCase(liveTurn.phase))}</span>
+                </div>
+                ${conversationMarkup}
+              </div>
+            </section>
+            <section class="section">
+              <div class="section-heading"><h2>Installed skills</h2><span>${appState.skills.items?.length || 0}</span></div>
+              <div class="skill-list">${skillRows || `<div class="copy"><p>${escapeHtml(appState.skills.empty_detail)}</p></div>`}</div>
+              <details>
+                <summary>Import a skill</summary>
+                <div class="import-form">
+                  <input class="field" id="importSourcePath" type="text" aria-label="Skill folder or SKILL.md path" placeholder="Path to a skill folder or SKILL.md" value="${escapeHtml(state.importSourcePath)}" />
+                  <div class="row"><span class="footer-status">${escapeHtml(state.importMessage)}</span><button class="button" type="button" data-command="import_skill">Import</button></div>
+                </div>
+              </details>
+            </section>
+          </div>`;
 
-          <article class="card">
-            <div class="title-row">
-              <div class="title-block">
-                <span class="eyebrow">Readiness</span>
-                <h2>${escapeHtml(readiness.summary)}</h2>
-                <p class="body-copy">${escapeHtml(readiness.floor_label)}</p>
-              </div>
-              <div class="score">${escapeHtml(String(readiness.score_percent))}%</div>
-            </div>
-            <div class="progress" aria-hidden="true">
-              <span style="width: ${Math.max(0, Math.min(100, readiness.score_percent))}%"></span>
-            </div>
-            <div class="checklist">${readinessChecks}</div>
-          </article>
-
-          <article class="card">
-            <div class="title-row">
-              <div class="title-block">
-                <span class="eyebrow">Onboarding</span>
-                <h2>${escapeHtml(onboarding.headline)}</h2>
-                <p class="body-copy">${escapeHtml(onboarding.detail)}</p>
-              </div>
-              <span class="badge" data-tone="${escapeHtml(appState.readiness.overall_status)}">${escapeHtml(toneLabel(appState.readiness.overall_status))}</span>
-            </div>
-            <div class="checklist">${onboardingSteps}</div>
-            <div class="skill-actions">
-              <button class="action" type="button" data-command="${escapeHtml(onboarding.primary_action_command)}">${escapeHtml(onboarding.primary_action_label)}</button>
-              <button class="ghost" type="button" data-command="${escapeHtml(appState.account.primary_action_command)}">${escapeHtml(appState.account.primary_action_label)}</button>
-            </div>
-          </article>
-
-          <article class="card">
-            <div class="title-row">
-              <div class="title-block">
-                <span class="eyebrow">Live turn</span>
-                <h2>${escapeHtml(liveTurn.headline)}</h2>
-                <p class="body-copy">${escapeHtml(liveTurn.detail)}</p>
-              </div>
-              <span class="status-pill" data-tone="${escapeHtml(liveTurn.phase)}">${escapeHtml(toneLabel(liveTurn.phase))}</span>
-            </div>
-            <div class="row">
-              <span class="tiny">Shortcut</span>
-              <span class="mono">${escapeHtml(liveTurn.shortcut_label)}</span>
-            </div>
-            ${captureMeta}
-            <div class="transcript">
-              <p class="tiny">Transcript</p>
-              <p class="body-copy">${escapeHtml(liveTurn.transcript_preview)}</p>
-            </div>
-            <div class="response">
-              <p class="tiny">Response</p>
-              <p class="body-copy">${escapeHtml(liveTurn.response_preview)}</p>
-            </div>
-          </article>
-
-          <article class="card">
-            <div class="title-block">
-              <span class="eyebrow">${escapeHtml(skills.headline)}</span>
-              <h2>Installed skills</h2>
-              <p class="body-copy">${escapeHtml(skills.install_path_label)}</p>
-            </div>
-            <div class="skill-list">${skillsMarkup}</div>
-            <div class="import-box">
-              <div class="title-block">
-                <span class="eyebrow">Import skill</span>
-                <p class="body-copy">Paste a folder path or a path to a SKILL.md file and import it into the Windows skills directory.</p>
-              </div>
-              <div class="skill-actions">
-                <input class="field" id="importSourcePath" type="text" placeholder="C:\\Users\\you\\Downloads\\my-skill" value="${escapeHtml(state.importSourcePath)}" />
-              </div>
-              <div class="skill-actions">
-                <button class="ghost" type="button" data-command="import_skill">Import skill</button>
-                <span class="body-copy">${escapeHtml(state.importMessage)}</span>
-              </div>
-            </div>
-          </article>
-        `;
-
-        const importInput = document.getElementById("importSourcePath");
-        importInput?.addEventListener("input", (event) => {
-          state.importSourcePath = event.target.value;
-        });
+        document.getElementById("importSourcePath")?.addEventListener("input", (event) => { state.importSourcePath = event.target.value; });
       }
 
       function renderHistory(appState) {
-        if (!appState) {
-          elements.history.innerHTML = renderEmptyPanel(
-            "No history yet",
-            state.error || "Recent turns will appear here after the host commits them."
-          );
-          return;
-        }
-
-        const itemsMarkup = appState.history.items?.length
-          ? appState.history.items
-              .map(
-                (item) => `
-                  <div class="history-item">
-                    <div class="title-row">
-                      <div class="history-copy">
-                        <strong>${escapeHtml(item.skill_name)}</strong>
-                        <span class="tiny">${escapeHtml(item.started_at_label)} · ${(item.duration_ms / 1000).toFixed(1)}s</span>
-                      </div>
-                    </div>
-                    <div class="transcript">
-                      <p class="tiny">User</p>
-                      <p class="body-copy">${escapeHtml(item.user_text)}</p>
-                    </div>
-                    <div class="response">
-                      <p class="tiny">Skilly</p>
-                      <p class="body-copy">${escapeHtml(item.assistant_text)}</p>
-                    </div>
-                  </div>
-                `
-              )
-              .join("")
-          : `<div class="empty"><p class="body-copy">${escapeHtml(appState.history.empty_detail)}</p></div>`;
+        const items = appState?.history?.items || [];
+        const content = items.length ? `
+          <div class="history-list">
+            ${items.map((item) => `
+              <article class="history-card">
+                <div class="history-meta"><strong>${escapeHtml(item.skill_name)}</strong><span>${escapeHtml(item.started_at_label)}</span></div>
+                <div class="message"><strong>You</strong><p>${escapeHtml(item.user_text)}</p></div>
+                <div class="message assistant"><strong>Skilly</strong><p>${escapeHtml(item.assistant_text)}</p></div>
+              </article>`).join("")}
+          </div>` : `
+          <div class="empty-state"><div><div class="empty-icon">↺</div><h2>Your conversations will appear here</h2><p>Complete a voice turn and Skilly will keep the text locally on this PC.</p></div></div>`;
 
         elements.history.innerHTML = `
-          <article class="card">
-            <div class="title-row">
-              <div class="title-block">
-              <span class="eyebrow">History</span>
-              <h2>${escapeHtml(appState.history.headline)}</h2>
-              <p class="body-copy">The Windows host keeps recent committed teaching turns here so users can recover context.</p>
-              </div>
-              ${appState.history.items?.length ? '<button class="ghost" type="button" data-command="clear_history">Clear</button>' : ''}
-            </div>
-          </article>
-          <div class="history-list">${itemsMarkup}</div>
-        `;
+          ${secondaryHeader("Conversation history", "Stored only on this PC")}
+          ${items.length ? `<div class="row" style="margin-bottom:10px"><span class="footer-status">${items.length} saved ${items.length === 1 ? "turn" : "turns"}</span><button class="text-button" type="button" data-command="clear_history">Clear history</button></div>` : ""}
+          ${content}`;
       }
 
       function renderSettings(appState) {
         if (!appState) {
-          elements.settings.innerHTML = renderEmptyPanel(
-            "Settings are unavailable",
-            state.error || "The host must load app state before settings can be shown."
-          );
+          elements.settings.innerHTML = `${secondaryHeader("Settings", "Windows companion")}<div class="empty-state"><div><h2>Settings unavailable</h2><p>${escapeHtml(state.error || "Waiting for Skilly to finish starting.")}</p></div></div>`;
           return;
         }
 
-        const reducedMotion =
-          state.reducedMotionLocal === null
-            ? Boolean(appState.settings.accessibility.reduced_motion)
-            : Boolean(state.reducedMotionLocal);
-
+        const reducedMotion = state.reducedMotionLocal ?? Boolean(appState.settings.accessibility.reduced_motion);
+        const signedIn = appState.account.status === "signed_in";
         elements.settings.innerHTML = `
-          <article class="setting-group">
-            <div class="title-block">
-              <span class="eyebrow">Account</span>
-              <h2>${escapeHtml(appState.account.display_name)}</h2>
-              <p class="body-copy">${escapeHtml(appState.account.email || appState.account.plan_label)}</p>
-            </div>
-            <div class="setting-row">
-              <div class="setting-copy">
-                <strong>${escapeHtml(appState.account.plan_label)}</strong>
-                <span class="body-copy">${escapeHtml(appState.account.usage_label)}</span>
-              </div>
-              <button class="ghost" type="button" data-command="${escapeHtml(appState.account.primary_action_command)}">${escapeHtml(appState.account.primary_action_label)}</button>
-            </div>
-            ${appState.account.status === "signed_in" ? `
-              <div class="skill-actions">
-                <button class="action" type="button" data-command="start_checkout">Upgrade plan</button>
-                <button class="ghost" type="button" data-command="open_customer_portal">Billing portal</button>
-                <button class="ghost" type="button" data-command="refresh_account">Refresh plan</button>
-                <button class="ghost" type="button" data-command="check_for_updates">Check for updates</button>
-                <button class="ghost" type="button" data-command="sign_out">Sign out</button>
-              </div>
-            ` : ""}
-          </article>
+          ${secondaryHeader("Settings", "Windows companion")}
+          <div class="settings-list">
+            <section class="settings-group">
+              <div class="settings-title">Account</div>
+              <div class="setting-row"><div class="setting-copy"><strong>${escapeHtml(appState.account.display_name)}</strong><span>${escapeHtml(appState.account.email || appState.account.plan_label)}</span></div><button class="button ${signedIn ? "" : "primary"}" type="button" data-command="${escapeHtml(appState.account.primary_action_command)}">${escapeHtml(appState.account.primary_action_label)}</button></div>
+              <div class="setting-row"><div class="setting-copy"><strong>${escapeHtml(appState.account.plan_label)}</strong><span>${escapeHtml(appState.account.usage_label)}</span></div>${signedIn ? '<button class="button" type="button" data-command="refresh_account">Refresh</button>' : ""}</div>
+              ${signedIn ? '<div class="setting-row"><div class="setting-copy"><strong>Subscription</strong><span>Manage billing or change your plan.</span></div><button class="button" type="button" data-command="open_customer_portal">Manage</button></div>' : ""}
+            </section>
 
-          <article class="setting-group">
-            <div class="title-block">
-              <span class="eyebrow">Push to talk</span>
-              <h2>${escapeHtml(appState.settings.push_to_talk.shortcut_label)}</h2>
-              <p class="body-copy">Hold-to-talk is the active mode. The Windows host can open the system shortcut page directly from here.</p>
-            </div>
-            <div class="setting-row">
-              <div class="setting-copy">
-                <strong>Shortcut settings</strong>
-                <span class="body-copy">${appState.settings.push_to_talk.customizable ? "Ready for customization." : "Locked by host policy."}</span>
-              </div>
-              <select class="field" id="shortcutSelect" aria-label="Push-to-talk shortcut">
-                <option value="control_alt" ${appState.settings.push_to_talk.shortcut_label === "Ctrl + Alt" ? "selected" : ""}>Ctrl + Alt</option>
-                <option value="control_shift" ${appState.settings.push_to_talk.shortcut_label === "Ctrl + Shift" ? "selected" : ""}>Ctrl + Shift</option>
-                <option value="alt_shift" ${appState.settings.push_to_talk.shortcut_label === "Alt + Shift" ? "selected" : ""}>Alt + Shift</option>
-              </select>
-            </div>
-            <div class="setting-row">
-              <div class="setting-copy">
-                <strong>Capture and overlay</strong>
-                <span class="body-copy">Open the Windows surfaces used for screen capture and cursor guidance.</span>
-              </div>
-              <div class="skill-actions">
-                <button class="ghost" type="button" data-command="open_capture_settings">Capture</button>
-                <button class="ghost" type="button" data-command="open_overlay_settings">Overlay</button>
-              </div>
-            </div>
-          </article>
+            <section class="settings-group">
+              <div class="settings-title">Voice and shortcut</div>
+              <div class="setting-row"><div class="setting-copy"><strong>Push to talk</strong><span>Hold the selected keys while speaking.</span></div><select class="field" id="shortcutSelect" aria-label="Push-to-talk shortcut"><option value="control_alt" ${appState.settings.push_to_talk.shortcut_label === "Ctrl + Alt" ? "selected" : ""}>Ctrl + Alt</option><option value="control_shift" ${appState.settings.push_to_talk.shortcut_label === "Ctrl + Shift" ? "selected" : ""}>Ctrl + Shift</option><option value="alt_shift" ${appState.settings.push_to_talk.shortcut_label === "Alt + Shift" ? "selected" : ""}>Alt + Shift</option></select></div>
+              <div class="setting-row"><div class="setting-copy"><strong>Microphone and speakers</strong><span>${escapeHtml(appState.settings.audio.input_device_label)} / ${escapeHtml(appState.settings.audio.output_device_label)}</span></div><button class="button" type="button" data-command="open_audio_settings">Open</button></div>
+            </section>
 
-          <article class="setting-group">
-            <div class="title-block">
-              <span class="eyebrow">Accessibility</span>
-              <h2>Reduced motion</h2>
-              <p class="body-copy">This shell respects the host preference and can store an override through the Rust command surface.</p>
-            </div>
-            <div class="setting-row">
-              <div class="setting-copy">
-                <strong>Motion preference</strong>
-                <span class="body-copy">Source: ${escapeHtml(appState.settings.accessibility.reduced_motion_source)}</span>
-              </div>
-              <button class="toggle" id="reducedMotionToggle" type="button" data-on="${reducedMotion}" aria-pressed="${reducedMotion}" aria-label="Toggle reduced motion"></button>
-            </div>
-            <div class="setting-row">
-              <div class="setting-copy">
-                <strong>Permissions and audio</strong>
-                <span class="body-copy">${escapeHtml(appState.settings.audio.input_device_label)} · ${escapeHtml(appState.settings.audio.output_device_label)}</span>
-              </div>
-              <div class="skill-actions">
-                <button class="ghost" type="button" data-command="open_permissions_settings">Permissions</button>
-                <button class="ghost" type="button" data-command="open_audio_settings">Audio</button>
-              </div>
-            </div>
-          </article>
-        `;
+            <section class="settings-group">
+              <div class="settings-title">Permissions and accessibility</div>
+              <div class="setting-row"><div class="setting-copy"><strong>Microphone permission</strong><span>Review Windows privacy access for Skilly.</span></div><button class="button" type="button" data-command="open_permissions_settings">Review</button></div>
+              <div class="setting-row"><div class="setting-copy"><strong>Reduced motion</strong><span>Limit interface transitions.</span></div><button class="toggle" id="reducedMotionToggle" type="button" data-on="${reducedMotion}" aria-pressed="${reducedMotion}" aria-label="Toggle reduced motion"></button></div>
+            </section>
 
-        const toggle = document.getElementById("reducedMotionToggle");
-        toggle?.addEventListener("click", async () => {
+            <section class="settings-group">
+              <div class="settings-title">App</div>
+              <div class="setting-row"><div class="setting-copy"><strong>Updates</strong><span>Check for the latest Skilly release.</span></div><button class="button" type="button" data-command="check_for_updates">Check</button></div>
+              <div class="setting-row"><div class="setting-copy"><strong>Skills folder</strong><span>${escapeHtml(appState.skills.install_path_label)}</span></div><button class="button" type="button" data-command="open_skills_folder">Open</button></div>
+              ${signedIn ? '<div class="setting-row"><div class="setting-copy"><strong>Sign out</strong><span>Remove this account from Skilly on this PC.</span></div><button class="button danger" type="button" data-command="sign_out">Sign out</button></div>' : ""}
+            </section>
+          </div>`;
+
+        document.getElementById("reducedMotionToggle")?.addEventListener("click", async () => {
           const next = !reducedMotion;
           state.reducedMotionLocal = next;
-          render();
-          try {
-            await safeInvoke("set_reduced_motion_preference", { args: { reducedMotion: next } });
-            state.footerStatus = next ? "Reduced motion enabled" : "Reduced motion disabled";
-          } catch (error) {
-            state.error = error.message;
-            state.footerStatus = error.message;
-          }
-          render();
+          renderSettings(state.appState);
+          await runCommand("set_reduced_motion_preference", { reducedMotion: next });
         });
-        const shortcutSelect = document.getElementById("shortcutSelect");
-        shortcutSelect?.addEventListener("change", async (event) => {
-          try {
-            const result = await safeInvoke("set_shortcut_preference", {
-              args: { shortcut: event.target.value }
-            });
-            state.footerStatus = result.message;
-            await refreshState();
-          } catch (error) {
-            state.error = error.message;
-            state.footerStatus = error.message;
-            render();
-          }
+        document.getElementById("shortcutSelect")?.addEventListener("change", async (event) => {
+          await runCommand("set_shortcut_preference", { shortcut: event.target.value });
         });
+      }
+
+      function updateChrome() {
+        const appState = state.appState;
+        if (!appState) {
+          elements.accountSummary.textContent = state.error || "Connecting";
+          elements.footerStatus.textContent = state.error || "Starting Skilly";
+          return;
+        }
+        elements.accountSummary.textContent = appState.account.email || appState.account.plan_label;
+        const [first, second] = splitShortcut(appState.live_turn.shortcut_label);
+        elements.firstKey.textContent = first;
+        elements.secondKey.textContent = second;
+        elements.pttHint.textContent = appState.live_turn.phase === "listening" ? "release to ask" : "to talk";
+        elements.turnStatus.dataset.tone = appState.live_turn.phase;
+        elements.turnStatus.textContent = sentenceCase(appState.live_turn.phase);
+        elements.footerStatus.textContent = state.error || (appState.readiness.overall_status === "ready" ? "Ready" : "Setup needs attention");
       }
 
       function render() {
-        renderAccountChip(state.appState);
         renderHome(state.appState);
         renderHistory(state.appState);
         renderSettings(state.appState);
-        renderTabs();
-
-        if (state.appState) {
-          elements.platformLabel.textContent = state.appState.meta.platform_label;
-          elements.turnBadge.dataset.tone = state.appState.live_turn.phase;
-          elements.turnBadge.textContent = toneLabel(state.appState.live_turn.phase);
-          elements.hintCopy.textContent =
-            state.appState.live_turn.phase === "listening"
-              ? "release to commit"
-              : "to talk";
-        } else {
-          elements.platformLabel.textContent = "Windows host";
-          elements.turnBadge.dataset.tone = "idle";
-          elements.turnBadge.textContent = state.loading ? "Loading" : "Unavailable";
-          elements.hintCopy.textContent = "to talk";
-        }
-
-        elements.footerStatus.textContent = state.footerStatus;
+        updateChrome();
+        setCurrentView(state.currentView, { track: false });
       }
 
-      async function refreshState() {
-        if (state.inFlight) {
-          return;
-        }
-
+      async function refreshState({ force = false } = {}) {
+        if (state.inFlight) return;
         state.inFlight = true;
         try {
           const appState = await safeInvoke("get_app_state");
+          const serialized = JSON.stringify(appState);
           state.appState = appState;
           state.loading = false;
           state.error = null;
-          state.footerStatus = `Updated ${appState.meta.updated_at_label}`;
+          if (force || serialized !== state.serializedAppState) {
+            state.serializedAppState = serialized;
+            render();
+          } else {
+            updateChrome();
+          }
         } catch (error) {
           state.loading = false;
           state.error = error.message;
-          state.footerStatus = error.message;
+          render();
         } finally {
           state.inFlight = false;
-          render();
         }
       }
 
-      async function handleCommand(command, dataset = {}) {
+      async function runCommand(command, explicitArgs = {}) {
         try {
           let result;
-          if (command === "clear_history" && !window.confirm("Clear all saved conversation history?")) {
-            return;
-          }
-          if (command === "activate_skill") {
-            result = await safeInvoke("activate_skill", { skillId: dataset.skillId });
-            state.footerStatus = `Activated ${result.name || dataset.skillId}`;
-          } else if (command === "deactivate_skill") {
-            result = await safeInvoke("deactivate_skill");
-            state.footerStatus = result.active_skill_id
-              ? `Deactivated ${result.active_skill_id}`
-              : "Skill deactivated";
-          } else if (command === "import_skill") {
+          if (command === "clear_history" && !window.confirm("Clear all saved conversation history?")) return;
+          if (command === "import_skill") {
             const sourcePath = state.importSourcePath.trim();
-            if (!sourcePath) {
-              state.importMessage = "Enter a skill path first.";
-              render();
-              return;
-            }
-            result = await safeInvoke("import_skill", { sourcePath });
+            if (!sourcePath) { state.importMessage = "Enter a skill path first."; renderHome(state.appState); return; }
+            result = await safeInvoke(command, { sourcePath });
             state.importMessage = result.message || "Skill imported";
             state.importSourcePath = "";
-          } else if (command === "open_sign_in") {
-            result = await safeInvoke("open_sign_in");
-            state.footerStatus = result.message || "Opened sign-in";
+          } else if (command === "activate_skill") {
+            result = await safeInvoke(command, { skillId: explicitArgs.skillId });
+          } else if (command === "set_shortcut_preference") {
+            result = await safeInvoke(command, { args: { shortcut: explicitArgs.shortcut } });
+          } else if (command === "set_reduced_motion_preference") {
+            result = await safeInvoke(command, { args: { reducedMotion: explicitArgs.reducedMotion } });
           } else {
             result = await safeInvoke(command);
-            state.footerStatus = result?.message || `Ran ${command}`;
           }
-
           state.error = null;
-          elements.announcer.textContent = state.footerStatus;
-          await refreshState();
+          elements.announcer.textContent = result?.message || "Done";
+          await refreshState({ force: true });
         } catch (error) {
           state.error = error.message;
-          state.footerStatus = error.message;
           elements.announcer.textContent = error.message;
-          render();
+          updateChrome();
         }
       }
 
-      tabs.forEach((tab) => {
-        tab.addEventListener("click", () => {
-          state.currentView = tab.dataset.view;
-          renderTabs();
-        });
-      });
-
       document.addEventListener("click", async (event) => {
-        const target = event.target.closest("[data-command]");
-        if (!target) {
-          return;
-        }
-        await handleCommand(target.dataset.command, target.dataset);
+        const viewTarget = event.target.closest("[data-view]");
+        if (viewTarget) { setCurrentView(viewTarget.dataset.view); return; }
+        const commandTarget = event.target.closest("[data-command]");
+        if (commandTarget) await runCommand(commandTarget.dataset.command, commandTarget.dataset);
       });
-
-      elements.refreshButton.addEventListener("click", refreshState);
 
       render();
-      refreshState();
-      setInterval(refreshState, 1000);
+      refreshState({ force: true });
+      setInterval(() => refreshState(), 1000);
     </script>
   </body>
 </html>
