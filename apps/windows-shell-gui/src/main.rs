@@ -1970,4 +1970,19 @@ mod tests {
         assert!(frontend.contains("data-view=\"home\" aria-label=\"Back to Skilly\""));
         assert!(!frontend.contains(">Home</button>"));
     }
+
+    #[test]
+    fn companion_frontend_uses_the_canonical_skilly_cursor_mark() {
+        let frontend = include_str!("../dist/index.html");
+        let windows_cursor = include_bytes!("../dist/skilly-cursor.png");
+        let canonical_cursor = include_bytes!(
+            "../../../leanring-buddy/Assets.xcassets/SkillyCursor.imageset/cursor-3x.png"
+        );
+
+        assert!(frontend.contains(
+            "<img class=\"brand-mark\" src=\"skilly-cursor.png\" alt=\"\" aria-hidden=\"true\" />"
+        ));
+        assert!(!frontend.contains("clip-path: polygon"));
+        assert_eq!(windows_cursor, canonical_cursor);
+    }
 }
