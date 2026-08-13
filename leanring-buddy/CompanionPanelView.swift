@@ -15,6 +15,7 @@ struct CompanionPanelView: View {
     var skillManager: SkillManager?
     var authManager: AuthManager?
     var checkForUpdates: () -> Void = {}
+    var dismissPanel: () -> Void = {}
     @State private var emailInput: String = ""
     // MARK: - Skilly — Settings
     @State private var showSettings = false
@@ -277,17 +278,16 @@ struct CompanionPanelView: View {
             .accessibilityLabel("Settings")
             .accessibilityHint("Opens app settings")
 
-            Button(action: {
-                NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
-            }) {
+            Button(action: dismissPanel) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 28, height: 28)
                     .background(
                         Circle()
                             .fill(Color.white.opacity(0.08))
                     )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()

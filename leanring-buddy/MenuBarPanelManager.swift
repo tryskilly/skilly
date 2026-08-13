@@ -267,7 +267,10 @@ final class MenuBarPanelManager: NSObject {
             companionManager: companionManager,
             skillManager: skillManager,
             authManager: authManager,
-            checkForUpdates: checkForUpdates
+            checkForUpdates: checkForUpdates,
+            dismissPanel: { [weak self] in
+                self?.hidePanel()
+            }
         )
             .frame(width: panelWidth)
 
