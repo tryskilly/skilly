@@ -13,11 +13,11 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let skillyDismissPanel = Notification.Name("skillyDismissPanel")
     static let skillyTurnBlocked = Notification.Name("skillyTurnBlocked")
-    static let skillyImportSkillRequested = Notification.Name("skillyImportSkillRequested")
     // MARK: - Skilly — Posted when the Worker rejects /openai/token with 401.
     // CompanionManager signs the user out and posts this; MenuBarPanelManager
     // opens the panel so the re-sign-in UI is immediately visible instead of
@@ -217,8 +217,42 @@ final class MenuBarPanelManager: NSObject {
 
     func showSkillImporter() {
         showPanel()
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .skillyImportSkillRequested, object: nil)
+        guard let skillManager else { return }
+
+        // The deep link is commonly the user's first interaction with Skilly,
+        // before onboarding and permissions are complete. PanelBodyView is not
+        // mounted in that state, so a view-scoped notification can be dropped.
+        // Present the importer from the always-alive panel manager instead.
+        DispatchQueue.main.async { [weak self] in
+            self?.presentSkillImportPicker(using: skillManager)
+        }
+    }
+
+    private func presentSkillImportPicker(using skillManager: SkillManager) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.canCreateDirectories = false
+        openPanel.allowedContentTypes = [.folder, .plainText]
+        openPanel.allowsOtherFileTypes = true
+        openPanel.prompt = "Import"
+        openPanel.message = "Select the Markdown skill file attached to your Skill Builder email."
+
+        guard openPanel.runModal() == .OK, let selectedURL = openPanel.url else { return }
+
+        SkillyAnalytics.trackSkillImportStarted(source: "skill_builder_deep_link")
+        do {
+            try skillManager.importSkill(from: selectedURL)
+            SkillyAnalytics.trackSkillImportSucceeded(source: "skill_builder_deep_link")
+        } catch {
+            SkillyAnalytics.trackSkillImportFailed(source: "skill_builder_deep_link")
+            let alert = NSAlert(error: error)
+            alert.messageText = "Skilly couldn't import this skill"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
         }
     }
 
