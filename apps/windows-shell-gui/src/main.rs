@@ -1684,6 +1684,36 @@ fn show_main_window(app: &tauri::AppHandle, settings: bool) {
     }
 }
 
+#[tauri::command]
+fn hide_main_window(app: tauri::AppHandle) -> Result<PanelCommandResult, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Skilly window is unavailable")?;
+    window.hide().map_err(|error| error.to_string())?;
+    Ok(PanelCommandResult::ok("Skilly hidden"))
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+fn track_panel_view(
+    view: String,
+    runtime_store: tauri::State<'_, RuntimeStore>,
+) -> Result<(), String> {
+    if !matches!(view.as_str(), "home" | "history" | "settings") {
+        return Err("Unknown panel view".to_owned());
+    }
+    telemetry::capture(
+        "windows_panel_viewed",
+        telemetry_distinct_id(&runtime_store),
+        telemetry::properties(&[("view", serde_json::json!(view))]),
+    );
+    Ok(())
+}
+
 fn main() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -1830,6 +1860,8 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+            } else if let tauri::WindowEvent::Focused(false) = event {
+                let _ = window.hide();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1840,6 +1872,7 @@ fn main() {
             capability_snapshot,
             deactivate_skill,
             focus_panel,
+            hide_main_window,
             import_skill,
             install_webview2,
             list_skills,
@@ -1857,6 +1890,7 @@ fn main() {
             open_skills_folder,
             open_windows_update,
             push_to_talk_active,
+            quit_app,
             refresh_account,
             refresh_platform_facts,
             microphone_capture_status,
@@ -1864,7 +1898,8 @@ fn main() {
             set_shortcut_preference,
             seed_bundled_skills,
             sign_out,
-            start_checkout
+            start_checkout,
+            track_panel_view
         ])
         .run(tauri::generate_context!())
         .expect("failed to launch Skilly Windows host app");
@@ -1913,5 +1948,26 @@ mod tests {
         let protected = super::data_protection::protect(payload).expect("protect");
         let restored = super::data_protection::unprotect(&protected).expect("unprotect");
         assert_eq!(restored, payload);
+    }
+
+    #[test]
+    fn companion_frontend_hides_inactive_secondary_views() {
+        let frontend = include_str!("../dist/index.html");
+
+        assert!(frontend.contains(".view[hidden] { display: none !important; }"));
+        assert!(frontend.contains("id=\"view-home\""));
+        assert!(frontend.contains("id=\"view-history\""));
+        assert!(frontend.contains("id=\"view-settings\""));
+        assert!(frontend.contains("element.hidden = name !== next"));
+    }
+
+    #[test]
+    fn companion_frontend_uses_secondary_actions_instead_of_dashboard_tabs() {
+        let frontend = include_str!("../dist/index.html");
+
+        assert!(frontend.contains("aria-label=\"Conversation history\""));
+        assert!(frontend.contains("aria-label=\"Settings\""));
+        assert!(frontend.contains("data-view=\"home\" aria-label=\"Back to Skilly\""));
+        assert!(!frontend.contains(">Home</button>"));
     }
 }

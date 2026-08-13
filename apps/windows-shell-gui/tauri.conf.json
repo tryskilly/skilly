@@ -12,11 +12,16 @@
       {
         "label": "main",
         "title": "Skilly",
-        "width": 360,
-        "height": 600,
-        "resizable": true,
+        "width": 336,
+        "height": 540,
+        "minWidth": 336,
+        "minHeight": 480,
+        "resizable": false,
         "fullscreen": false,
-        "decorations": true
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true
       }
     ],
     "security": {
