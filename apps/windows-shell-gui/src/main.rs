@@ -1911,6 +1911,16 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     #[test]
+    fn window_controls_are_not_nested_in_the_tauri_drag_region() {
+        let html = include_str!("../dist/index.html");
+
+        assert!(html.contains(r#"<header class="app-header">"#));
+        assert!(!html.contains(r#"<header class="app-header" data-tauri-drag-region>"#));
+        assert!(html.contains(r#"id="closeWindowButton""#));
+        assert!(html.contains(r#"runCommand("hide_main_window")"#));
+    }
+
+    #[test]
     fn modifier_chord_emits_only_on_press_and_release_edges() {
         let mut state = ModifierChordState::default();
 
