@@ -145,6 +145,30 @@ enum SkillyAnalytics {
         PostHogSDK.shared.capture("all_permissions_granted")
     }
 
+    // MARK: - Skill Import Activation
+
+    static func trackSkillImportDeepLinkOpened() {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skill_import_deep_link_opened", properties: [
+            "source": "skill_builder_email"
+        ])
+    }
+
+    static func trackSkillImportStarted(source: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skill_import_started", properties: ["source": source])
+    }
+
+    static func trackSkillImportSucceeded(source: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skill_import_succeeded", properties: ["source": source])
+    }
+
+    static func trackSkillImportFailed(source: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("skill_import_failed", properties: ["source": source])
+    }
+
     static func trackPermissionGranted(permission: String) {
         guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("permission_granted", properties: [

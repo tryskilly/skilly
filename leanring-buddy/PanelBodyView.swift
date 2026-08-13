@@ -83,8 +83,17 @@ struct PanelBodyView: View {
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                try? skillManager.importSkill(from: url)
+                SkillyAnalytics.trackSkillImportStarted(source: "panel_file_picker")
+                do {
+                    try skillManager.importSkill(from: url)
+                    SkillyAnalytics.trackSkillImportSucceeded(source: "panel_file_picker")
+                } catch {
+                    SkillyAnalytics.trackSkillImportFailed(source: "panel_file_picker")
+                }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .skillyImportSkillRequested)) { _ in
+            showImportPicker = true
         }
     }
 
