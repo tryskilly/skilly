@@ -92,9 +92,6 @@ struct PanelBodyView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .skillyImportSkillRequested)) { _ in
-            showImportPicker = true
-        }
     }
 
     // MARK: - Active Now Section
