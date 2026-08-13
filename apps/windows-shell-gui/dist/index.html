@@ -308,7 +308,7 @@
   </head>
   <body>
     <div class="app">
-      <header class="app-header" data-tauri-drag-region>
+      <header class="app-header">
         <div class="brand" data-tauri-drag-region>
           <img class="brand-mark" src="skilly-cursor.png" alt="" aria-hidden="true" />
           <div class="brand-copy" data-tauri-drag-region>
@@ -320,7 +320,7 @@
         <nav class="header-actions" aria-label="Skilly tools">
           <button class="icon-button" type="button" data-view="history" aria-label="Conversation history" aria-pressed="false" title="History">↺</button>
           <button class="icon-button" type="button" data-view="settings" aria-label="Settings" aria-pressed="false" title="Settings">⚙</button>
-          <button class="icon-button" type="button" data-command="hide_main_window" aria-label="Close Skilly" title="Close">×</button>
+          <button class="icon-button" id="closeWindowButton" type="button" aria-label="Close Skilly" title="Close">×</button>
         </nav>
       </header>
 
@@ -675,6 +675,12 @@
         if (viewTarget) { setCurrentView(viewTarget.dataset.view); return; }
         const commandTarget = event.target.closest("[data-command]");
         if (commandTarget) await runCommand(commandTarget.dataset.command, commandTarget.dataset);
+      });
+
+      document.getElementById("closeWindowButton").addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await runCommand("hide_main_window");
       });
 
       render();
