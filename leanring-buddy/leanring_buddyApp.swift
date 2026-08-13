@@ -118,7 +118,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - Deep Link Handler (WorkOS Auth Callback)
+    // MARK: - Deep Link Handler
 
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
@@ -136,6 +136,14 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             print("🎯 Skilly: Received checkout-success deep link, refreshing entitlement")
             #endif
             Task { await EntitlementManager.shared.refresh() }
+            return
+        }
+
+        // Skill Builder emails use this route to return users to the surface
+        // where the attached Markdown file can be imported.
+        if url.host == "skills" {
+            SkillyAnalytics.trackSkillImportDeepLinkOpened()
+            menuBarPanelManager?.showSkillImporter()
             return
         }
 

@@ -17,6 +17,7 @@ import SwiftUI
 extension Notification.Name {
     static let skillyDismissPanel = Notification.Name("skillyDismissPanel")
     static let skillyTurnBlocked = Notification.Name("skillyTurnBlocked")
+    static let skillyImportSkillRequested = Notification.Name("skillyImportSkillRequested")
     // MARK: - Skilly — Posted when the Worker rejects /openai/token with 401.
     // CompanionManager signs the user out and posts this; MenuBarPanelManager
     // opens the panel so the re-sign-in UI is immediately visible instead of
@@ -202,7 +203,7 @@ final class MenuBarPanelManager: NSObject {
 
     // MARK: - Panel Lifecycle
 
-    private func showPanel() {
+    func showPanel() {
         if panel == nil {
             createPanel()
         }
@@ -212,6 +213,13 @@ final class MenuBarPanelManager: NSObject {
         panel?.makeKeyAndOrderFront(nil)
         panel?.orderFrontRegardless()
         installClickOutsideMonitor()
+    }
+
+    func showSkillImporter() {
+        showPanel()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .skillyImportSkillRequested, object: nil)
+        }
     }
 
     private func hidePanel() {

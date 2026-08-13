@@ -577,10 +577,13 @@ struct SkillPanelSection: View {
         panel.message = "Select a skill folder or a downloaded Markdown skill file."
 
         if panel.runModal() == .OK, let selectedURL = panel.url {
+            SkillyAnalytics.trackSkillImportStarted(source: "skills_file_picker")
             do {
                 try skillManager.importSkill(from: selectedURL)
+                SkillyAnalytics.trackSkillImportSucceeded(source: "skills_file_picker")
                 importError = nil
             } catch {
+                SkillyAnalytics.trackSkillImportFailed(source: "skills_file_picker")
                 importError = "Failed to import: \(error.localizedDescription)"
             }
         }
@@ -589,12 +592,15 @@ struct SkillPanelSection: View {
     private func importFromURL() {
         guard !importURLText.isEmpty else { return }
 
+        SkillyAnalytics.trackSkillImportStarted(source: "skills_url")
         do {
             _ = try skillManager.importSkillFromURL(importURLText)
+            SkillyAnalytics.trackSkillImportSucceeded(source: "skills_url")
             importURLText = ""
             showURLImportField = false
             importError = nil
         } catch {
+            SkillyAnalytics.trackSkillImportFailed(source: "skills_url")
             importError = "Failed to import: \(error.localizedDescription)"
         }
     }
