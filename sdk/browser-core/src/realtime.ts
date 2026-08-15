@@ -18,6 +18,10 @@ export interface RealtimeCallbacks {
   onAssistantText: (fullText: string) => void;
   /** A new model response started; used to reset per-turn client-side guards. */
   onResponseCreated?: () => void;
+  /** WebRTC began playing the assistant's audio response. */
+  onAudioPlaybackStarted?: () => void;
+  /** WebRTC drained or cleared the assistant's audio response. */
+  onAudioPlaybackEnded?: () => void;
   /** The model asked the client to execute a local action tool. */
   onActionToolCall?: (call: RealtimeActionToolCall) => void;
   onError: (message: string, cause?: unknown) => void;
@@ -257,6 +261,13 @@ export class RealtimeSession {
         this.assistantText = "";
         this.handledToolCallIds.clear();
         this.config.callbacks.onResponseCreated?.();
+        break;
+      case "output_audio_buffer.started":
+        this.config.callbacks.onAudioPlaybackStarted?.();
+        break;
+      case "output_audio_buffer.stopped":
+      case "output_audio_buffer.cleared":
+        this.config.callbacks.onAudioPlaybackEnded?.();
         break;
       // Accept the GA transcript/text delta events (names have shifted across
       // versions; handle the common set tolerantly).

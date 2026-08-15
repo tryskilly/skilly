@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { RealtimeSession } from "../src/realtime";
+import { RealtimeSession, type RealtimeCallbacks } from "../src/realtime";
 
-function makeSession(): RealtimeSession {
+function makeSession(callbackOverrides: Partial<RealtimeCallbacks> = {}): RealtimeSession {
   return new RealtimeSession({
     clientSecret: "ephemeral_test",
     model: "gpt-realtime",
@@ -11,6 +11,7 @@ function makeSession(): RealtimeSession {
       onUserTranscript: () => {},
       onAssistantText: () => {},
       onError: () => {},
+      ...callbackOverrides,
     },
   });
 }
@@ -56,5 +57,24 @@ describe("typed Realtime input", () => {
     sessionInternals.dataChannel.readyState = "open";
     expect(session.sendText("   ")).toBe(false);
     expect(sentEvents).toEqual([]);
+  });
+});
+
+describe("Realtime audio playback lifecycle", () => {
+  test("reports WebRTC audio start, stop, and interruption events", () => {
+    const lifecycle: string[] = [];
+    const session = makeSession({
+      onAudioPlaybackStarted: () => lifecycle.push("started"),
+      onAudioPlaybackEnded: () => lifecycle.push("ended"),
+    });
+    const sessionInternals = session as unknown as {
+      handleServerEvent: (raw: string) => void;
+    };
+
+    sessionInternals.handleServerEvent(JSON.stringify({ type: "output_audio_buffer.started" }));
+    sessionInternals.handleServerEvent(JSON.stringify({ type: "output_audio_buffer.stopped" }));
+    sessionInternals.handleServerEvent(JSON.stringify({ type: "output_audio_buffer.cleared" }));
+
+    expect(lifecycle).toEqual(["started", "ended", "ended"]);
   });
 });
