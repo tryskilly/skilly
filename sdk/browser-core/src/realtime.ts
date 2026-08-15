@@ -20,7 +20,7 @@ export interface RealtimeCallbacks {
   onResponseCreated?: () => void;
   /** The model asked the client to execute a local action tool. */
   onActionToolCall?: (call: RealtimeActionToolCall) => void;
-  onError: (message: string) => void;
+  onError: (message: string, cause?: unknown) => void;
 }
 
 export interface RealtimeConfig {
@@ -157,7 +157,10 @@ export class RealtimeSession {
     } catch (connectError) {
       if (!this.closed) {
         callbacks.onStateChange("error");
-        callbacks.onError(connectError instanceof Error ? connectError.message : "connect failed");
+        callbacks.onError(
+          connectError instanceof Error ? connectError.message : "connect failed",
+          connectError,
+        );
       }
       this.close();
     }
@@ -200,6 +203,26 @@ export class RealtimeSession {
       }),
     );
     this.dataChannel.send(JSON.stringify({ type: "response.create" }));
+  }
+
+  /** Send a typed user message through the same Realtime conversation. */
+  sendText(text: string): boolean {
+    const trimmedText = text.trim();
+    if (this.closed || this.dataChannel?.readyState !== "open" || !trimmedText) {
+      return false;
+    }
+    this.dataChannel.send(
+      JSON.stringify({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: trimmedText }],
+        },
+      }),
+    );
+    this.dataChannel.send(JSON.stringify({ type: "response.create" }));
+    return true;
   }
 
   private sendSessionUpdate(): void {

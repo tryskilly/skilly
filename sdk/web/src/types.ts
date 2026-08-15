@@ -1,7 +1,17 @@
 // Public types for the @skilly/web embed SDK.
 
-/** Companion visual state — drives the launcher + cursor appearance. */
-export type SkillyState = "idle" | "listening" | "thinking" | "speaking";
+/** Companion visual state — drives the launcher, panel, and cursor appearance. */
+export type SkillyState =
+  | "idle"
+  | "consent"
+  | "connecting"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "pointing"
+  | "error"
+  | "quotaDisabled"
+  | "micDenied";
 
 /** Events the host page can subscribe to via `Skilly.on(...)`. */
 export interface SkillyEventMap {
@@ -26,7 +36,7 @@ export interface SkillyConfig {
   key: string;
   /** The site owner's authored skill id (their product knowledge / curriculum). */
   skill?: string;
-  /** Accent color for the companion UI. Defaults to Skilly blue. */
+  /** Accent color for the companion UI. Defaults to Skilly amber. */
   accentColor?: string;
   /** Short launcher prompt shown next to the floating icon. */
   launcherLabel?: string;
@@ -51,4 +61,6 @@ export interface SkillyConfig {
    * "fixed" — bubble stays above the launcher in the bottom-right corner.
    */
   bubbleMode?: "follow" | "fixed";
+  /** Visitor-facing microphone explanation shown before the browser permission prompt. */
+  microphoneConsentText?: string;
 }

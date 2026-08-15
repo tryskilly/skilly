@@ -15,6 +15,7 @@
 
 import { SkillyWidget } from "./widget.js";
 import { fetchSessionToken, fetchTenantSkill, reportSessionUsage } from "./token.js";
+import { presentWidgetError, QUOTA_DISABLED_NOTICE } from "./widgetState.js";
 import {
   loadCore,
   buildDomDigest,
@@ -38,7 +39,7 @@ import type {
   SkillyEventName,
 } from "./types.js";
 
-const DEFAULT_ACCENT = "#2F6BFF";
+const DEFAULT_ACCENT = "#F59E0B";
 
 class SkillyController {
   private config: SkillyConfig | null = null;
@@ -49,6 +50,7 @@ class SkillyController {
   // Storage is type-erased; the public on()/emit() signatures keep callers type-safe.
   private handlers = new Map<SkillyEventName, Set<(payload: never) => void>>();
   private turnInProgress = false;
+  private simulatedTurnGeneration = 0;
 
   // Live (8.3) vs. simulated (no backend) mode.
   private liveMode = false;
@@ -61,6 +63,9 @@ class SkillyController {
   private liveActionsExecuted = 0;
   private liveActionsRefused = 0;
   private lastPointedTarget: string | null = null;
+  private microphoneConsentGranted = false;
+  private pendingLiveGoal: string | undefined;
+  private lastLiveGoal: string | undefined;
   private identifiedEndUser: { id: string; traits?: Record<string, unknown> } | null = null;
 
   init(config: SkillyConfig): void {
@@ -80,8 +85,16 @@ class SkillyController {
     // Voice pipeline is enabled when a backend (token source) is configured.
     this.liveMode = Boolean(config.backendUrl);
 
-    this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT, config.launcherLabel);
+    this.widget = new SkillyWidget(config.accentColor ?? DEFAULT_ACCENT, config.launcherLabel, {
+      bubbleMode: config.bubbleMode,
+      supportsTextInput: this.liveMode,
+    });
     this.widget.onLauncherActivated = () => this.start();
+    this.widget.onCloseRequested = () => this.closeWidget();
+    this.widget.onRetryRequested = () => this.retryLiveSession();
+    this.widget.onConsentAccepted = () => this.acceptMicrophoneConsent();
+    this.widget.onConsentDeclined = () => this.declineMicrophoneConsent();
+    this.widget.onTextSubmitted = (text) => this.submitTypedQuestion(text);
     this.widget.mount();
     this.pointing = new PointingEngine(this.widget);
 
@@ -112,6 +125,12 @@ class SkillyController {
     }
     // Live mode: the launcher toggles a continuous Realtime voice session.
     if (this.liveMode) {
+      if (!this.microphoneConsentGranted) {
+        this.pendingLiveGoal = goal;
+        this.lastLiveGoal = goal;
+        this.widget.showConsent(this.config?.microphoneConsentText);
+        return;
+      }
       void this.toggleLiveSession(goal);
       return;
     }
@@ -120,6 +139,7 @@ class SkillyController {
       return;
     }
     this.turnInProgress = true;
+    const simulatedTurnGeneration = ++this.simulatedTurnGeneration;
     this.emit("turn", { goal });
 
     // Capture the page as a DOM digest at the start of the turn.
@@ -129,15 +149,23 @@ class SkillyController {
     this.widget.setBubbleText("Listening…");
 
     window.setTimeout(() => {
+      if (simulatedTurnGeneration !== this.simulatedTurnGeneration) {
+        return;
+      }
       this.widget?.setState("thinking");
       this.widget?.setBubbleText("Thinking…");
     }, 800);
 
     window.setTimeout(() => {
-      void this.respondAndPoint(goal, digest);
+      if (simulatedTurnGeneration === this.simulatedTurnGeneration) {
+        void this.respondAndPoint(goal, digest, simulatedTurnGeneration);
+      }
     }, 1600);
 
     window.setTimeout(() => {
+      if (simulatedTurnGeneration !== this.simulatedTurnGeneration) {
+        return;
+      }
       this.widget?.setState("idle");
       this.widget?.setBubbleText("");
       this.pointing?.clear();
@@ -151,7 +179,11 @@ class SkillyController {
    * AI over the Realtime connection) and run its `[POINT:id:label]` tag through
    * the real pointing engine against the live DOM.
    */
-  private async respondAndPoint(goal: string | undefined, digest: DomDigest): Promise<void> {
+  private async respondAndPoint(
+    goal: string | undefined,
+    digest: DomDigest,
+    simulatedTurnGeneration: number,
+  ): Promise<void> {
     if (!this.widget || !this.pointing) {
       return;
     }
@@ -173,11 +205,16 @@ class SkillyController {
 
     const firstPoint = points[0];
     if (firstPoint) {
+      this.widget.setState("pointing");
       const resolved = await this.pointing.pointAt(
         firstPoint.target,
         firstPoint.label,
         this.currentRegistry ?? undefined,
       );
+      if (simulatedTurnGeneration !== this.simulatedTurnGeneration) {
+        return;
+      }
+      this.widget.setState("speaking");
       if (resolved) {
         this.emit("point", { selector: firstPoint.target, label: resolved.label });
       }
@@ -199,13 +236,14 @@ class SkillyController {
     const backendUrl = config.backendUrl;
 
     this.liveActive = true;
+    this.lastLiveGoal = goal;
     const generation = ++this.liveSessionGeneration;
     this.liveSessionStartedAt = Date.now();
     this.liveActionsExecuted = 0;
     this.liveActionsRefused = 0;
     this.emit("turn", { goal });
-    this.widget.setState("thinking");
-    this.widget.setBubbleText("Connecting…");
+    this.widget.setState("connecting");
+    this.widget.setBubbleText("Getting Skilly ready…");
 
     try {
       // Capture the page + fetch the tenant's token and skill in parallel.
@@ -263,12 +301,11 @@ class SkillyController {
               void this.onActionToolCall(call, generation, realtimeSession, actionExecutor);
             }
           },
-          onError: (message) => {
+          onError: (message, cause) => {
             if (generation !== this.liveSessionGeneration) {
               return;
             }
-            this.widget?.setBubbleText(`Sorry — ${message}`);
-            this.emit("error", { message });
+            this.handleLiveSessionError(cause ?? message, message, generation);
           },
         },
       });
@@ -288,11 +325,8 @@ class SkillyController {
       if (generation !== this.liveSessionGeneration) {
         return;
       }
-      this.liveActive = false;
       const message = sessionError instanceof Error ? sessionError.message : "couldn't start session";
-      this.widget.setState("idle");
-      this.widget.setBubbleText(`Sorry — ${message}`);
-      this.emit("error", { message });
+      this.handleLiveSessionError(sessionError, message, generation);
     }
   }
 
@@ -301,12 +335,10 @@ class SkillyController {
       return;
     }
     if (state === "connecting") {
-      this.widget.setState("thinking");
+      this.widget.setState("connecting");
     } else if (state === "live") {
       this.widget.setState("listening");
       this.widget.setBubbleText("Listening… ask me anything.");
-    } else if (state === "closed" || state === "error") {
-      this.widget.setState("idle");
     }
   }
 
@@ -322,6 +354,7 @@ class SkillyController {
     const point = points[0] ?? inferPointFromText(cleanedText, this.currentDigest);
     if (point && point.target !== this.lastPointedTarget) {
       this.lastPointedTarget = point.target;
+      this.widget.setState("pointing");
       void this.pointing
         .pointAt(point.target, point.label, this.currentRegistry ?? undefined)
         .then((resolved) => {
@@ -330,6 +363,9 @@ class SkillyController {
           }
           if (resolved) {
             this.emit("point", { selector: point.target, label: resolved.label });
+          }
+          if (this.liveActive) {
+            this.widget?.setState("speaking");
           }
         });
     }
@@ -374,7 +410,10 @@ class SkillyController {
     }
   }
 
-  private stopLiveSession(): void {
+  private stopLiveSession(options: { resetWidget?: boolean; emitComplete?: boolean } = {}): void {
+    const resetWidget = options.resetWidget !== false;
+    const emitComplete = options.emitComplete !== false;
+    const sessionWasActive = this.liveActive || this.realtimeSession !== null;
     this.liveSessionGeneration += 1;
     this.clearGuestSessionCapTimer();
     this.actionExecutor?.close();
@@ -385,8 +424,11 @@ class SkillyController {
     this.liveActive = false;
     this.lastPointedTarget = null;
     this.pointing?.clear();
-    this.widget?.setState("idle");
-    this.widget?.setBubbleText("");
+    if (resetWidget) {
+      this.widget?.setState("idle");
+      this.widget?.setBubbleText("");
+      this.widget?.focusLauncher();
+    }
 
     // Meter the session's seconds (best-effort, Phase 8.6).
     const elapsedSeconds = this.liveSessionStartedAt ? (Date.now() - this.liveSessionStartedAt) / 1000 : 0;
@@ -406,7 +448,71 @@ class SkillyController {
       });
     }
 
-    this.emit("complete", {});
+    if (emitComplete && sessionWasActive) {
+      this.emit("complete", {});
+    }
+  }
+
+  private handleLiveSessionError(
+    error: unknown,
+    technicalMessage: string,
+    generation: number,
+  ): void {
+    if (generation !== this.liveSessionGeneration) {
+      return;
+    }
+    const notice = presentWidgetError(error, technicalMessage);
+    this.stopLiveSession({ resetWidget: false, emitComplete: false });
+    this.widget?.showNotice(notice);
+    this.emit("error", { message: technicalMessage });
+  }
+
+  private acceptMicrophoneConsent(): void {
+    this.microphoneConsentGranted = true;
+    const goal = this.pendingLiveGoal;
+    this.pendingLiveGoal = undefined;
+    void this.toggleLiveSession(goal);
+  }
+
+  private declineMicrophoneConsent(): void {
+    this.pendingLiveGoal = undefined;
+    this.widget?.setState("idle");
+    this.widget?.focusLauncher();
+  }
+
+  private retryLiveSession(): void {
+    if (!this.microphoneConsentGranted) {
+      this.widget?.showConsent(this.config?.microphoneConsentText);
+      return;
+    }
+    void this.toggleLiveSession(this.lastLiveGoal);
+  }
+
+  private submitTypedQuestion(text: string): void {
+    if (!this.liveActive || !this.realtimeSession?.sendText(text)) {
+      return;
+    }
+    this.actionExecutor?.resetTurnLimit();
+    this.widget?.setState("thinking");
+    this.widget?.setBubbleText("Thinking…");
+  }
+
+  private closeWidget(): void {
+    this.pendingLiveGoal = undefined;
+    if (this.liveActive || this.realtimeSession) {
+      this.stopLiveSession();
+      return;
+    }
+    const simulatedTurnWasActive = this.turnInProgress;
+    this.simulatedTurnGeneration += 1;
+    this.turnInProgress = false;
+    this.pointing?.clear();
+    this.widget?.setState("idle");
+    this.widget?.setBubbleText("");
+    this.widget?.focusLauncher();
+    if (simulatedTurnWasActive) {
+      this.emit("complete", {});
+    }
   }
 
   /** Subscribe to a companion event. Returns an unsubscribe function. */
@@ -453,6 +559,10 @@ class SkillyController {
     this.identifiedEndUser = null;
     this.handlers.clear();
     this.turnInProgress = false;
+    this.simulatedTurnGeneration += 1;
+    this.microphoneConsentGranted = false;
+    this.pendingLiveGoal = undefined;
+    this.lastLiveGoal = undefined;
   }
 
   private emit<Name extends SkillyEventName>(event: Name, payload: SkillyEventMap[Name]): void {
@@ -482,8 +592,9 @@ class SkillyController {
       if (!this.liveActive || generation !== this.liveSessionGeneration) {
         return;
       }
-      this.widget?.setBubbleText("Session limit reached.");
-      this.stopLiveSession();
+      this.stopLiveSession({ resetWidget: false, emitComplete: false });
+      this.widget?.showNotice(QUOTA_DISABLED_NOTICE);
+      this.emit("error", { message: "session limit reached" });
     }, Math.round(capSeconds) * 1000);
   }
 
@@ -539,5 +650,10 @@ if (
       embedScript.dataset.skillyActions === undefined
         ? undefined
         : embedScript.dataset.skillyActions === "true",
+    bubbleMode:
+      embedScript.dataset.skillyBubble === "fixed" || embedScript.dataset.skillyBubble === "follow"
+        ? embedScript.dataset.skillyBubble
+        : undefined,
+    microphoneConsentText: embedScript.dataset.skillyMicrophoneConsent,
   });
 }
