@@ -15,6 +15,7 @@ export const WIDGET_STYLES = /* css */ `
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 button, input { font: inherit; }
 button:focus-visible, input:focus-visible, a:focus-visible {
   outline: 2px solid var(--skilly-accent);
@@ -120,7 +121,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   position: fixed;
   left: 0;
   top: 0;
-  width: min(320px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
   border: 1px solid var(--skilly-border);
   border-radius: 18px;
   padding: 14px;
@@ -152,6 +153,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   gap: 12px;
   margin-bottom: 10px;
 }
+.skilly-header-actions { display: flex; align-items: center; gap: 4px; }
 .skilly-status-lockup { display: flex; align-items: center; min-width: 0; gap: 8px; }
 .skilly-status-dot {
   width: 7px;
@@ -175,7 +177,8 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.skilly-close {
+.skilly-close,
+.skilly-history-toggle {
   width: 28px;
   height: 28px;
   flex: 0 0 auto;
@@ -188,11 +191,149 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   color: var(--skilly-muted);
   cursor: pointer;
 }
-.skilly-close:hover { border-color: var(--skilly-border); background: rgba(255, 255, 255, 0.07); color: var(--skilly-text); }
-.skilly-close svg { width: 18px; height: 18px; }
+.skilly-close:hover,
+.skilly-history-toggle:hover,
+.skilly-history-toggle[aria-pressed="true"] {
+  border-color: var(--skilly-border);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--skilly-text);
+}
+.skilly-close svg,
+.skilly-history-toggle svg { width: 18px; height: 18px; }
+.skilly-history-toggle { position: relative; }
+.skilly-history-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  border: 2px solid var(--skilly-surface);
+  border-radius: 999px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  background: var(--skilly-accent);
+  color: var(--skilly-ink);
+  font: 800 9px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.skilly-guidance {
+  margin-bottom: 12px;
+  border: 1px solid color-mix(in srgb, var(--skilly-accent) 28%, var(--skilly-border));
+  border-radius: 13px;
+  padding: 11px;
+  background: color-mix(in srgb, var(--skilly-accent) 7%, transparent);
+}
+.skilly-guidance-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.skilly-guidance-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--skilly-text);
+  font: 750 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skilly-guidance-summary {
+  flex: 0 0 auto;
+  color: var(--skilly-accent);
+  font: 750 10px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.skilly-guidance-steps {
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  list-style: none;
+}
+.skilly-guidance-step { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 8px; }
+.skilly-guidance-marker {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--skilly-border);
+  border-radius: 50%;
+  color: var(--skilly-muted);
+  font: 750 10px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.skilly-guidance-label {
+  color: var(--skilly-muted);
+  font: 550 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.skilly-guidance-step[data-step-state="current"] .skilly-guidance-marker {
+  border-color: var(--skilly-accent);
+  background: var(--skilly-accent);
+  color: var(--skilly-ink);
+}
+.skilly-guidance-step[data-step-state="current"] .skilly-guidance-label { color: var(--skilly-text); font-weight: 700; }
+.skilly-guidance-step[data-step-state="complete"] .skilly-guidance-marker {
+  border-color: color-mix(in srgb, var(--skilly-accent) 52%, transparent);
+  background: color-mix(in srgb, var(--skilly-accent) 14%, transparent);
+  color: var(--skilly-accent);
+}
+.skilly-guidance-step[data-step-state="complete"] .skilly-guidance-label { color: #D4D4D8; }
 .skilly-bubble-message {
   color: #E4E4E7;
   font: 450 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.skilly-bubble-message:empty { display: none; }
+.skilly-conversation {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--skilly-border);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.skilly-conversation-header {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--skilly-border);
+  padding: 7px 10px;
+  color: var(--skilly-muted);
+  font: 700 10px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.skilly-history-clear {
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--skilly-muted);
+  cursor: pointer;
+  font: 700 10px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.skilly-history-clear:hover { color: var(--skilly-text); }
+.skilly-conversation-messages {
+  max-height: 210px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+.skilly-conversation-message { padding: 9px 10px; }
+.skilly-conversation-message + .skilly-conversation-message { border-top: 1px solid rgba(255, 255, 255, 0.07); }
+.skilly-conversation-message[data-role="user"] { background: rgba(255, 255, 255, 0.025); }
+.skilly-conversation-role {
+  margin-bottom: 3px;
+  color: var(--skilly-accent);
+  font: 750 10px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.skilly-conversation-message[data-role="user"] .skilly-conversation-role { color: #A1A1AA; }
+.skilly-conversation-text {
+  color: #E4E4E7;
+  font: 450 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .skilly-activity {
   height: 24px;

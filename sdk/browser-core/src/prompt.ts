@@ -20,6 +20,13 @@ const POINTING_PROTOCOL = [
   "when it helps the user locate something. Never read the tag aloud or invent ids.",
 ].join(" ");
 
+const GUIDANCE_PROGRESS_PROTOCOL = [
+  "For a genuine task with two to six steps, call update_guidance_progress before coaching the first step.",
+  "Repeat the same concise step list on later updates and advance current_step only after the visitor confirms",
+  "or completes the previous step. Mark completed only when the task is actually done. Do not create progress",
+  "for one-off questions, and never claim that the visitor completed something you did not observe or confirm.",
+].join(" ");
+
 const MAX_DIGEST_ELEMENTS = 30;
 
 /** A compact, model-friendly rendering of the page's elements. */
@@ -49,6 +56,7 @@ export function buildCompanionInstructions(input: InstructionInput): string {
 
   sections.push(summarizeDigestForPrompt(input.digest));
   sections.push(`--- POINTING ---\n${POINTING_PROTOCOL}`);
+  sections.push(`--- GUIDED TASK PROGRESS ---\n${GUIDANCE_PROGRESS_PROTOCOL}`);
 
   return sections.join("\n\n");
 }
