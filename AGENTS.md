@@ -242,11 +242,11 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 |------|---------|
 | `sdk/browser-core/` | Browser-generic library (vanilla-TS, no framework) with digest (DOM analysis), pointing (element targeting), actions (UI interaction), prompt composition, realtime session lifecycle, and wasm loader. Shared with the Skilly browser extension. Consumed by `@skilly/web`, exports typed interfaces for digest queries, pointing resolution, action definitions, and realtime event types. See `sdk/browser-core/README.md`. |
 | `sdk/web/src/index.ts` | Public `Skilly` API (`init`/`start`/`on`/`identify`/`destroy`) + auto-init from `data-skilly-*` script attrs + typed event emitter. |
-| `sdk/web/src/widget.ts` | Shadow-DOM UI: launcher button, response bubble, blue cursor + `setCursorPosition` (driven per-frame by the pointing engine). |
+| `sdk/web/src/widget.ts` | Shadow-DOM visitor UI: premium amber launcher, consent/connection/listening/speaking/pointing/error/quota/mic-denied states, typed-input fallback, response bubble, action confirmation, and cursor positioning. |
 | `sdk/web/src/token.ts` | **8.3** Backend client: fetch ephemeral Realtime token + tenant SKILL.md from `apps/web-backend`. |
 | `sdk/web/demo/index.html` | Demo host page (`bun run demo`). |
 
-> Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. Validated: `bun test` 9/9 (token), `tsc` + `bun run build` clean; Playwright confirms the widget mounts, the cursor lands **exactly** on a `data-skilly` element (0px, 8.2), and live mode fetches a token from the backend cross-origin and handles failure gracefully (8.3). The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` + mic (validated by a live session, not headless). Next: **8.5** dashboard · **8.6** billing. `dist/`, `node_modules/`, `generated/` are gitignored.
+> Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. The visitor sees an in-widget microphone explanation before the browser permission prompt; typed questions use the same Realtime data channel and response flow as voice. Validated: `bun test` 13/13 (token + safe visitor state presentation), browser-core `bun test` 20/20, `tsc` + `bun run build` clean; Chrome confirms the widget mounts, consent precedes connection, errors remain visitor-safe, Escape closes the panel, and the cursor lands on a `data-skilly` element. The live WebRTC↔OpenAI audio loop still needs a real backend token + mic for end-to-end validation. `dist/`, `node_modules/`, `generated/` are gitignored.
 
 #### Web SDK Session Lifecycle Protection
 
