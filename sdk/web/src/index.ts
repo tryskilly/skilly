@@ -62,6 +62,7 @@ class SkillyController {
   private liveSessionCapTimer: number | null = null;
   private liveActionsExecuted = 0;
   private liveActionsRefused = 0;
+  private liveAudioPlaying = false;
   private lastPointedTarget: string | null = null;
   private microphoneConsentGranted = false;
   private pendingLiveGoal: string | undefined;
@@ -290,7 +291,32 @@ class SkillyController {
               actionExecutor?.resetTurnLimit();
             }
           },
-          onResponseCreated: () => {},
+          onResponseCreated: () => {
+            if (generation !== this.liveSessionGeneration) {
+              return;
+            }
+            this.lastPointedTarget = null;
+            this.liveAudioPlaying = false;
+            this.pointing?.clear();
+            this.widget?.setState("thinking");
+            this.widget?.setBubbleText("Thinking…");
+          },
+          onAudioPlaybackStarted: () => {
+            if (generation !== this.liveSessionGeneration) {
+              return;
+            }
+            this.liveAudioPlaying = true;
+            this.widget?.setState("speaking");
+          },
+          onAudioPlaybackEnded: () => {
+            if (generation !== this.liveSessionGeneration) {
+              return;
+            }
+            this.liveAudioPlaying = false;
+            if (this.liveActive) {
+              this.widget?.setState("listening");
+            }
+          },
           onAssistantText: (text) => {
             if (generation === this.liveSessionGeneration) {
               this.onAssistantText(text, generation);
@@ -365,7 +391,7 @@ class SkillyController {
             this.emit("point", { selector: point.target, label: resolved.label });
           }
           if (this.liveActive) {
-            this.widget?.setState("speaking");
+            this.widget?.setState(this.liveAudioPlaying ? "speaking" : "listening");
           }
         });
     }
@@ -422,6 +448,7 @@ class SkillyController {
     this.realtimeSession?.close();
     this.realtimeSession = null;
     this.liveActive = false;
+    this.liveAudioPlaying = false;
     this.lastPointedTarget = null;
     this.pointing?.clear();
     if (resetWidget) {
@@ -545,6 +572,7 @@ class SkillyController {
     this.actionExecutor?.close();
     this.actionExecutor = null;
     this.liveActive = false;
+    this.liveAudioPlaying = false;
     this.liveSessionGeneration += 1;
     this.clearGuestSessionCapTimer();
     this.liveActionsExecuted = 0;
