@@ -3,6 +3,7 @@
 
 import type { CursorHost } from "@skilly/browser-core";
 import { WIDGET_STYLES } from "./styles.js";
+import type { ConversationMessage, GuidanceProgress } from "./sessionState.js";
 import type { SkillyState } from "./types.js";
 import type { WidgetNotice } from "./widgetState.js";
 
@@ -14,6 +15,11 @@ const SKILLY_MARK_ICON = /* html */ `
 const CLOSE_ICON = /* html */ `
 <svg viewBox="0 0 20 20" aria-hidden="true">
   <path d="m5.5 5.5 9 9m0-9-9 9" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"/>
+</svg>`;
+
+const HISTORY_ICON = /* html */ `
+<svg viewBox="0 0 20 20" aria-hidden="true">
+  <path d="M5 5.5h10M5 10h10M5 14.5h7" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/>
 </svg>`;
 
 interface WidgetOptions {
@@ -42,6 +48,14 @@ export class SkillyWidget implements CursorHost {
   private bubbleElement!: HTMLDivElement;
   private bubbleStatusElement!: HTMLSpanElement;
   private bubbleMessageElement!: HTMLDivElement;
+  private guidanceElement!: HTMLDivElement;
+  private guidanceTitleElement!: HTMLDivElement;
+  private guidanceSummaryElement!: HTMLSpanElement;
+  private guidanceStepsElement!: HTMLOListElement;
+  private historyToggleButton!: HTMLButtonElement;
+  private historyCountElement!: HTMLSpanElement;
+  private conversationElement!: HTMLDivElement;
+  private conversationMessagesElement!: HTMLDivElement;
   private consentActionsElement!: HTMLDivElement;
   private noticeActionsElement!: HTMLDivElement;
   private retryButton!: HTMLButtonElement;
@@ -50,6 +64,8 @@ export class SkillyWidget implements CursorHost {
   private cursorElement!: HTMLDivElement;
   private confirmElement!: HTMLDivElement;
   private currentState: SkillyState = "idle";
+  private historyVisible = false;
+  private conversationMessageCount = 0;
   private pendingConfirm: { resolve: (confirmed: boolean) => void; timeoutId: number } | null = null;
   private idleLauncherLabel: string;
   private readonly bubbleMode: "follow" | "fixed";
@@ -63,6 +79,7 @@ export class SkillyWidget implements CursorHost {
   public onConsentAccepted: (() => void) | null = null;
   public onConsentDeclined: (() => void) | null = null;
   public onTextSubmitted: ((text: string) => void) | null = null;
+  public onHistoryCleared: (() => void) | null = null;
 
   constructor(accentColor: string, launcherLabel?: string, options: WidgetOptions = {}) {
     this.idleLauncherLabel = launcherLabel?.trim() || "Ask Skilly";
@@ -126,9 +143,28 @@ export class SkillyWidget implements CursorHost {
           <span class="skilly-status-dot" aria-hidden="true"></span>
           <span class="skilly-bubble-status">Ready</span>
         </div>
-        <button class="skilly-close" type="button" aria-label="Close Skilly">${CLOSE_ICON}</button>
+        <div class="skilly-header-actions">
+          <button class="skilly-history-toggle" type="button" aria-label="Show session history" aria-pressed="false" hidden>
+            ${HISTORY_ICON}<span class="skilly-history-count">0</span>
+          </button>
+          <button class="skilly-close" type="button" aria-label="Close Skilly">${CLOSE_ICON}</button>
+        </div>
       </div>
+      <section class="skilly-guidance" aria-label="Guided task progress" hidden>
+        <div class="skilly-guidance-header">
+          <div class="skilly-guidance-title"></div>
+          <span class="skilly-guidance-summary"></span>
+        </div>
+        <ol class="skilly-guidance-steps"></ol>
+      </section>
       <div class="skilly-bubble-message"></div>
+      <section class="skilly-conversation" aria-label="Session history" hidden>
+        <div class="skilly-conversation-header">
+          <span>Session history</span>
+          <button class="skilly-history-clear" type="button">Clear</button>
+        </div>
+        <div class="skilly-conversation-messages"></div>
+      </section>
       <div class="skilly-activity" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span>
       </div>
@@ -152,6 +188,14 @@ export class SkillyWidget implements CursorHost {
 
     this.bubbleStatusElement = this.bubbleElement.querySelector<HTMLSpanElement>(".skilly-bubble-status")!;
     this.bubbleMessageElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-bubble-message")!;
+    this.guidanceElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-guidance")!;
+    this.guidanceTitleElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-guidance-title")!;
+    this.guidanceSummaryElement = this.bubbleElement.querySelector<HTMLSpanElement>(".skilly-guidance-summary")!;
+    this.guidanceStepsElement = this.bubbleElement.querySelector<HTMLOListElement>(".skilly-guidance-steps")!;
+    this.historyToggleButton = this.bubbleElement.querySelector<HTMLButtonElement>(".skilly-history-toggle")!;
+    this.historyCountElement = this.bubbleElement.querySelector<HTMLSpanElement>(".skilly-history-count")!;
+    this.conversationElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-conversation")!;
+    this.conversationMessagesElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-conversation-messages")!;
     this.consentActionsElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-consent-actions")!;
     this.noticeActionsElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-notice-actions")!;
     this.retryButton = this.bubbleElement.querySelector<HTMLButtonElement>(".skilly-retry")!;
@@ -170,6 +214,10 @@ export class SkillyWidget implements CursorHost {
     this.retryButton.addEventListener("click", () => this.onRetryRequested?.());
     this.bubbleElement.querySelector<HTMLButtonElement>(".skilly-notice-close")?.addEventListener("click", () =>
       this.onCloseRequested?.(),
+    );
+    this.historyToggleButton.addEventListener("click", () => this.setHistoryVisible(!this.historyVisible));
+    this.bubbleElement.querySelector<HTMLButtonElement>(".skilly-history-clear")?.addEventListener("click", () =>
+      this.onHistoryCleared?.(),
     );
     this.textFormElement.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -272,10 +320,95 @@ export class SkillyWidget implements CursorHost {
     this.bubbleMessageElement.textContent = text;
     if (text) {
       this.showBubble();
-    } else {
+    } else if (this.currentState === "idle") {
       this.bubbleElement.setAttribute("data-visible", "false");
       this.bubbleElement.hidden = true;
     }
+  }
+
+  setConversation(messages: ConversationMessage[]): void {
+    const shouldRevealFirstMessage = this.conversationMessageCount === 0 && messages.length > 0;
+    this.conversationMessageCount = messages.length;
+    this.historyToggleButton.hidden = messages.length === 0;
+    this.historyCountElement.textContent = String(messages.length);
+    this.conversationMessagesElement.replaceChildren();
+
+    for (const message of messages) {
+      const messageElement = document.createElement("article");
+      messageElement.className = "skilly-conversation-message";
+      messageElement.setAttribute("data-role", message.role);
+
+      const roleElement = document.createElement("div");
+      roleElement.className = "skilly-conversation-role";
+      roleElement.textContent = message.role === "user" ? "You" : "Skilly";
+
+      const textElement = document.createElement("div");
+      textElement.className = "skilly-conversation-text";
+      textElement.textContent = message.text;
+
+      messageElement.append(roleElement, textElement);
+      this.conversationMessagesElement.appendChild(messageElement);
+    }
+
+    if (messages.length === 0) {
+      this.setHistoryVisible(false);
+      return;
+    }
+    if (shouldRevealFirstMessage) {
+      this.setHistoryVisible(true);
+    }
+    queueMicrotask(() => {
+      this.conversationMessagesElement.scrollTop = this.conversationMessagesElement.scrollHeight;
+      this.repositionBubble();
+    });
+  }
+
+  setGuidanceProgress(guidance: GuidanceProgress | null): void {
+    this.guidanceStepsElement.replaceChildren();
+    if (!guidance) {
+      this.guidanceElement.hidden = true;
+      return;
+    }
+
+    this.guidanceElement.hidden = false;
+    this.guidanceTitleElement.textContent = guidance.title;
+    this.guidanceSummaryElement.textContent =
+      guidance.status === "completed" ? "Completed" : `Step ${guidance.currentStep} of ${guidance.steps.length}`;
+
+    guidance.steps.forEach((step, index) => {
+      const stepNumber = index + 1;
+      const stepState = guidance.status === "completed" || stepNumber < guidance.currentStep
+        ? "complete"
+        : stepNumber === guidance.currentStep
+          ? "current"
+          : "upcoming";
+      const stepElement = document.createElement("li");
+      stepElement.className = "skilly-guidance-step";
+      stepElement.setAttribute("data-step-state", stepState);
+
+      const markerElement = document.createElement("span");
+      markerElement.className = "skilly-guidance-marker";
+      markerElement.textContent = stepState === "complete" ? "✓" : String(stepNumber);
+      markerElement.setAttribute("aria-hidden", "true");
+
+      const labelElement = document.createElement("span");
+      labelElement.className = "skilly-guidance-label";
+      labelElement.textContent = step;
+      stepElement.append(markerElement, labelElement);
+      this.guidanceStepsElement.appendChild(stepElement);
+    });
+    this.repositionBubble();
+  }
+
+  private setHistoryVisible(visible: boolean): void {
+    this.historyVisible = visible && this.conversationMessageCount > 0;
+    this.conversationElement.hidden = !this.historyVisible;
+    this.historyToggleButton.setAttribute("aria-pressed", this.historyVisible ? "true" : "false");
+    this.historyToggleButton.setAttribute(
+      "aria-label",
+      this.historyVisible ? "Hide session history" : "Show session history",
+    );
+    this.repositionBubble();
   }
 
   private showBubble(): void {
@@ -304,8 +437,8 @@ export class SkillyWidget implements CursorHost {
       this.bubbleElement.style.transform = "";
       return;
     }
-    const bubbleWidth = Math.min(320, window.innerWidth - 32);
-    const bubbleHeight = this.bubbleElement.offsetHeight || 156;
+    const bubbleWidth = Math.min(380, window.innerWidth - 32);
+    const bubbleHeight = this.bubbleElement.offsetHeight || 280;
     const offsetX = 22;
     const offsetY = 6;
     const edge = 16;

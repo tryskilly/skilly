@@ -38,6 +38,8 @@ describe("buildCompanionInstructions", () => {
     expect(instructions).toContain("Teach project setup.");
     expect(instructions).toContain("PAGE ELEMENTS");
     expect(instructions).toContain("[POINT:<id>:<short label>]");
+    expect(instructions).toContain("update_guidance_progress");
+    expect(instructions).toContain("never claim that the visitor completed");
   });
 
   test("omits the skill section when no skill content is provided", () => {

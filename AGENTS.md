@@ -241,12 +241,13 @@ The embeddable companion: a **vanilla-TS + Shadow-DOM** widget (no framework —
 | File | Purpose |
 |------|---------|
 | `sdk/browser-core/` | Browser-generic library (vanilla-TS, no framework) with digest (DOM analysis), pointing (element targeting), actions (UI interaction), prompt composition, realtime session lifecycle, and wasm loader. Shared with the Skilly browser extension. Consumed by `@skilly/web`, exports typed interfaces for digest queries, pointing resolution, action definitions, and realtime event types. See `sdk/browser-core/README.md`. |
-| `sdk/web/src/index.ts` | Public `Skilly` API (`init`/`start`/`on`/`identify`/`destroy`) + auto-init from `data-skilly-*` script attrs + typed event emitter. |
-| `sdk/web/src/widget.ts` | Shadow-DOM visitor UI: premium amber launcher, consent/connection/listening/speaking/pointing/error/quota/mic-denied states, typed-input fallback, response bubble, action confirmation, and cursor positioning. |
+| `sdk/web/src/index.ts` | Public `Skilly` API (`init`/`start`/`on`/`identify`/`destroy`) + auto-init from `data-skilly-*` script attrs + typed event emitter. Coordinates text-only session history and explicit guided-task progress. |
+| `sdk/web/src/widget.ts` | Shadow-DOM visitor UI: premium amber launcher, consent/connection/listening/speaking/pointing/error/quota/mic-denied states, typed-input fallback, response bubble, bounded session history, guided-step list, action confirmation, and cursor positioning. |
+| `sdk/web/src/sessionState.ts` | Validated, bounded text-only conversation and guided-progress state persisted to current-tab `sessionStorage` with an in-memory privacy-mode fallback. |
 | `sdk/web/src/token.ts` | **8.3** Backend client: fetch ephemeral Realtime token + tenant SKILL.md from `apps/web-backend`. |
 | `sdk/web/demo/index.html` | Demo host page (`bun run demo`). |
 
-> Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. The visitor sees an in-widget microphone explanation before the browser permission prompt; typed questions use the same Realtime data channel and response flow as voice. Validated: `bun test` 13/13 (token + safe visitor state presentation), browser-core `bun test` 20/20, `tsc` + `bun run build` clean; Chrome confirms the widget mounts, consent precedes connection, errors remain visitor-safe, Escape closes the panel, and the cursor lands on a `data-skilly` element. The live WebRTC↔OpenAI audio loop still needs a real backend token + mic for end-to-end validation. `dist/`, `node_modules/`, `generated/` are gitignored.
+> Live mode (8.3) activates when `backendUrl` is set; otherwise a simulated turn lifecycle keeps the embed demonstrable key-free. The visitor sees an in-widget microphone explanation before the browser permission prompt; typed questions use the same Realtime data channel and response flow as voice. Voice/typed transcripts and assistant text are retained only in bounded current-tab session history. Multi-step progress is supplied through the validated `update_guidance_progress` Realtime tool; it is never inferred from message count. The live WebRTC↔OpenAI audio loop still needs a real backend token + mic for end-to-end validation. `dist/`, `node_modules/`, `generated/` are gitignored.
 
 #### Web SDK Session Lifecycle Protection
 

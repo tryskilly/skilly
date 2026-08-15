@@ -17,6 +17,11 @@ import { SkillyWidget } from "./widget.js";
 import { fetchSessionToken, fetchTenantSkill, reportSessionUsage } from "./token.js";
 import { presentWidgetError, QUOTA_DISABLED_NOTICE } from "./widgetState.js";
 import {
+  parseGuidanceProgress,
+  WidgetSessionStore,
+  type SessionStorageAdapter,
+} from "./sessionState.js";
+import {
   loadCore,
   buildDomDigest,
   type DomDigest,
@@ -27,6 +32,7 @@ import {
   buildCompanionInstructions,
   RealtimeSession,
   type RealtimeActionToolCall,
+  type RealtimeGuidanceProgressToolCall,
   type RealtimeState,
   ActionExecutor,
   parseActionRequest,
@@ -40,6 +46,14 @@ import type {
 } from "./types.js";
 
 const DEFAULT_ACCENT = "#F59E0B";
+
+function getSessionStorage(): SessionStorageAdapter | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 class SkillyController {
   private config: SkillyConfig | null = null;
@@ -68,6 +82,8 @@ class SkillyController {
   private pendingLiveGoal: string | undefined;
   private lastLiveGoal: string | undefined;
   private identifiedEndUser: { id: string; traits?: Record<string, unknown> } | null = null;
+  private sessionStore: WidgetSessionStore | null = null;
+  private activeAssistantMessageId: string | null = null;
 
   init(config: SkillyConfig): void {
     if (this.widget) {
@@ -96,7 +112,10 @@ class SkillyController {
     this.widget.onConsentAccepted = () => this.acceptMicrophoneConsent();
     this.widget.onConsentDeclined = () => this.declineMicrophoneConsent();
     this.widget.onTextSubmitted = (text) => this.submitTypedQuestion(text);
+    this.widget.onHistoryCleared = () => this.clearSessionHistory();
     this.widget.mount();
+    this.sessionStore = new WidgetSessionStore(getSessionStorage(), config.key, config.skill);
+    this.renderSessionState();
     this.pointing = new PointingEngine(this.widget);
 
     // Begin loading the shared WASM core in the background (optional).
@@ -203,6 +222,14 @@ class SkillyController {
 
     const { cleanedText, points } = parsePointTags(simulatedResponse);
     this.widget.setBubbleText(cleanedText);
+    if (goal) {
+      this.sessionStore?.appendMessage("user", goal);
+    }
+    this.sessionStore?.upsertAssistantMessage(
+      `simulated-${simulatedTurnGeneration}`,
+      cleanedText,
+    );
+    this.renderSessionState();
 
     const firstPoint = points[0];
     if (firstPoint) {
@@ -286,9 +313,11 @@ class SkillyController {
               this.onRealtimeState(state);
             }
           },
-          onUserTranscript: () => {
+          onUserTranscript: (text) => {
             if (generation === this.liveSessionGeneration) {
               actionExecutor?.resetTurnLimit();
+              this.sessionStore?.appendMessage("user", text);
+              this.renderSessionState();
             }
           },
           onResponseCreated: () => {
@@ -297,6 +326,7 @@ class SkillyController {
             }
             this.lastPointedTarget = null;
             this.liveAudioPlaying = false;
+            this.activeAssistantMessageId = `assistant-${generation}-${Date.now()}`;
             this.pointing?.clear();
             this.widget?.setState("thinking");
             this.widget?.setBubbleText("Thinking…");
@@ -322,9 +352,19 @@ class SkillyController {
               this.onAssistantText(text, generation);
             }
           },
+          onResponseDone: () => {
+            if (generation === this.liveSessionGeneration) {
+              this.activeAssistantMessageId = null;
+            }
+          },
           onActionToolCall: (call) => {
             if (generation === this.liveSessionGeneration) {
               void this.onActionToolCall(call, generation, realtimeSession, actionExecutor);
+            }
+          },
+          onGuidanceProgressToolCall: (call) => {
+            if (generation === this.liveSessionGeneration) {
+              this.onGuidanceProgressToolCall(call, generation, realtimeSession);
             }
           },
           onError: (message, cause) => {
@@ -375,7 +415,11 @@ class SkillyController {
     }
     this.widget.setState("speaking");
     const { cleanedText, points } = parsePointTags(fullText);
-    this.widget.setBubbleText(cleanedText);
+    this.widget.setBubbleText("");
+    if (cleanedText && this.activeAssistantMessageId) {
+      this.sessionStore?.upsertAssistantMessage(this.activeAssistantMessageId, cleanedText);
+      this.renderSessionState();
+    }
 
     const point = points[0] ?? inferPointFromText(cleanedText, this.currentDigest);
     if (point && point.target !== this.lastPointedTarget) {
@@ -395,6 +439,29 @@ class SkillyController {
           }
         });
     }
+  }
+
+  private onGuidanceProgressToolCall(
+    call: RealtimeGuidanceProgressToolCall,
+    generation: number,
+    realtimeSession: RealtimeSession,
+  ): void {
+    if (!this.liveActive || generation !== this.liveSessionGeneration || this.realtimeSession !== realtimeSession) {
+      return;
+    }
+    let guidance = null;
+    try {
+      guidance = parseGuidanceProgress(JSON.parse(call.argumentsJson));
+    } catch {
+      guidance = null;
+    }
+    if (!guidance) {
+      realtimeSession.sendFunctionCallOutput(call.callId, JSON.stringify({ ok: false, error: "invalid_progress" }));
+      return;
+    }
+    this.sessionStore?.setGuidanceProgress(guidance);
+    this.renderSessionState();
+    realtimeSession.sendFunctionCallOutput(call.callId, JSON.stringify({ ok: true }));
   }
 
   private async onActionToolCall(
@@ -520,8 +587,22 @@ class SkillyController {
       return;
     }
     this.actionExecutor?.resetTurnLimit();
+    this.sessionStore?.appendMessage("user", text);
+    this.renderSessionState();
     this.widget?.setState("thinking");
     this.widget?.setBubbleText("Thinking…");
+  }
+
+  private renderSessionState(): void {
+    const snapshot = this.sessionStore?.snapshot();
+    this.widget?.setConversation(snapshot?.messages ?? []);
+    this.widget?.setGuidanceProgress(snapshot?.guidance ?? null);
+  }
+
+  private clearSessionHistory(): void {
+    this.sessionStore?.clear();
+    this.activeAssistantMessageId = null;
+    this.renderSessionState();
   }
 
   private closeWidget(): void {
@@ -585,6 +666,8 @@ class SkillyController {
     this.widget = null;
     this.config = null;
     this.identifiedEndUser = null;
+    this.sessionStore = null;
+    this.activeAssistantMessageId = null;
     this.handlers.clear();
     this.turnInProgress = false;
     this.simulatedTurnGeneration += 1;

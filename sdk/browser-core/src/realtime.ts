@@ -18,12 +18,16 @@ export interface RealtimeCallbacks {
   onAssistantText: (fullText: string) => void;
   /** A new model response started; used to reset per-turn client-side guards. */
   onResponseCreated?: () => void;
+  /** The current response finished, including tool-only responses. */
+  onResponseDone?: () => void;
   /** WebRTC began playing the assistant's audio response. */
   onAudioPlaybackStarted?: () => void;
   /** WebRTC drained or cleared the assistant's audio response. */
   onAudioPlaybackEnded?: () => void;
   /** The model asked the client to execute a local action tool. */
   onActionToolCall?: (call: RealtimeActionToolCall) => void;
+  /** The model supplied a real multi-step plan or advanced its current step. */
+  onGuidanceProgressToolCall?: (call: RealtimeGuidanceProgressToolCall) => void;
   onError: (message: string, cause?: unknown) => void;
 }
 
@@ -40,6 +44,12 @@ export interface RealtimeConfig {
 export interface RealtimeActionToolCall {
   callId: string;
   name: "perform_action";
+  argumentsJson: string;
+}
+
+export interface RealtimeGuidanceProgressToolCall {
+  callId: string;
+  name: "update_guidance_progress";
   argumentsJson: string;
 }
 
@@ -62,6 +72,29 @@ export const PERFORM_ACTION_TOOL = {
   },
 } as const;
 
+export const UPDATE_GUIDANCE_PROGRESS_TOOL = {
+  type: "function",
+  name: "update_guidance_progress",
+  description:
+    "Show or update a guided task in the Skilly widget. Use only for a genuine multi-step task. Repeat the full stable plan on every update, and advance current_step only after the visitor confirms or completes the prior step.",
+  parameters: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Short visitor-facing task name" },
+      steps: {
+        type: "array",
+        description: "Two to six short, concrete steps in their stable order",
+        minItems: 2,
+        maxItems: 6,
+        items: { type: "string" },
+      },
+      current_step: { type: "integer", description: "One-based current step" },
+      status: { type: "string", enum: ["in_progress", "completed"] },
+    },
+    required: ["title", "steps", "current_step", "status"],
+  },
+} as const;
+
 export function buildSessionUpdatePayload(config: Pick<RealtimeConfig, "model" | "instructions" | "actions">): object {
   const session: Record<string, unknown> = {
     type: "realtime",
@@ -78,9 +111,9 @@ export function buildSessionUpdatePayload(config: Pick<RealtimeConfig, "model" |
       },
     },
   };
-  if (config.actions) {
-    session.tools = [PERFORM_ACTION_TOOL];
-  }
+  session.tools = config.actions
+    ? [UPDATE_GUIDANCE_PROGRESS_TOOL, PERFORM_ACTION_TOOL]
+    : [UPDATE_GUIDANCE_PROGRESS_TOOL];
   return { type: "session.update", session };
 }
 
@@ -283,10 +316,11 @@ export class RealtimeSession {
         }
         break;
       case "response.function_call_arguments.done":
-        this.forwardActionToolCall(event);
+        this.forwardFunctionToolCall(event);
         break;
       case "response.done":
         this.forwardDoneFunctionCallItems(event.response?.output ?? []);
+        this.config.callbacks.onResponseDone?.();
         break;
       case "error":
         this.config.callbacks.onError(event.error?.message ?? "realtime error");
@@ -296,29 +330,37 @@ export class RealtimeSession {
     }
   }
 
-  private forwardActionToolCall(event: { call_id?: string; name?: string; arguments?: string }): void {
-    if (event.name !== "perform_action" || !event.call_id || typeof event.arguments !== "string") {
+  private forwardFunctionToolCall(event: { call_id?: string; name?: string; arguments?: string }): void {
+    if (!event.call_id || typeof event.arguments !== "string") {
       return;
     }
     if (this.handledToolCallIds.has(event.call_id)) {
       return;
     }
     this.handledToolCallIds.add(event.call_id);
-    this.config.callbacks.onActionToolCall?.({
-      callId: event.call_id,
-      name: "perform_action",
-      argumentsJson: event.arguments,
-    });
+    if (event.name === "perform_action") {
+      this.config.callbacks.onActionToolCall?.({
+        callId: event.call_id,
+        name: "perform_action",
+        argumentsJson: event.arguments,
+      });
+    } else if (event.name === "update_guidance_progress") {
+      this.config.callbacks.onGuidanceProgressToolCall?.({
+        callId: event.call_id,
+        name: "update_guidance_progress",
+        argumentsJson: event.arguments,
+      });
+    }
   }
 
   private forwardDoneFunctionCallItems(items: Array<Record<string, unknown>>): void {
     for (const item of items) {
-      if (item.type !== "function_call" || item.name !== "perform_action") {
+      if (item.type !== "function_call") {
         continue;
       }
-      this.forwardActionToolCall({
+      this.forwardFunctionToolCall({
         call_id: typeof item.call_id === "string" ? item.call_id : undefined,
-        name: "perform_action",
+        name: typeof item.name === "string" ? item.name : undefined,
         arguments: typeof item.arguments === "string" ? item.arguments : undefined,
       });
     }

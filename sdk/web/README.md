@@ -8,7 +8,7 @@ install it on their own web app; their visitors get the companion. See
 This package consumes the shared Rust core compiled to WASM (`core/web-sdk`,
 output in `sdk/web/generated/`).
 
-## Status — Phases 8.1 → 8.3
+## Status — live embed
 
 What's here:
 - **8.1** `@skilly/web` package: Shadow-DOM widget (launcher, response bubble,
@@ -22,9 +22,14 @@ What's here:
   (`prompt.ts`), mic up / model voice down (`realtime.ts`), and the model's
   `[POINT]` tags fed straight into the pointing engine. Without `backendUrl` the
   widget falls back to a simulated turn lifecycle (so the demo runs key-free).
-
-Layered on next: **8.5** site-owner dashboard · **8.6** Polar billing +
-session-seconds metering.
+- **Visitor continuity**: typed questions, final voice transcripts, and streamed
+  Skilly answers are kept as text-only session history. The history is bounded,
+  clearable, and stored in `sessionStorage`, so it survives closing/reopening the
+  widget and a same-tab reload but is not shared across tabs or sent to analytics.
+- **Honest guided progress**: the Realtime model can call
+  `update_guidance_progress` with a stable two-to-six-step plan. The widget shows
+  every step as complete/current/upcoming and does not infer progress from message
+  count. One-off answers do not show a progress card.
 
 > The live WebRTC↔OpenAI audio loop needs a real `OPENAI_API_KEY` in the backend
 > + a mic, so it's validated by build + a live session, not headless tests. The
@@ -57,6 +62,18 @@ on("complete", () => console.log("turn done"));
 | `on(event, cb)` | Subscribe to `turn` / `point` / `complete` / `error`. Returns an unsubscribe fn. |
 | `identify(id, traits?)` | Associate the end-user (analytics — wired in 8.4+). |
 | `destroy()` | Tear down the widget. |
+
+## Visitor history and progress behavior
+
+- The session-history button appears after the first user or assistant message.
+- **Clear** removes both the current-tab transcript and its guided-task progress.
+- Only text is retained. Microphone audio, generated audio, page digests, and UI
+  action payloads are not written to session history.
+- Progress is model-authored through a validated tool payload. `current_step` is
+  one-based, `steps` must contain two to six non-empty labels, and `status` must
+  be `in_progress` or `completed`.
+- The prompt requires confirmation or observation before advancing a step and
+  forbids claiming completion without evidence.
 
 ## Develop
 
