@@ -5,7 +5,14 @@ import type { CursorHost } from "@skilly/browser-core";
 import { WIDGET_STYLES } from "./styles.js";
 import type { ConversationMessage, GuidanceProgress } from "./sessionState.js";
 import type { SkillyState } from "./types.js";
-import type { WidgetNotice } from "./widgetState.js";
+import {
+  clampWidgetPanelPosition,
+  parseWidgetPanelPosition,
+  positionPointerCaption,
+  shouldRevealWidgetHistory,
+  type WidgetNotice,
+  type WidgetPoint,
+} from "./widgetState.js";
 
 const SKILLY_MARK_ICON = /* html */ `
 <svg class="skilly-launcher-mark" viewBox="0 0 1024 1024" aria-hidden="true">
@@ -22,7 +29,15 @@ const HISTORY_ICON = /* html */ `
   <path d="M5 5.5h10M5 10h10M5 14.5h7" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/>
 </svg>`;
 
+const RESET_POSITION_ICON = /* html */ `
+<svg viewBox="0 0 20 20" aria-hidden="true">
+  <path d="M6 6h8v8H6zM4 9V4h5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/>
+</svg>`;
+
+const PANEL_POSITION_STORAGE_KEY = "skilly:web:panel-position:v1";
+
 interface WidgetOptions {
+  /** @deprecated The conversation panel is now fixed and draggable; spoken captions follow the pointer. */
   bubbleMode?: "follow" | "fixed";
   supportsTextInput?: boolean;
 }
@@ -46,8 +61,10 @@ export class SkillyWidget implements CursorHost {
   private launcherButton!: HTMLButtonElement;
   private launcherLabelElement!: HTMLDivElement;
   private bubbleElement!: HTMLDivElement;
+  private bubbleHeaderElement!: HTMLDivElement;
   private bubbleStatusElement!: HTMLSpanElement;
   private bubbleMessageElement!: HTMLDivElement;
+  private resetPositionButton!: HTMLButtonElement;
   private guidanceElement!: HTMLDivElement;
   private guidanceTitleElement!: HTMLDivElement;
   private guidanceSummaryElement!: HTMLSpanElement;
@@ -62,13 +79,16 @@ export class SkillyWidget implements CursorHost {
   private textFormElement!: HTMLFormElement;
   private textInputElement!: HTMLInputElement;
   private cursorElement!: HTMLDivElement;
+  private pointerCaptionElement!: HTMLDivElement;
   private confirmElement!: HTMLDivElement;
   private currentState: SkillyState = "idle";
   private historyVisible = false;
   private conversationMessageCount = 0;
+  private cursorVisible = false;
+  private customPanelPosition: WidgetPoint | null = null;
+  private panelDragState: { pointerId: number; offsetX: number; offsetY: number } | null = null;
   private pendingConfirm: { resolve: (confirmed: boolean) => void; timeoutId: number } | null = null;
   private idleLauncherLabel: string;
-  private readonly bubbleMode: "follow" | "fixed";
   private readonly supportsTextInput: boolean;
   private skillyX = window.innerWidth - 48;
   private skillyY = window.innerHeight - 48;
@@ -83,7 +103,6 @@ export class SkillyWidget implements CursorHost {
 
   constructor(accentColor: string, launcherLabel?: string, options: WidgetOptions = {}) {
     this.idleLauncherLabel = launcherLabel?.trim() || "Ask Skilly";
-    this.bubbleMode = options.bubbleMode ?? "follow";
     this.supportsTextInput = options.supportsTextInput === true;
     this.hostElement = document.createElement("div");
     this.hostElement.setAttribute("data-skilly-widget", "");
@@ -103,6 +122,8 @@ export class SkillyWidget implements CursorHost {
   mount(): void {
     document.body.appendChild(this.hostElement);
     window.addEventListener("keydown", this.handleWindowKeyDown);
+    window.addEventListener("resize", this.handleWindowResize);
+    this.restorePanelPosition();
   }
 
   private renderLauncher(): void {
@@ -134,16 +155,20 @@ export class SkillyWidget implements CursorHost {
     this.bubbleElement.hidden = true;
     this.bubbleElement.setAttribute("data-visible", "false");
     this.bubbleElement.setAttribute("data-state", "idle");
-    this.bubbleElement.setAttribute("data-placement", this.bubbleMode);
+    this.bubbleElement.setAttribute("data-placement", "fixed");
+    this.bubbleElement.setAttribute("data-position", "default");
     this.bubbleElement.setAttribute("role", "status");
     this.bubbleElement.setAttribute("aria-live", "polite");
     this.bubbleElement.innerHTML = /* html */ `
-      <div class="skilly-bubble-header">
+      <div class="skilly-bubble-header" title="Drag to move Skilly">
         <div class="skilly-status-lockup">
           <span class="skilly-status-dot" aria-hidden="true"></span>
           <span class="skilly-bubble-status">Ready</span>
         </div>
         <div class="skilly-header-actions">
+          <button class="skilly-position-reset" type="button" aria-label="Reset Skilly panel position" title="Reset panel position" hidden>
+            ${RESET_POSITION_ICON}
+          </button>
           <button class="skilly-history-toggle" type="button" aria-label="Show session history" aria-pressed="false" hidden>
             ${HISTORY_ICON}<span class="skilly-history-count">0</span>
           </button>
@@ -186,8 +211,10 @@ export class SkillyWidget implements CursorHost {
       <a class="skilly-attribution" href="https://tryskilly.app?utm_source=skilly_widget&utm_medium=embedded_widget&utm_campaign=powered_by" target="_blank" rel="noopener noreferrer">Powered by Skilly</a>
     `;
 
+    this.bubbleHeaderElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-bubble-header")!;
     this.bubbleStatusElement = this.bubbleElement.querySelector<HTMLSpanElement>(".skilly-bubble-status")!;
     this.bubbleMessageElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-bubble-message")!;
+    this.resetPositionButton = this.bubbleElement.querySelector<HTMLButtonElement>(".skilly-position-reset")!;
     this.guidanceElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-guidance")!;
     this.guidanceTitleElement = this.bubbleElement.querySelector<HTMLDivElement>(".skilly-guidance-title")!;
     this.guidanceSummaryElement = this.bubbleElement.querySelector<HTMLSpanElement>(".skilly-guidance-summary")!;
@@ -216,9 +243,14 @@ export class SkillyWidget implements CursorHost {
       this.onCloseRequested?.(),
     );
     this.historyToggleButton.addEventListener("click", () => this.setHistoryVisible(!this.historyVisible));
+    this.resetPositionButton.addEventListener("click", () => this.resetPanelPosition());
     this.bubbleElement.querySelector<HTMLButtonElement>(".skilly-history-clear")?.addEventListener("click", () =>
       this.onHistoryCleared?.(),
     );
+    this.bubbleHeaderElement.addEventListener("pointerdown", this.handlePanelPointerDown);
+    this.bubbleHeaderElement.addEventListener("pointermove", this.handlePanelPointerMove);
+    this.bubbleHeaderElement.addEventListener("pointerup", this.handlePanelPointerUp);
+    this.bubbleHeaderElement.addEventListener("pointercancel", this.handlePanelPointerUp);
     this.textFormElement.addEventListener("submit", (event) => {
       event.preventDefault();
       const text = this.textInputElement.value.trim();
@@ -238,6 +270,14 @@ export class SkillyWidget implements CursorHost {
     this.cursorElement.setAttribute("data-visible", "false");
     this.cursorElement.innerHTML = SKILLY_MARK_ICON;
     this.shadowRoot.appendChild(this.cursorElement);
+
+    this.pointerCaptionElement = document.createElement("div");
+    this.pointerCaptionElement.className = "skilly-pointer-caption";
+    this.pointerCaptionElement.hidden = true;
+    this.pointerCaptionElement.setAttribute("data-visible", "false");
+    this.pointerCaptionElement.setAttribute("role", "status");
+    this.pointerCaptionElement.setAttribute("aria-live", "polite");
+    this.shadowRoot.appendChild(this.pointerCaptionElement);
   }
 
   private renderConfirmChip(): void {
@@ -283,8 +323,11 @@ export class SkillyWidget implements CursorHost {
     );
 
     if (state === "idle") {
-      this.bubbleElement.setAttribute("data-visible", "false");
-      this.bubbleElement.hidden = true;
+      if (this.conversationMessageCount > 0) {
+        this.showBubble();
+      } else {
+        this.hidePanel();
+      }
     } else {
       this.showBubble();
     }
@@ -320,14 +363,28 @@ export class SkillyWidget implements CursorHost {
     this.bubbleMessageElement.textContent = text;
     if (text) {
       this.showBubble();
-    } else if (this.currentState === "idle") {
-      this.bubbleElement.setAttribute("data-visible", "false");
-      this.bubbleElement.hidden = true;
+    } else if (this.currentState === "idle" && this.conversationMessageCount === 0) {
+      this.hidePanel();
     }
   }
 
+  setPointerCaption(text: string): void {
+    this.pointerCaptionElement.textContent = text;
+    this.updatePointerCaptionVisibility();
+  }
+
+  hidePanel(): void {
+    this.bubbleElement.setAttribute("data-visible", "false");
+    this.bubbleElement.hidden = true;
+    this.setPointerCaption("");
+  }
+
   setConversation(messages: ConversationMessage[]): void {
-    const shouldRevealFirstMessage = this.conversationMessageCount === 0 && messages.length > 0;
+    const shouldRevealFirstMessage = shouldRevealWidgetHistory(
+      this.conversationMessageCount,
+      messages.length,
+      window.innerWidth,
+    );
     this.conversationMessageCount = messages.length;
     this.historyToggleButton.hidden = messages.length === 0;
     this.historyCountElement.textContent = String(messages.length);
@@ -352,6 +409,9 @@ export class SkillyWidget implements CursorHost {
 
     if (messages.length === 0) {
       this.setHistoryVisible(false);
+      if (this.currentState === "idle") {
+        this.hidePanel();
+      }
       return;
     }
     if (shouldRevealFirstMessage) {
@@ -424,40 +484,147 @@ export class SkillyWidget implements CursorHost {
   setSkillyPosition(x: number, y: number): void {
     this.skillyX = x;
     this.skillyY = y;
-    if (this.bubbleElement.getAttribute("data-visible") === "true") {
-      this.repositionBubble();
-    }
+    this.repositionPointerCaption();
     if (this.confirmElement.getAttribute("data-visible") === "true") {
       this.repositionConfirmChip();
     }
   }
 
   private repositionBubble(): void {
-    if (this.bubbleMode === "fixed") {
-      this.bubbleElement.style.transform = "";
+    this.bubbleElement.style.transform = "";
+    if (!this.customPanelPosition) {
       return;
     }
-    const bubbleWidth = Math.min(380, window.innerWidth - 32);
-    const bubbleHeight = this.bubbleElement.offsetHeight || 280;
-    const offsetX = 22;
-    const offsetY = 6;
-    const edge = 16;
-    let x = this.skillyX + offsetX;
-    let y = this.skillyY + offsetY;
+    this.applyPanelPosition(this.customPanelPosition, false);
+  }
 
-    if (x + bubbleWidth > window.innerWidth - edge) {
-      x = this.skillyX - offsetX - bubbleWidth;
+  private applyPanelPosition(position: WidgetPoint, shouldPersist: boolean): void {
+    const panelPosition = clampWidgetPanelPosition(
+      position,
+      {
+        width: this.bubbleElement.offsetWidth || Math.min(380, window.innerWidth - 32),
+        height: this.bubbleElement.offsetHeight || 280,
+      },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    this.customPanelPosition = panelPosition;
+    this.bubbleElement.style.left = `${panelPosition.x}px`;
+    this.bubbleElement.style.top = `${panelPosition.y}px`;
+    this.bubbleElement.style.right = "auto";
+    this.bubbleElement.style.bottom = "auto";
+    this.bubbleElement.setAttribute("data-position", "custom");
+    this.resetPositionButton.hidden = false;
+    if (shouldPersist) {
+      this.persistPanelPosition(panelPosition);
     }
-    if (y + bubbleHeight > window.innerHeight - edge) {
-      y = this.skillyY - offsetY - bubbleHeight;
+  }
+
+  private restorePanelPosition(): void {
+    let storedPosition: WidgetPoint | null = null;
+    try {
+      storedPosition = parseWidgetPanelPosition(window.localStorage.getItem(PANEL_POSITION_STORAGE_KEY));
+    } catch {
+      storedPosition = null;
     }
-    x = Math.max(edge, Math.min(window.innerWidth - bubbleWidth - edge, x));
-    y = Math.max(edge, Math.min(window.innerHeight - bubbleHeight - edge, y));
-    this.bubbleElement.style.transform = `translate(${x}px, ${y}px)`;
+    if (storedPosition) {
+      this.applyPanelPosition(storedPosition, false);
+    }
+  }
+
+  private persistPanelPosition(position: WidgetPoint): void {
+    try {
+      window.localStorage.setItem(PANEL_POSITION_STORAGE_KEY, JSON.stringify(position));
+    } catch {
+      // Embeds can run in storage-restricted contexts; dragging still works for this page.
+    }
+  }
+
+  private resetPanelPosition(): void {
+    this.customPanelPosition = null;
+    this.bubbleElement.style.left = "";
+    this.bubbleElement.style.top = "";
+    this.bubbleElement.style.right = "";
+    this.bubbleElement.style.bottom = "";
+    this.bubbleElement.setAttribute("data-position", "default");
+    this.resetPositionButton.hidden = true;
+    try {
+      window.localStorage.removeItem(PANEL_POSITION_STORAGE_KEY);
+    } catch {
+      // Ignore storage restrictions; the visual reset already succeeded.
+    }
+  }
+
+  private handlePanelPointerDown = (event: PointerEvent): void => {
+    if (event.button !== 0 || event.target instanceof Element && event.target.closest("button, a, input")) {
+      return;
+    }
+    const panelBounds = this.bubbleElement.getBoundingClientRect();
+    this.panelDragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - panelBounds.left,
+      offsetY: event.clientY - panelBounds.top,
+    };
+    this.bubbleElement.setAttribute("data-dragging", "true");
+    this.bubbleHeaderElement.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  private handlePanelPointerMove = (event: PointerEvent): void => {
+    if (!this.panelDragState || this.panelDragState.pointerId !== event.pointerId) {
+      return;
+    }
+    this.applyPanelPosition(
+      {
+        x: event.clientX - this.panelDragState.offsetX,
+        y: event.clientY - this.panelDragState.offsetY,
+      },
+      false,
+    );
+  };
+
+  private handlePanelPointerUp = (event: PointerEvent): void => {
+    if (!this.panelDragState || this.panelDragState.pointerId !== event.pointerId) {
+      return;
+    }
+    this.panelDragState = null;
+    this.bubbleElement.removeAttribute("data-dragging");
+    if (this.bubbleHeaderElement.hasPointerCapture(event.pointerId)) {
+      this.bubbleHeaderElement.releasePointerCapture(event.pointerId);
+    }
+    if (this.customPanelPosition) {
+      this.persistPanelPosition(this.customPanelPosition);
+    }
+  };
+
+  private updatePointerCaptionVisibility(): void {
+    const captionHasText = this.pointerCaptionElement.textContent?.trim().length !== 0;
+    const captionIsVisible = this.cursorVisible && captionHasText;
+    this.pointerCaptionElement.hidden = !captionIsVisible;
+    this.pointerCaptionElement.setAttribute("data-visible", captionIsVisible ? "true" : "false");
+    if (captionIsVisible) {
+      this.repositionPointerCaption();
+    }
+  }
+
+  private repositionPointerCaption(): void {
+    if (this.pointerCaptionElement.hidden) {
+      return;
+    }
+    const captionPosition = positionPointerCaption(
+      { x: this.skillyX, y: this.skillyY },
+      {
+        width: this.pointerCaptionElement.offsetWidth || Math.min(280, window.innerWidth - 32),
+        height: this.pointerCaptionElement.offsetHeight || 96,
+      },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    this.pointerCaptionElement.style.transform = `translate(${captionPosition.x}px, ${captionPosition.y}px)`;
   }
 
   showCursor(): void {
+    this.cursorVisible = true;
     this.cursorElement.setAttribute("data-visible", "true");
+    this.updatePointerCaptionVisibility();
   }
 
   setCursorPosition(viewportX: number, viewportY: number): void {
@@ -466,7 +633,9 @@ export class SkillyWidget implements CursorHost {
   }
 
   hideCursor(): void {
+    this.cursorVisible = false;
     this.cursorElement.setAttribute("data-visible", "false");
+    this.updatePointerCaptionVisibility();
   }
 
   showActionConfirmation(label: string): Promise<boolean> {
@@ -531,8 +700,17 @@ export class SkillyWidget implements CursorHost {
     }
   };
 
+  private handleWindowResize = (): void => {
+    this.repositionBubble();
+    this.repositionPointerCaption();
+    if (this.confirmElement.getAttribute("data-visible") === "true") {
+      this.repositionConfirmChip();
+    }
+  };
+
   destroy(): void {
     window.removeEventListener("keydown", this.handleWindowKeyDown);
+    window.removeEventListener("resize", this.handleWindowResize);
     this.cancelActionConfirmation();
     this.hostElement.remove();
   }

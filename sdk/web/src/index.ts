@@ -167,6 +167,7 @@ class SkillyController {
 
     this.widget.setState("listening");
     this.widget.setBubbleText("Listening…");
+    this.widget.setPointerCaption("");
 
     window.setTimeout(() => {
       if (simulatedTurnGeneration !== this.simulatedTurnGeneration) {
@@ -188,6 +189,7 @@ class SkillyController {
       }
       this.widget?.setState("idle");
       this.widget?.setBubbleText("");
+      this.widget?.setPointerCaption("");
       this.pointing?.clear();
       this.turnInProgress = false;
       this.emit("complete", {});
@@ -222,6 +224,7 @@ class SkillyController {
 
     const { cleanedText, points } = parsePointTags(simulatedResponse);
     this.widget.setBubbleText(cleanedText);
+    this.widget.setPointerCaption(cleanedText);
     if (goal) {
       this.sessionStore?.appendMessage("user", goal);
     }
@@ -272,6 +275,7 @@ class SkillyController {
     this.emit("turn", { goal });
     this.widget.setState("connecting");
     this.widget.setBubbleText("Getting Skilly ready…");
+    this.widget.setPointerCaption("");
 
     try {
       // Capture the page + fetch the tenant's token and skill in parallel.
@@ -330,6 +334,7 @@ class SkillyController {
             this.pointing?.clear();
             this.widget?.setState("thinking");
             this.widget?.setBubbleText("Thinking…");
+            this.widget?.setPointerCaption("");
           },
           onAudioPlaybackStarted: () => {
             if (generation !== this.liveSessionGeneration) {
@@ -416,6 +421,7 @@ class SkillyController {
     this.widget.setState("speaking");
     const { cleanedText, points } = parsePointTags(fullText);
     this.widget.setBubbleText("");
+    this.widget.setPointerCaption(cleanedText);
     if (cleanedText && this.activeAssistantMessageId) {
       this.sessionStore?.upsertAssistantMessage(this.activeAssistantMessageId, cleanedText);
       this.renderSessionState();
@@ -521,6 +527,7 @@ class SkillyController {
     if (resetWidget) {
       this.widget?.setState("idle");
       this.widget?.setBubbleText("");
+      this.widget?.setPointerCaption("");
       this.widget?.focusLauncher();
     }
 
@@ -571,6 +578,7 @@ class SkillyController {
   private declineMicrophoneConsent(): void {
     this.pendingLiveGoal = undefined;
     this.widget?.setState("idle");
+    this.widget?.hidePanel();
     this.widget?.focusLauncher();
   }
 
@@ -591,6 +599,7 @@ class SkillyController {
     this.renderSessionState();
     this.widget?.setState("thinking");
     this.widget?.setBubbleText("Thinking…");
+    this.widget?.setPointerCaption("");
   }
 
   private renderSessionState(): void {
@@ -609,6 +618,7 @@ class SkillyController {
     this.pendingLiveGoal = undefined;
     if (this.liveActive || this.realtimeSession) {
       this.stopLiveSession();
+      this.widget?.hidePanel();
       return;
     }
     const simulatedTurnWasActive = this.turnInProgress;
@@ -617,6 +627,7 @@ class SkillyController {
     this.pointing?.clear();
     this.widget?.setState("idle");
     this.widget?.setBubbleText("");
+    this.widget?.hidePanel();
     this.widget?.focusLauncher();
     if (simulatedTurnWasActive) {
       this.emit("complete", {});

@@ -56,9 +56,9 @@ export interface SkillyConfig {
    */
   actions?: boolean;
   /**
-   * Controls where the response bubble appears when the cursor is pointing.
-   * "follow" (default) — bubble floats near the cursor tip after it lands.
-   * "fixed" — bubble stays above the launcher in the bottom-right corner.
+   * @deprecated The conversation panel now stays above the launcher and can be
+   * dragged by the visitor. Spoken captions follow the pointer independently.
+   * This option is accepted for embed compatibility but no longer changes the panel.
    */
   bubbleMode?: "follow" | "fixed";
   /** Visitor-facing microphone explanation shown before the browser permission prompt. */

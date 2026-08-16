@@ -65,7 +65,14 @@ on("complete", () => console.log("turn done"));
 
 ## Visitor history and progress behavior
 
+- The conversation panel opens above the bottom-right launcher. Visitors can
+  drag its header elsewhere; only the panel coordinates are retained locally.
+- The pointer remains independent of the panel. While Skilly points and speaks,
+  a compact caption follows the pointer and stays inside the viewport.
 - The session-history button appears after the first user or assistant message.
+- History opens automatically on wider screens and stays collapsed by default
+  on narrow screens so it does not cover the page or the pointer caption.
+- The panel remains available when a turn ends so the last answer does not disappear.
 - **Clear** removes both the current-tab transcript and its guided-task progress.
 - Only text is retained. Microphone audio, generated audio, page digests, and UI
   action payloads are not written to session history.

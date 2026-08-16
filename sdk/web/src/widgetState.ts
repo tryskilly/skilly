@@ -10,6 +10,93 @@ export interface WidgetNotice {
   retryable: boolean;
 }
 
+export interface WidgetPoint {
+  x: number;
+  y: number;
+}
+
+export interface WidgetSize {
+  width: number;
+  height: number;
+}
+
+const WIDGET_VIEWPORT_EDGE = 16;
+const WIDGET_DEFAULT_RIGHT = 20;
+const WIDGET_DEFAULT_BOTTOM = 92;
+const POINTER_CAPTION_OFFSET = 28;
+const MOBILE_HISTORY_COLLAPSE_WIDTH = 480;
+
+export function shouldRevealWidgetHistory(
+  previousMessageCount: number,
+  nextMessageCount: number,
+  viewportWidth: number,
+): boolean {
+  return previousMessageCount === 0 && nextMessageCount > 0 && viewportWidth > MOBILE_HISTORY_COLLAPSE_WIDTH;
+}
+
+export function clampWidgetPanelPosition(
+  position: WidgetPoint,
+  panelSize: WidgetSize,
+  viewportSize: WidgetSize,
+): WidgetPoint {
+  const maximumX = Math.max(WIDGET_VIEWPORT_EDGE, viewportSize.width - panelSize.width - WIDGET_VIEWPORT_EDGE);
+  const maximumY = Math.max(WIDGET_VIEWPORT_EDGE, viewportSize.height - panelSize.height - WIDGET_VIEWPORT_EDGE);
+  return {
+    x: Math.max(WIDGET_VIEWPORT_EDGE, Math.min(maximumX, position.x)),
+    y: Math.max(WIDGET_VIEWPORT_EDGE, Math.min(maximumY, position.y)),
+  };
+}
+
+export function defaultWidgetPanelPosition(
+  viewportSize: WidgetSize,
+  panelSize: WidgetSize,
+): WidgetPoint {
+  return clampWidgetPanelPosition(
+    {
+      x: viewportSize.width - panelSize.width - WIDGET_DEFAULT_RIGHT,
+      y: viewportSize.height - panelSize.height - WIDGET_DEFAULT_BOTTOM,
+    },
+    panelSize,
+    viewportSize,
+  );
+}
+
+export function parseWidgetPanelPosition(value: string | null): WidgetPoint | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as { x?: unknown; y?: unknown };
+    if (
+      typeof parsed.x !== "number" ||
+      typeof parsed.y !== "number" ||
+      !Number.isFinite(parsed.x) ||
+      !Number.isFinite(parsed.y)
+    ) {
+      return null;
+    }
+    return { x: parsed.x, y: parsed.y };
+  } catch {
+    return null;
+  }
+}
+
+export function positionPointerCaption(
+  pointerPosition: WidgetPoint,
+  captionSize: WidgetSize,
+  viewportSize: WidgetSize,
+): WidgetPoint {
+  let x = pointerPosition.x + POINTER_CAPTION_OFFSET;
+  let y = pointerPosition.y + POINTER_CAPTION_OFFSET;
+  if (x + captionSize.width > viewportSize.width - WIDGET_VIEWPORT_EDGE) {
+    x = pointerPosition.x - captionSize.width - POINTER_CAPTION_OFFSET;
+  }
+  if (y + captionSize.height > viewportSize.height - WIDGET_VIEWPORT_EDGE) {
+    y = pointerPosition.y - captionSize.height - POINTER_CAPTION_OFFSET;
+  }
+  return clampWidgetPanelPosition({ x, y }, captionSize, viewportSize);
+}
+
 const MICROPHONE_DENIED_NOTICE: WidgetNotice = {
   state: "micDenied",
   title: "Microphone access is off",
