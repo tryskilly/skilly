@@ -152,8 +152,13 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
-.skilly-header-actions { display: flex; align-items: center; gap: 4px; }
+.skilly-bubble[data-dragging="true"] { transition: none; }
+.skilly-bubble[data-dragging="true"] .skilly-bubble-header { cursor: grabbing; }
+.skilly-header-actions { display: flex; align-items: center; gap: 4px; cursor: default; }
 .skilly-status-lockup { display: flex; align-items: center; min-width: 0; gap: 8px; }
 .skilly-status-dot {
   width: 7px;
@@ -178,6 +183,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   white-space: nowrap;
 }
 .skilly-close,
+.skilly-position-reset,
 .skilly-history-toggle {
   width: 28px;
   height: 28px;
@@ -192,6 +198,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   cursor: pointer;
 }
 .skilly-close:hover,
+.skilly-position-reset:hover,
 .skilly-history-toggle:hover,
 .skilly-history-toggle[aria-pressed="true"] {
   border-color: var(--skilly-border);
@@ -199,6 +206,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   color: var(--skilly-text);
 }
 .skilly-close svg,
+.skilly-position-reset svg,
 .skilly-history-toggle svg { width: 18px; height: 18px; }
 .skilly-history-toggle { position: relative; }
 .skilly-history-count {
@@ -440,6 +448,30 @@ button:focus-visible, input:focus-visible, a:focus-visible {
 .skilly-cursor[data-visible="true"] { opacity: 1; }
 .skilly-cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.42)); }
 
+.skilly-pointer-caption {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: min(280px, calc(100vw - 32px));
+  max-height: min(180px, calc(100vh - 32px));
+  overflow: hidden;
+  border: 1px solid var(--skilly-border);
+  border-radius: 13px;
+  padding: 10px 12px;
+  background: rgba(23, 23, 25, 0.965);
+  color: #F4F4F5;
+  font: 550 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+  z-index: 2147483647;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  will-change: transform;
+}
+.skilly-pointer-caption[data-visible="true"] { opacity: 1; }
+
 .skilly-confirm {
   position: fixed;
   left: 0;
@@ -485,6 +517,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   .skilly-launcher-label,
   .skilly-bubble,
   .skilly-cursor,
+  .skilly-pointer-caption,
   .skilly-confirm { transition: none; }
   .skilly-launcher::after,
   .skilly-activity span { animation: none !important; }
