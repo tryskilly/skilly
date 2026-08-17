@@ -36,7 +36,7 @@ export async function createKeyAction(
   const tenantId = await getCurrentDashboardTenantId();
   try {
     const { rawKey } = await getRepo().createApiKey(tenantId, keyType);
-    void captureDashboardEvent("dashboard_key_created", {
+    await captureDashboardEvent("dashboard_key_created", {
       tenant_id: tenantId,
       key_type: keyType,
       source_surface: "web_dashboard",
@@ -44,7 +44,7 @@ export async function createKeyAction(
     revalidatePath("/dashboard", "layout");
     return { rawKey };
   } catch (error) {
-    void captureDashboardEvent("dashboard_key_create_failed", {
+    await captureDashboardEvent("dashboard_key_create_failed", {
       tenant_id: tenantId,
       key_type: keyType,
       error_message: error instanceof Error ? error.message.slice(0, 120) : "unknown",
@@ -60,7 +60,7 @@ export async function revokeKeyAction(formData: FormData): Promise<void> {
   const tenantId = await getCurrentDashboardTenantId();
   if (keyId) {
     await getRepo().revokeApiKey(tenantId, keyId);
-    void captureDashboardEvent("dashboard_key_revoked", {
+    await captureDashboardEvent("dashboard_key_revoked", {
       tenant_id: tenantId,
       source_surface: "web_dashboard",
     });
@@ -85,7 +85,7 @@ export async function addOriginAction(formData: FormData): Promise<void> {
   }
   if (tenant && !tenant.allowedOrigins.includes(origin)) {
     await repo.setTenantOrigins(tenantId, [...tenant.allowedOrigins, origin]);
-    void captureDashboardEvent("dashboard_origin_added", {
+    await captureDashboardEvent("dashboard_origin_added", {
       tenant_id: tenantId,
       origin_count: tenant.allowedOrigins.length + 1,
       source_surface: "web_dashboard",
@@ -110,7 +110,7 @@ export async function removeOriginAction(formData: FormData): Promise<void> {
       tenantId,
       tenant.allowedOrigins.filter((existing) => existing !== origin),
     );
-    void captureDashboardEvent("dashboard_origin_removed", {
+    await captureDashboardEvent("dashboard_origin_removed", {
       tenant_id: tenantId,
       origin_count: Math.max(0, tenant.allowedOrigins.length - 1),
       source_surface: "web_dashboard",
@@ -135,7 +135,7 @@ export async function addAppIdAction(formData: FormData): Promise<void> {
   }
   if (tenant && !tenant.allowedAppIds.includes(appId)) {
     await repo.setTenantAppIds(tenantId, [...tenant.allowedAppIds, appId]);
-    void captureDashboardEvent("dashboard_app_id_added", {
+    await captureDashboardEvent("dashboard_app_id_added", {
       tenant_id: tenantId,
       app_id_count: tenant.allowedAppIds.length + 1,
       source_surface: "web_dashboard",
@@ -160,7 +160,7 @@ export async function removeAppIdAction(formData: FormData): Promise<void> {
       tenantId,
       tenant.allowedAppIds.filter((existing) => existing !== appId),
     );
-    void captureDashboardEvent("dashboard_app_id_removed", {
+    await captureDashboardEvent("dashboard_app_id_removed", {
       tenant_id: tenantId,
       app_id_count: Math.max(0, tenant.allowedAppIds.length - 1),
       source_surface: "web_dashboard",
@@ -186,7 +186,7 @@ export async function saveSkillAction(
   const tenantId = await getCurrentDashboardTenantId();
   const validation = validateSkillContent(content);
   if (!validation.ok) {
-    void captureDashboardEvent("dashboard_skill_validation_failed", {
+    await captureDashboardEvent("dashboard_skill_validation_failed", {
       tenant_id: tenantId,
       issue_count: validation.issues.length,
       source_surface: "web_dashboard",
@@ -263,7 +263,7 @@ export async function saveWidgetConfigAction(
       actionsEnabled,
       guestSessionCapSeconds,
     });
-    void captureDashboardEvent("dashboard_widget_config_saved", {
+    await captureDashboardEvent("dashboard_widget_config_saved", {
       tenant_id: tenantId,
       locale,
       actions_enabled: actionsEnabled,
@@ -347,7 +347,7 @@ export async function createTenantAction(
   const capSeconds = Number.isFinite(capMinutes) && capMinutes > 0 ? Math.round(capMinutes * 60) : 0;
   try {
     const tenant = await getRepo().createTenant({ name, usageCapSeconds: capSeconds });
-    void captureDashboardEvent("dashboard_tenant_created", {
+    await captureDashboardEvent("dashboard_tenant_created", {
       tenant_id: tenant.id,
       tenant_name: name,
       cap_seconds: capSeconds,
@@ -425,7 +425,7 @@ export async function addMemberAction(
   }
   try {
     await getRepo().upsertDashboardMembership({ workosUserId, tenantId, role, email });
-    void captureDashboardEvent("dashboard_member_added", {
+    await captureDashboardEvent("dashboard_member_added", {
       tenant_id: tenantId,
       role,
       source_surface: "web_dashboard",
