@@ -49,6 +49,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           email: auth.user.email ?? membership.email,
           workosOrganizationId: membership.workosOrganizationId ?? auth.workosOrganizationId,
         }),
+        // Keep a discrete, user-identified conversion event alongside the
+        // legacy dashboard event so the marketing -> signup funnel has an
+        // unambiguous account-created step.
+        captureServerEvent("account_created", {
+          product_line: "builders",
+          funnel_stage: "activation",
+          tenant_id: membership.tenantId,
+          source_surface: "web_dashboard",
+        }, auth.user.id),
         captureServerEvent("dashboard_signup_completed", {
           product_line: "builders",
           funnel_stage: "activation",

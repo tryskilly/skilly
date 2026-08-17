@@ -42,7 +42,7 @@ export async function POST(): Promise<NextResponse> {
       status: 429,
       reason: "quota",
       source_surface: "studio_dashboard",
-    });
+    }, session.workosUserId);
     return NextResponse.json({ error: "monthly usage quota reached" }, { status: 429 });
   }
 
@@ -58,7 +58,7 @@ export async function POST(): Promise<NextResponse> {
       tenant_id: tenant.id,
       account_email: session.email ?? undefined,
       source_surface: "studio_dashboard",
-    });
+    }, session.workosUserId);
     return NextResponse.json({
       clientSecret: token.clientSecret,
       expiresAt: token.expiresAt,
@@ -73,7 +73,7 @@ export async function POST(): Promise<NextResponse> {
       account_email: session.email ?? undefined,
       status: upstreamStatus(error),
       source_surface: "studio_dashboard",
-    });
+    }, session.workosUserId);
     return NextResponse.json({ error: "failed to mint realtime token" }, { status: 502 });
   }
 }

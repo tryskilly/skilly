@@ -23,7 +23,7 @@ async function captureDashboardEvent(
     ...properties,
     account_email: currentSession.email ?? undefined,
     role_surface: currentSession.role,
-  });
+  }, currentSession.workosUserId);
 }
 
 /** Create a key and return its raw value ONCE (shown to the user, never re-shown). */

@@ -23,7 +23,7 @@ export async function onboardingCompanyAction(formData: FormData): Promise<void>
       tenant_id: tenantId,
       account_email: session.email ?? undefined,
       source_surface: "web_onboarding",
-    });
+    }, session.workosUserId);
     revalidatePath("/dashboard");
     revalidatePath("/onboarding");
   }

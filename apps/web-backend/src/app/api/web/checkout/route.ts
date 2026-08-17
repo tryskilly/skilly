@@ -25,7 +25,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       reason: "billing_not_configured",
       requested_plan: payload.plan ?? "starter",
       source_surface: "web_backend",
-    });
+    }, session.workosUserId);
     return NextResponse.json({ error: "billing not configured" }, { status: 500 });
   }
 
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     plan: plan.id,
     cap_seconds: plan.capSeconds,
     source_surface: "web_dashboard",
-  });
+  }, session.workosUserId);
 
   const response = await fetch(`${apiBase}/v1/checkouts`, {
     method: "POST",
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       reason: "polar_non_2xx",
       plan: plan.id,
       source_surface: "web_backend",
-    });
+    }, session.workosUserId);
     return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
   }
 
@@ -67,6 +67,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     account_email: session.email ?? undefined,
     plan: plan.id,
     source_surface: "web_backend",
-  });
+  }, session.workosUserId);
   return NextResponse.json({ url: checkout.url ?? checkout.checkout_url ?? null }, { status: 200 });
 }

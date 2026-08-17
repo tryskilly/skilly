@@ -37,9 +37,13 @@ Marketing key and `NEXT_PUBLIC_POSTHOG_KEY` are both env-injected (host defaults
 - ✅ **Studio** (`AnalyticsProvider.tsx`): `getAnonymousDistinctId()` now reads the shared PostHog cookie (`ph_<key>_posthog`) first, so Studio's anon id == the marketing visitor's. The existing `$identify` then stitches that real visitor → `workosUserId`. **The marketing → signup funnel now connects.**
 - Interim signup signal: `dashboard_page_viewed` (client, correct identity) already marks "user is in" — usable for the funnel today.
 
-## STILL TODO (needs auth-code touch — not done, flagged for safety)
-1. **`account_created` conversion event.** Fire in the signup callback (`workosAuth.ts`, `intent === "signup"`) — BUT must pass `distinctId = workosUserId` explicitly, because `captureServerEvent` defaults distinct_id to `tenant_id`.
-2. **Server-event identity mismatch (broader).** All `captureServerEvent` calls use `tenant_id` as distinct_id, so server events don't join the client-identified `workosUserId` profile. Align server events to the user id (or alias tenant↔user in PostHog) for full server+client funnel continuity.
+## IMPLEMENTED 2026-08-17 (server-side conversion + identity continuity)
+- ✅ Signup callback now emits a discrete `account_created` event with the authenticated WorkOS user ID as PostHog/GA4 distinct ID. The existing `dashboard_signup_completed` event remains for backwards-compatible dashboards.
+- ✅ Dashboard actions, onboarding, billing portal/checkout, and the in-dashboard test widget now pass the WorkOS user ID to server analytics, so authenticated events join the same PostHog profile as the browser `$identify`.
+
+## STILL TODO (production verification)
+1. **Confirm the production env.** Verify `NEXT_PUBLIC_POSTHOG_KEY` in Studio equals the marketing key (project 376182) and that the host is `https://us.i.posthog.com`.
+2. **Run one real test signup.** Confirm a single PostHog profile shows `web_builders_studio_clicked` → `account_created` → `dashboard_page_viewed` and that the GA4 `account_created` event is received.
 
 ## Verify-now checklist
 1. Prod env: `NEXT_PUBLIC_POSTHOG_KEY` (Studio) == marketing key (project 376182)? If empty → critical, fix first.
