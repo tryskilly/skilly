@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
+import { captureServerEvent } from "@/lib/analytics";
 import { setDashboardSession } from "@/lib/dashboardAuth";
 import { publicUrl } from "@/lib/requestOrigin";
 import {
@@ -58,10 +59,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const auth = await exchangeWorkOSMagicAuthCode(pending.email, code);
     const repo = getRepo();
-    let membership = await resolveDashboardMembership(repo, auth);
+    // Signup intent must bypass the legacy default-tenant bootstrap so new
+    // magic-auth users reach self-serve tenant creation below.
+    let membership = await resolveDashboardMembership(repo, auth, {
+      allowBootstrap: pending.intent !== "signup",
+    });
 
     if (!membership && pending.intent === "signup") {
       membership = await createSelfServeDashboardMembership(repo, auth);
+      await Promise.all([
+        captureServerEvent("account_created", {
+          product_line: "builders",
+          funnel_stage: "activation",
+          tenant_id: membership.tenantId,
+          source_surface: "web_dashboard",
+        }, auth.user.id),
+        captureServerEvent("dashboard_signup_completed", {
+          product_line: "builders",
+          funnel_stage: "activation",
+          tenant_id: membership.tenantId,
+          source_surface: "web_dashboard",
+        }, auth.user.id),
+      ]);
     }
 
     if (!membership) {
