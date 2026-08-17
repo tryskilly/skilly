@@ -51,6 +51,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     account_email: session.email ?? undefined,
     seconds,
     source_surface: "studio_dashboard",
-  });
+  }, session.workosUserId);
   return NextResponse.json({ ok: true, recordedSeconds: seconds });
 }

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       account_email: session.email ?? undefined,
       reason: "billing_not_configured",
       source_surface: "web_backend",
-    });
+    }, session.workosUserId);
     return NextResponse.json({ error: "billing not configured" }, { status: 500 });
   }
 
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       tenant_id: tenantId,
       account_email: session.email ?? undefined,
       source_surface: "web_backend",
-    });
+    }, session.workosUserId);
     return NextResponse.json(
       { error: "no_subscription", fallback: "checkout" },
       { status: 409 },
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       status: response.status,
       reason: "polar_non_2xx",
       source_surface: "web_backend",
-    });
+    }, session.workosUserId);
     return NextResponse.json({ error: "portal session failed" }, { status: 502 });
   }
 
@@ -66,6 +66,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     tenant_id: tenantId,
     account_email: session.email ?? undefined,
     source_surface: "web_dashboard",
-  });
+  }, session.workosUserId);
   return NextResponse.json({ url: portal.url ?? null }, { status: 200 });
 }
