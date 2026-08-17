@@ -91,6 +91,15 @@ export default async function DashboardPage() {
   const remainingSetup = setupChecks.length - setupCompleted;
   const usedMinutes = Math.round(usage.usageSecondsThisPeriod / 60);
   const capMinutes = usage.capSeconds > 0 ? Math.round(usage.capSeconds / 60) : 0;
+  const nextSetupHref = setupComplete
+    ? "/dashboard/widget"
+    : !hasSkill
+      ? "/dashboard/setup#teach"
+      : !hasOrigin
+        ? "/dashboard/setup#allow"
+        : !hasPublishableKey
+          ? "/dashboard/keys"
+          : "/dashboard/setup#test";
 
   return (
     <div className="space-y-6">
@@ -152,7 +161,7 @@ export default async function DashboardPage() {
               <ButtonLink href="/dashboard/widget" variant={setupComplete ? "primary" : "secondary"}>
                 Test customer site
               </ButtonLink>
-              <ButtonLink href="/dashboard/install" variant={setupComplete ? "secondary" : "primary"}>
+              <ButtonLink href={setupComplete ? "/dashboard/install" : nextSetupHref} variant={setupComplete ? "secondary" : "primary"}>
                 {setupComplete ? "View install guide" : "Continue setup"}
               </ButtonLink>
             </div>
