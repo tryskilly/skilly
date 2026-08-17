@@ -41,7 +41,10 @@ export async function captureServerEvent(
     source_surface: properties.source_surface ?? "web_backend",
   });
 
-  void Promise.allSettled([
+  // Await the bounded requests before returning. Serverless handlers may be
+  // terminated immediately after the callback resolves, which can drop
+  // fire-and-forget conversion events such as account_created.
+  await Promise.allSettled([
     capturePostHogEvent(event, cleaned, String(distinctId)),
     captureGaEvent(event, cleaned, String(distinctId)),
   ]);
