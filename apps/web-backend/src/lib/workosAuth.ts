@@ -370,6 +370,7 @@ function redactWorkOSSecrets(value: unknown): unknown {
 export async function resolveDashboardMembership(
   repo: WebBackendRepo,
   auth: WorkOSAuthResult,
+  options: { allowBootstrap?: boolean } = {},
 ): Promise<DashboardMembership | null> {
   const existing = await repo.findDashboardMembership({
     workosUserId: auth.user.id,
@@ -379,7 +380,7 @@ export async function resolveDashboardMembership(
     return existing;
   }
 
-  if (process.env.SKILLY_DASHBOARD_BOOTSTRAP_WORKOS !== "true") {
+  if (options.allowBootstrap === false || process.env.SKILLY_DASHBOARD_BOOTSTRAP_WORKOS !== "true") {
     return null;
   }
 

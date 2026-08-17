@@ -142,6 +142,26 @@ describe("WorkOS dashboard auth", () => {
     expect(await repo.findDashboardMembership({ workosUserId: "user_new" })).toEqual(membership);
   });
 
+  test("can skip legacy bootstrap for a self-serve signup", async () => {
+    process.env.SKILLY_DASHBOARD_BOOTSTRAP_WORKOS = "true";
+
+    const membership = await resolveDashboardMembership(
+      new MemoryRepo(),
+      {
+        user: {
+          id: "user_self_serve",
+          email: "self-serve@example.com",
+          firstName: null,
+          lastName: null,
+        },
+        workosOrganizationId: null,
+      },
+      { allowBootstrap: false },
+    );
+
+    expect(membership).toBeNull();
+  });
+
   test("creates a fresh self-serve tenant membership for signup", async () => {
     const repo = new MemoryRepo();
 

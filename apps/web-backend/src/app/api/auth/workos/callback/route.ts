@@ -32,7 +32,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const auth = await exchangeWorkOSCode(code);
     const repo = getRepo();
-    let membership = await resolveDashboardMembership(repo, auth);
+    // Signup must bypass the legacy default-tenant bootstrap. Otherwise every
+    // new signup is silently mapped to the demo tenant and never reaches the
+    // self-serve account-created path below. Existing members still resolve
+    // normally because membership lookup happens before the bootstrap gate.
+    let membership = await resolveDashboardMembership(repo, auth, {
+      allowBootstrap: storedState.intent !== "signup",
+    });
 
     // Self-serve signup: a brand-new WorkOS user arriving via the /signup entry
     // (intent === "signup") with no membership gets a fresh tenant + super_admin
