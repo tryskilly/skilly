@@ -133,8 +133,12 @@ export interface PolarWebhookEvent {
     } | null;
     /** Polar subscription events carry a customer id at the top level. */
     customer_id?: string;
+    amount?: number;
+    currency?: string;
     customer?: {
       id?: string;
+      email?: string;
+      name?: string;
       metadata?: {
         tenantId?: string;
         plan?: string;

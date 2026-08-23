@@ -6,6 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
 import { interpretSubscriptionEvent, verifyWebhookSignature } from "@/domain/billing";
 import { captureServerEvent } from "@/lib/analytics";
+import { sendPastDueEmail } from "@/lib/billingEmail";
 import { upsertMacEntitlement } from "@/lib/macSession";
 
 export const runtime = "nodejs";
@@ -54,8 +55,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const activeCapSeconds = Number(process.env.POLAR_PLAN_CAP_SECONDS ?? DEFAULT_PLAN_CAP_SECONDS);
-  const update = interpretSubscriptionEvent(event as Parameters<typeof interpretSubscriptionEvent>[0], activeCapSeconds);
+  const parsedEvent = event as Parameters<typeof interpretSubscriptionEvent>[0];
+  const update = interpretSubscriptionEvent(parsedEvent, activeCapSeconds);
   const macUpdate = interpretMacByokSubscriptionEvent(event);
+  if (parsedEvent.type === "subscription.past_due" && parsedEvent.data?.customer?.email) {
+    const emailResult = await sendPastDueEmail({
+      eventId: request.headers.get("webhook-id") ?? `${parsedEvent.type}:${parsedEvent.data.customer_id ?? parsedEvent.data.customer.email}`,
+      email: parsedEvent.data.customer.email,
+      customerName: parsedEvent.data.customer.name,
+      amountCents: parsedEvent.data.amount,
+      currency: parsedEvent.data.currency,
+    });
+    await captureServerEvent("billing_past_due_email_attempted", {
+      result: emailResult.sent ? "sent" : emailResult.reason,
+      source_surface: "web_backend",
+    });
+  }
   if (update) {
     const repo = getRepo();
     await repo.setTenantUsageCap(update.tenantId, update.capSeconds);
