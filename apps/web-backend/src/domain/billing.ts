@@ -19,16 +19,31 @@ export interface WebhookVerifyInput {
 
 /** Verify a Standard Webhooks signature (constant-time). */
 export function verifyWebhookSignature(input: WebhookVerifyInput): boolean {
-  const secretBytes = Buffer.from(input.secret.replace(/^whsec_/, ""), "base64");
   const signedContent = `${input.webhookId}.${input.webhookTimestamp}.${input.body}`;
-  const expected = createHmac("sha256", secretBytes).update(signedContent).digest("base64");
 
   const providedSignatures = input.signatureHeader
     .split(" ")
     .map((entry) => entry.split(",")[1])
     .filter((signature): signature is string => Boolean(signature));
 
-  return providedSignatures.some((signature) => safeEqual(signature, expected));
+  if (providedSignatures.length === 0) return false;
+
+  // Polar currently signs with the literal endpoint secret bytes (including
+  // its `polar_whs_` prefix). The Standard Webhooks spec instead describes a
+  // `whsec_` value whose suffix is base64-encoded key material. Accept both
+  // forms so a correctly configured Polar endpoint is not rejected while
+  // retaining compatibility with spec-compliant secrets and rotated keys.
+  const secretCandidates = [
+    Buffer.from(input.secret, "utf8"),
+    ...(input.secret.startsWith("whsec_")
+      ? [Buffer.from(input.secret.slice("whsec_".length), "base64")]
+      : []),
+  ];
+
+  return secretCandidates.some((secretBytes) => {
+    const expected = createHmac("sha256", secretBytes).update(signedContent).digest("base64");
+    return providedSignatures.some((signature) => safeEqual(signature, expected));
+  });
 }
 
 function safeEqual(a: string, b: string): boolean {

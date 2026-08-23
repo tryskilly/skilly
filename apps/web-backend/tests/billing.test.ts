@@ -18,6 +18,12 @@ function sign(id: string, timestamp: string, body: string): string {
   return `v1,${signature}`;
 }
 
+function signWithRawSecret(secret: string, id: string, timestamp: string, body: string): string {
+  const signed = `${id}.${timestamp}.${body}`;
+  const signature = createHmac("sha256", Buffer.from(secret, "utf8")).update(signed).digest("base64");
+  return `v1,${signature}`;
+}
+
 describe("verifyWebhookSignature", () => {
   const id = "msg_1";
   const ts = "1700000000";
@@ -39,6 +45,19 @@ describe("verifyWebhookSignature", () => {
         signatureHeader: sign(id, ts, body),
       }),
     ).toBe(false);
+  });
+
+  test("accepts Polar's raw endpoint secret format", () => {
+    const polarSecret = "polar_whs_6t3c8ce2247c493a3ade20uea4484d64";
+    expect(
+      verifyWebhookSignature({
+        secret: polarSecret,
+        webhookId: id,
+        webhookTimestamp: ts,
+        body,
+        signatureHeader: signWithRawSecret(polarSecret, id, ts, body),
+      }),
+    ).toBe(true);
   });
 });
 
