@@ -63,12 +63,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           funnel_stage: "activation",
           tenant_id: membership.tenantId,
           source_surface: "web_dashboard",
+          ...storedState.attribution,
         }, auth.user.id),
         captureServerEvent("dashboard_signup_completed", {
           product_line: "builders",
           funnel_stage: "activation",
           tenant_id: membership.tenantId,
           source_surface: "web_dashboard",
+          ...storedState.attribution,
         }, auth.user.id),
       ]);
       const dashboardPath = storedState.nextPath.startsWith("/dashboard") ? storedState.nextPath : "/dashboard";

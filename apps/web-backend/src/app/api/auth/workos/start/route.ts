@@ -29,7 +29,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(url, { status: 303 });
   }
 
-  const { state, cookieValue, maxAge } = createWorkOSState(nextPath, intent);
+  const attribution = {
+    utmSource: request.nextUrl.searchParams.get("utm_source") ?? undefined,
+    utmMedium: request.nextUrl.searchParams.get("utm_medium") ?? undefined,
+    utmCampaign: request.nextUrl.searchParams.get("utm_campaign") ?? undefined,
+    utmContent: request.nextUrl.searchParams.get("utm_content") ?? undefined,
+    referrer: request.headers.get("referer") ?? undefined,
+  };
+  const { state, cookieValue, maxAge } = createWorkOSState(nextPath, intent, attribution);
   const response = NextResponse.redirect(buildWorkOSAuthorizeUrl(state, method), { status: 303 });
 
   response.cookies.set(WORKOS_STATE_COOKIE, cookieValue, {
