@@ -644,6 +644,8 @@ final class EntitlementManager: ObservableObject {
                     return
                 }
             }
+            guard !Task.isCancelled else { return }
+            NotificationCenter.default.post(name: .checkoutPollingEnded, object: nil)
         }
     }
 
@@ -659,3 +661,7 @@ final class EntitlementManager: ObservableObject {
 // MARK: - Helper
 
 private let forContentType = "Content-Type"
+
+extension Notification.Name {
+    static let checkoutPollingEnded = Notification.Name("SkillyCheckoutPollingEnded")
+}

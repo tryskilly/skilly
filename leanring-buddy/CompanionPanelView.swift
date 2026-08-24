@@ -20,6 +20,7 @@ struct CompanionPanelView: View {
     // MARK: - Skilly — Settings
     @State private var showSettings = false
     @State private var showFirstTurnUpgrade = false
+    @State private var showCheckoutRetry = false
     @State private var showConversationHistory = false
     @State private var typedPrompt = ""
     @State private var didTrackCurrentTextPromptStart = false
@@ -70,6 +71,9 @@ struct CompanionPanelView: View {
                     if showFirstTurnUpgrade {
                         firstTurnUpgradeCard
                     }
+                    if showCheckoutRetry {
+                        checkoutRetryCard
+                    }
                     PanelBodyView(skillManager: skillManager)
                 }
 
@@ -110,6 +114,46 @@ struct CompanionPanelView: View {
             showFirstTurnUpgrade = true
             SkillyAnalytics.trackTrialUpgradePromptShown(userId: userId)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .checkoutPollingEnded)) { _ in
+            guard !AdminAllowlist.isCurrentUserAdmin,
+                  let userId = AuthManager.shared.currentUser?.id else { return }
+            showCheckoutRetry = true
+            PostHogSDK.shared.capture("checkout_retry_prompt_shown", properties: ["user_id": userId])
+        }
+    }
+
+    private var checkoutRetryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Payment not detected yet")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+            Text("If your checkout was closed or expired, create a fresh payment link and try again.")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Reopen checkout") {
+                    if let userId = AuthManager.shared.currentUser?.id {
+                        PostHogSDK.shared.capture("checkout_retry_prompt_clicked", properties: ["user_id": userId])
+                    }
+                    showCheckoutRetry = false
+                    Task { await EntitlementManager.shared.startCheckout() }
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .buttonStyle(.borderedProminent)
+                .tint(DS.Colors.blue400)
+                .controlSize(.small)
+                Button("Dismiss") { showCheckoutRetry = false }
+                    .font(.system(size: 11, weight: .medium))
+                    .buttonStyle(.plain)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium))
+        .padding(.horizontal, 12)
     }
 
     private var firstTurnUpgradeCard: some View {
