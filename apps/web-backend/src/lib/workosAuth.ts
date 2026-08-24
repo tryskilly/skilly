@@ -18,6 +18,15 @@ export interface WorkOSStatePayload {
    *   the signup entry still just sign in normally.
    */
   intent: "signin" | "signup";
+  attribution?: WorkOSAttribution;
+}
+
+export interface WorkOSAttribution {
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+  referrer?: string;
 }
 
 export interface WorkOSMagicEmailPayload {
@@ -116,12 +125,14 @@ export function parseWorkOSAuthMethod(value: string | null | undefined): WorkOSA
 export function createWorkOSState(
   nextPath: string,
   intent: "signin" | "signup" = "signin",
+  attribution?: WorkOSAttribution,
 ): { state: string; cookieValue: string; maxAge: number } {
   const payload: WorkOSStatePayload = {
     nonce: randomBytes(24).toString("base64url"),
     nextPath: safeDashboardNextPath(nextPath),
     issuedAt: Date.now(),
     intent,
+    ...(attribution && { attribution }),
   };
   return {
     state: payload.nonce,
@@ -148,7 +159,26 @@ export function parseWorkOSStateCookie(rawValue: string | undefined): WorkOSStat
     nextPath: safeDashboardNextPath(payload.nextPath),
     issuedAt: payload.issuedAt,
     intent: payload.intent === "signup" ? "signup" : "signin",
+    attribution: sanitizeAttribution(payload.attribution),
   };
+}
+
+function sanitizeAttribution(value: unknown): WorkOSAttribution | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const input = value as Record<string, unknown>;
+  const result: WorkOSAttribution = {};
+  for (const [key, outputKey] of [
+    ["utmSource", "utmSource"],
+    ["utmMedium", "utmMedium"],
+    ["utmCampaign", "utmCampaign"],
+    ["utmContent", "utmContent"],
+    ["referrer", "referrer"],
+  ] as const) {
+    if (typeof input[key] === "string" && input[key].trim()) {
+      result[outputKey] = input[key].trim().slice(0, 200);
+    }
+  }
+  return Object.keys(result).length ? result : undefined;
 }
 
 export function normalizeWorkOSEmail(value: string | null | undefined): string | null {

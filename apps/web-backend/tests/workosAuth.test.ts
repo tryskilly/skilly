@@ -68,6 +68,23 @@ describe("WorkOS dashboard auth", () => {
     expect(parseWorkOSStateCookie(`${state.cookieValue}tampered`)).toBeNull();
   });
 
+  test("preserves bounded acquisition attribution in signed OAuth state", () => {
+    configureWorkOS();
+
+    const state = createWorkOSState("/dashboard", "signup", {
+      utmSource: "perplexity",
+      utmMedium: "referral",
+      utmCampaign: "learn-to-studio",
+      referrer: "https://www.perplexity.ai/",
+    });
+    expect(parseWorkOSStateCookie(state.cookieValue)?.attribution).toEqual({
+      utmSource: "perplexity",
+      utmMedium: "referral",
+      utmCampaign: "learn-to-studio",
+      referrer: "https://www.perplexity.ai/",
+    });
+  });
+
   test("normalizes valid dashboard emails and rejects invalid addresses", () => {
     expect(normalizeWorkOSEmail(" Admin@TrySkilly.App ")).toBe("admin@tryskilly.app");
     expect(normalizeWorkOSEmail("not-an-email")).toBeNull();
