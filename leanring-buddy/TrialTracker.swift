@@ -113,6 +113,7 @@ final class TrialTracker: ObservableObject {
         guard let userId, hasStarted, hasRecordedFirstTurn == false else { return }
         hasRecordedFirstTurn = true
         SkillyAnalytics.trackTrialFirstTurn(userId: userId)
+        NotificationCenter.default.post(name: .trialFirstTurnCompleted, object: nil)
     }
 
     /// Call on each session end. Pass session duration in seconds.
@@ -174,6 +175,16 @@ extension SkillyAnalytics {
         PostHogSDK.shared.capture("trial_first_turn", properties: ["user_id": userId])
     }
 
+    static func trackTrialUpgradePromptShown(userId: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("trial_upgrade_prompt_shown", properties: ["user_id": userId])
+    }
+
+    static func trackTrialUpgradePromptClicked(userId: String) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        PostHogSDK.shared.capture("trial_upgrade_prompt_clicked", properties: ["user_id": userId])
+    }
+
     static func trackTrialMinute5(userId: String) {
         guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("trial_minute_5", properties: ["user_id": userId])
@@ -206,5 +217,6 @@ extension SkillyAnalytics {
 // MARK: - Notification Names
 
 extension Notification.Name {
+    static let trialFirstTurnCompleted = Notification.Name("SkillyTrialFirstTurnCompleted")
     static let trial80PercentWarning = Notification.Name("SkillyTrial80PercentWarning")
 }

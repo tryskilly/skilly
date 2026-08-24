@@ -19,6 +19,7 @@ struct CompanionPanelView: View {
     @State private var emailInput: String = ""
     // MARK: - Skilly — Settings
     @State private var showSettings = false
+    @State private var showFirstTurnUpgrade = false
     @State private var showConversationHistory = false
     @State private var typedPrompt = ""
     @State private var didTrackCurrentTextPromptStart = false
@@ -65,7 +66,12 @@ struct CompanionPanelView: View {
                     .padding(.bottom, 12)
             } else if let skillManager {
                 // Main content — single unified view, no navigation
-                PanelBodyView(skillManager: skillManager)
+                VStack(alignment: .leading, spacing: 10) {
+                    if showFirstTurnUpgrade {
+                        firstTurnUpgradeCard
+                    }
+                    PanelBodyView(skillManager: skillManager)
+                }
 
                 Divider()
                     .background(DS.Colors.borderSubtle)
@@ -97,6 +103,52 @@ struct CompanionPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
         .background(panelBackground)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .trialFirstTurnCompleted)) { _ in
+            guard !AdminAllowlist.isCurrentUserAdmin,
+                  case .trial = EntitlementManager.shared.status,
+                  let userId = AuthManager.shared.currentUser?.id else { return }
+            showFirstTurnUpgrade = true
+            SkillyAnalytics.trackTrialUpgradePromptShown(userId: userId)
+        }
+    }
+
+    private var firstTurnUpgradeCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your first guided session is complete")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+            Text("Keep learning with 3 hours of Skilly Pro tutoring each month.")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Continue with Skilly Pro") {
+                    if let userId = AuthManager.shared.currentUser?.id {
+                        SkillyAnalytics.trackTrialUpgradePromptClicked(userId: userId)
+                    }
+                    Task {
+                        await EntitlementManager.shared.startCheckout()
+                        showFirstTurnUpgrade = false
+                    }
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .buttonStyle(.borderedProminent)
+                .tint(DS.Colors.blue400)
+                .controlSize(.small)
+
+                Button("Keep exploring") {
+                    showFirstTurnUpgrade = false
+                }
+                .font(.system(size: 11, weight: .medium))
+                .buttonStyle(.plain)
+                .foregroundColor(DS.Colors.textTertiary)
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium))
+        .padding(.horizontal, 12)
     }
 
     // MARK: - Push-to-talk Hint Strip (always visible)
