@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { buildPersonalCheckoutBody, hasCurrentPersonalEntitlement, parseCheckoutAttemptId } from "@/domain/billing";
+import { buildPersonalCheckoutBody, hasCurrentPersonalEntitlement, isValidBillingUrl, parseCheckoutAttemptId } from "@/domain/billing";
 import { getMacEntitlement, authenticateMacRequest } from "@/lib/macSession";
 import { captureServerEvent } from "@/lib/analytics";
 import { publicUrl } from "@/lib/requestOrigin";
@@ -17,9 +17,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
   const productId = process.env.POLAR_MAC_PRODUCT_ID ?? process.env.POLAR_BETA_PRODUCT_ID;
   if (!accessToken || !productId) return NextResponse.json({ error: "billing not configured" }, { status: 500 });
-  const payload: unknown = await request.json().catch(() => ({}));
-  const attemptValue = payload && typeof payload === "object" ? (payload as Record<string, unknown>).checkout_attempt_id : undefined;
-  if (payload !== null && typeof payload !== "object") return NextResponse.json({ error: "invalid request body" }, { status: 400 });
+  let payload: unknown;
+  try { payload = await request.json(); } catch { return NextResponse.json({ error: "invalid request body" }, { status: 400 }); }
+  const attemptValue = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>).checkout_attempt_id : undefined;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return NextResponse.json({ error: "invalid request body" }, { status: 400 });
   const attempt = parseCheckoutAttemptId(attemptValue);
   if (!attempt.valid) return NextResponse.json({ error: "invalid checkout_attempt_id" }, { status: 400 });
   const body = buildPersonalCheckoutBody({
@@ -42,6 +43,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const checkout = (await response.json()) as { url?: string; checkout_url?: string };
   await captureServerEvent("mac_checkout_url_created", { workos_user_id: session.userId, source_surface: "studio_backend" });
   const checkoutUrl = checkout.checkout_url ?? checkout.url;
-  if (!checkoutUrl) return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+  if (!isValidBillingUrl(checkoutUrl)) return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
   return NextResponse.json({ checkout_url: checkoutUrl }, { status: 200 });
 }

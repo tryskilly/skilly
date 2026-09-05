@@ -230,6 +230,11 @@ export function parseCheckoutAttemptId(value: unknown): { valid: true; value: st
   return { valid: true, value: value.trim() || null };
 }
 
+export function isValidBillingUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  try { return new URL(value).protocol === "https:"; } catch { return false; }
+}
+
 export function hasCurrentPersonalEntitlement(record: {
   status?: string | null;
   period_end?: string | null;
