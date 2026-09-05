@@ -19,7 +19,9 @@ Existing policy values are unchanged:
 * BYOK is a separate mode: it does not consume the hosted shared-key trial/cap. If the existing
   `requireBYOKSubscription` switch is enabled, the existing personal-subscription gate still
   applies; no new BYOK price or allowance is introduced.
-* Existing admin allowlist behavior remains unchanged.
+* Existing native relay admin allowlist behavior remains unchanged: the built-in operator ID and
+  optional server `SKILLY_ADMIN_WORKOS_USER_IDS` values bypass hosted trial/cap. This exemption
+  never applies to the extension, and dashboard `super_admin` membership is not an access claim.
 
 ## Minimum server contract
 
@@ -79,7 +81,7 @@ The desktop token request remains a `GET` and carries these headers:
 
 ```json
 {"clientSecret":"…","expiresAt":123,"model":"gpt-realtime",
- "accessMode":"trial|paid","remainingSeconds":899,
+ "accessMode":"trial|paid|admin","remainingSeconds":899,
  "sessionId":"uuid","periodStart":"iso-or-null","periodEnd":"iso-or-null"}
 ```
 
@@ -142,6 +144,9 @@ attacker can still under-report future seconds, which is the known limit without
   paid-only token route and handle the server's explicit block codes; submit an idempotent usage
   event when the host closes. One WorkOS identity therefore shares the paid-period counter across
   Mac, Windows, and extension without allowing extension-first trial migration.
+* Relay admins receive `accessMode=admin` with `remainingSeconds=null`; their usage is stored for
+  telemetry but excluded from trial/paid aggregates. The ID is selected by the server, never a
+  client claim.
 * BYOK continues to call OpenAI with the user's own key and reports telemetry only (the explicit
   legacy Mac `source=byok` report has no issued session); it does not use hosted-token access
   enforcement or consume the hosted allowance.

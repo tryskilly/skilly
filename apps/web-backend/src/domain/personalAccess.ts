@@ -1,14 +1,24 @@
 export const PERSONAL_TRIAL_SECONDS = 900;
 export const PERSONAL_PAID_CAP_SECONDS = 10_800;
+const BUILTIN_RELAY_ADMIN_ID = "user_01KP21J3GEVH8AKJ31C59Z1KJQ";
 
 export type PersonalAccessSource = "relay" | "extension";
-export type PersonalAccessMode = "trial" | "paid";
+export type PersonalAccessMode = "trial" | "paid" | "admin";
 export type PersonalEntitlementStatus = "active" | "canceled" | "past_due" | "none" | "revoked" | "expired";
 export type PersonalAccessBlockCode =
   | "client_migration_required"
   | "trial_exhausted"
   | "subscription_inactive"
   | "cap_reached";
+
+/** Trusted server-side operator list; dashboard roles and client claims are intentionally ignored. */
+export function isTrustedRelayAdmin(userId: string): boolean {
+  const configured = (process.env.SKILLY_ADMIN_WORKOS_USER_IDS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return userId === BUILTIN_RELAY_ADMIN_ID || configured.includes(userId);
+}
 
 export interface PersonalAccessDecisionInput {
   source: PersonalAccessSource;
@@ -19,12 +29,13 @@ export interface PersonalAccessDecisionInput {
   paidSecondsUsed: number;
   migrationState: "unknown" | "recorded";
   migrationMarkerPresent: boolean;
+  isTrustedRelayAdmin?: boolean;
 }
 
 export type PersonalAccessDecision = {
   allowed: true;
   accessMode: PersonalAccessMode;
-  remainingSeconds: number;
+  remainingSeconds: number | null;
 } | {
   allowed: false;
   status: 403 | 409 | 429;
@@ -47,6 +58,9 @@ export function hasCurrentPaidAccess(
 }
 
 export function decidePersonalAccess(input: PersonalAccessDecisionInput): PersonalAccessDecision {
+  if (input.source === "relay" && input.isTrustedRelayAdmin) {
+    return { allowed: true, accessMode: "admin", remainingSeconds: null };
+  }
   const paid = input.entitlementType !== "byok" && hasCurrentPaidAccess(input.status, input.periodEnd);
   if (paid) {
     if (input.paidSecondsUsed >= PERSONAL_PAID_CAP_SECONDS) {

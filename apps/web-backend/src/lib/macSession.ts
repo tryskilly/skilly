@@ -5,6 +5,7 @@ import {
   decidePersonalAccess,
   normalizeLegacyTrialSeconds,
   PERSONAL_TRIAL_SECONDS,
+  isTrustedRelayAdmin,
   type PersonalAccessDecision,
   type PersonalAccessMode,
   type PersonalAccessSource,
@@ -35,7 +36,7 @@ export interface HostedAccessSession {
   sessionId: string;
   source: PersonalAccessSource;
   accessMode: PersonalAccessMode;
-  remainingSeconds: number;
+  remainingSeconds: number | null;
   periodStart: string | null;
   periodEnd: string | null;
 }
@@ -171,6 +172,7 @@ export async function authorizeHostedAccess(input: {
     const periodEnd = entitlement.period_end;
     const paid = entitlement.entitlement_type !== "byok" &&
       (status === "active" || (status === "canceled" && futureDate(periodEnd)));
+    const isAdmin = input.source === "relay" && isTrustedRelayAdmin(input.userId);
     let trialSecondsUsed = Math.max(0, Math.round(entitlement.trial_seconds_used || 0));
     const migrationMarker = input.migrationMarker === "v1";
     const legacyFloor = normalizeLegacyTrialSeconds(input.legacyTrialSecondsUsed);
@@ -198,7 +200,7 @@ export async function authorizeHostedAccess(input: {
       }
     }
 
-    if (paid && (!periodStart || !Number.isFinite(Date.parse(periodStart)))) {
+    if (!isAdmin && paid && (!periodStart || !Number.isFinite(Date.parse(periodStart)))) {
       throw new Error("Canonical billing period is unavailable");
     }
     const paidSecondsUsed = paid ? await getHostedUsageSeconds(client, input.userId, periodStart!, periodEnd) : 0;
@@ -211,6 +213,7 @@ export async function authorizeHostedAccess(input: {
       paidSecondsUsed,
       migrationState: entitlement.trial_migration_state === "recorded" || (migrationMarker && input.source === "relay") ? "recorded" : "unknown",
       migrationMarkerPresent: migrationMarker && input.source === "relay",
+      isTrustedRelayAdmin: isAdmin,
     });
     if (!decision.allowed) {
       await client.query("COMMIT");

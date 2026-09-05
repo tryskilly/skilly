@@ -5,6 +5,7 @@ import {
   normalizeLegacyTrialSeconds,
   applyTrialUsageSeconds,
   usageBelongsToPaidPeriod,
+  isTrustedRelayAdmin,
   PERSONAL_PAID_CAP_SECONDS,
   PERSONAL_TRIAL_SECONDS,
 } from "@/domain/personalAccess";
@@ -63,5 +64,21 @@ describe("personal access policy", () => {
     expect(usageBelongsToPaidPeriod({ accessMode: "paid", sessionPeriodStart: "2026-08-01", eventPeriodStart: "2026-08-01" })).toBe(true);
     expect(usageBelongsToPaidPeriod({ accessMode: "paid", sessionPeriodStart: "2026-08-01", eventPeriodStart: "2026-09-01" })).toBe(false);
     expect(usageBelongsToPaidPeriod({ accessMode: "trial", sessionPeriodStart: null, eventPeriodStart: null })).toBe(false);
+  });
+
+  test("admin bypass is relay-only and has no synthetic remaining-seconds value", () => {
+    const decision = decidePersonalAccess({
+      source: "relay", status: "none", entitlementType: "relay", periodEnd: null,
+      trialSecondsUsed: 900, paidSecondsUsed: PERSONAL_PAID_CAP_SECONDS,
+      migrationState: "unknown", migrationMarkerPresent: false,
+      isTrustedRelayAdmin: true,
+    });
+    expect(decision).toEqual({ allowed: true, accessMode: "admin", remainingSeconds: null });
+    expect(isTrustedRelayAdmin("user_01KP21J3GEVH8AKJ31C59Z1KJQ")).toBe(true);
+    expect(decidePersonalAccess({
+      source: "extension", status: "none", entitlementType: "relay", periodEnd: null,
+      trialSecondsUsed: 0, paidSecondsUsed: 0, migrationState: "unknown", migrationMarkerPresent: false,
+      isTrustedRelayAdmin: true,
+    })).toEqual({ allowed: false, status: 403, code: "subscription_inactive" });
   });
 });

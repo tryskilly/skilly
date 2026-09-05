@@ -25,6 +25,23 @@ async function countEvents(userId: string, eventId?: string): Promise<number> {
 async function main(): Promise<void> {
   await pool.query("TRUNCATE mac_usage_events, mac_access_sessions, mac_entitlements");
 
+  const admin = await authorizeHostedAccess({ userId: "user_01KP21J3GEVH8AKJ31C59Z1KJQ", email: "admin@example.com", source: "relay" });
+  assert.equal(admin.allowed, true);
+  if (!admin.allowed) throw new Error("built-in relay admin was blocked");
+  assert.equal(admin.accessMode, "admin");
+  assert.equal(admin.remainingSeconds, null);
+  await recordMacUsage({ userId: "user_01KP21J3GEVH8AKJ31C59Z1KJQ", email: "admin@example.com", source: "relay", sessionId: admin.sessionId, eventId: "admin-event", seconds: 999 });
+  const adminExtension = await authorizeHostedAccess({ userId: "user_01KP21J3GEVH8AKJ31C59Z1KJQ", email: "admin@example.com", source: "extension" });
+  assert.deepEqual(adminExtension, { allowed: false, status: 403, code: "subscription_inactive" });
+  process.env.SKILLY_ADMIN_WORKOS_USER_IDS = "user_config_admin";
+  const configuredAdmin = await authorizeHostedAccess({ userId: "user_config_admin", email: "configured@example.com", source: "relay" });
+  assert.equal(configuredAdmin.allowed, true);
+  if (!configuredAdmin.allowed) throw new Error("configured relay admin was blocked");
+  assert.equal(configuredAdmin.accessMode, "admin");
+  const spoofedRole = await authorizeHostedAccess({ userId: "user_dashboard_role_only", email: "role@example.com", source: "relay" });
+  assert.deepEqual(spoofedRole, { allowed: false, status: 409, code: "client_migration_required" });
+  delete process.env.SKILLY_ADMIN_WORKOS_USER_IDS;
+
   const trial = await authorizeHostedAccess({
     userId: "pg_trial",
     email: "trial@example.com",
@@ -104,4 +121,3 @@ async function main(): Promise<void> {
 }
 
 await main().finally(() => pool.end());
-
