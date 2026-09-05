@@ -4,7 +4,8 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { mintRealtimeToken, TokenMintError } from "@/domain/openaiToken";
-import { authenticateMacRequest, selectMacOpenAIAPIKey, selectMacRealtimeModel } from "@/lib/macSession";
+import { authenticateMacRequest, authorizeHostedAccess, selectMacOpenAIAPIKey, selectMacRealtimeModel } from "@/lib/macSession";
+import { normalizeLegacyTrialSeconds } from "@/domain/personalAccess";
 import { captureServerEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
@@ -14,6 +15,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const session = authenticateMacRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const migrationMarker = request.headers.get("x-skilly-client-migration");
+  const legacyTrialSeconds = request.headers.get("x-skilly-legacy-trial-seconds");
+  if (migrationMarker === "v1" && legacyTrialSeconds == null) {
+    return NextResponse.json({ error: "legacy trial seconds required", code: "invalid_migration_marker" }, { status: 400 });
+  }
+  if (legacyTrialSeconds != null && normalizeLegacyTrialSeconds(legacyTrialSeconds) == null) {
+    return NextResponse.json({ error: "invalid legacy trial seconds", code: "invalid_migration_marker" }, { status: 400 });
+  }
+  const access = await authorizeHostedAccess({
+    userId: session.userId,
+    email: session.email,
+    source: "relay",
+    migrationMarker,
+    legacyTrialSecondsUsed: legacyTrialSeconds,
+  });
+  if (!access.allowed) {
+    return NextResponse.json({ error: access.code, code: access.code }, { status: access.status });
   }
 
   const apiKey = selectMacOpenAIAPIKey();
@@ -32,6 +52,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       clientSecret: token.clientSecret,
       expiresAt: token.expiresAt,
       model: token.model,
+      accessMode: access.accessMode,
+      remainingSeconds: access.remainingSeconds,
+      sessionId: access.sessionId,
+      periodStart: access.periodStart,
+      periodEnd: access.periodEnd,
     });
   } catch (error) {
     await captureServerEvent("mac_realtime_token_failed", {

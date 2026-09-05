@@ -108,8 +108,27 @@ export const macEntitlements = pgTable("mac_entitlements", {
   periodEnd: text("period_end"),
   plan: text("plan"),
   polarCustomerId: text("polar_customer_id"),
+  trialSecondsUsed: integer("trial_seconds_used").notNull().default(0),
+  trialMigrationState: text("trial_migration_state").notNull().default("unknown"),
+  trialMigratedAt: timestamp("trial_migrated_at", { withTimezone: true }),
+  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
+  providerEventId: text("provider_event_id"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const macAccessSessions = pgTable(
+  "mac_access_sessions",
+  {
+    sessionId: text("session_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    source: text("source").notNull(),
+    accessMode: text("access_mode").notNull(),
+    periodStart: text("period_start"),
+    periodEnd: text("period_end"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("mac_access_sessions_user_time_idx").on(table.userId, table.issuedAt)],
+);
 
 export const macUsageEvents = pgTable(
   "mac_usage_events",
@@ -128,9 +147,17 @@ export const macUsageEvents = pgTable(
     cachedInputTokens: integer("cached_input_tokens"),
     totalTokens: integer("total_tokens"),
     estimatedCostUsd: text("estimated_cost_usd"),
+    eventId: text("event_id"),
+    sessionId: text("session_id"),
+    accessMode: text("access_mode"),
+    periodStart: text("period_start"),
+    periodEnd: text("period_end"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("mac_usage_events_user_time_idx").on(table.userId, table.createdAt)],
+  (table) => [
+    index("mac_usage_events_user_time_idx").on(table.userId, table.createdAt),
+    unique("mac_usage_events_user_event_id_key").on(table.userId, table.eventId),
+  ],
 );
 
 /** Per-tenant widget appearance/behavior config (accent, locale, launcher label). */

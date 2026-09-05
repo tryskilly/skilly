@@ -248,11 +248,25 @@ export function hasCurrentPersonalEntitlement(record: {
 export interface PersonalSubscriptionUpdate {
   userId: string;
   email?: string | null;
-  status: "active" | "canceled" | "none";
+  status: "active" | "canceled" | "past_due" | "none";
   plan?: string | null;
   periodStart?: string | null;
   periodEnd?: string | null;
   polarCustomerId?: string | null;
+  providerEventAt?: string | null;
+  providerEventId?: string | null;
+}
+
+/** Guard personal entitlement writes against out-of-order provider delivery. */
+export function shouldApplyPersonalProviderEvent(
+  existingEventAt: string | null | undefined,
+  incomingEventAt: string | null | undefined,
+): boolean {
+  if (!existingEventAt) return true;
+  if (!incomingEventAt) return false;
+  const existing = Date.parse(existingEventAt);
+  const incoming = Date.parse(incomingEventAt);
+  return Number.isFinite(existing) && Number.isFinite(incoming) && incoming >= existing;
 }
 
 export function getPersonalProductIds(env: BillingEnv): Set<string> {
@@ -276,9 +290,21 @@ export function interpretPersonalSubscriptionEvent(event: unknown, env: BillingE
   if (!productId || personalProducts.size === 0 || !personalProducts.has(productId)) return null;
   const providerStatus = typeof data?.status === "string" ? data.status : null;
   const status = type === "subscription.revoked" ? "none" :
-    type === "subscription.canceled" || type === "subscription.past_due" || providerStatus === "past_due" ? "canceled" :
+    type === "subscription.past_due" || providerStatus === "past_due" ? "past_due" :
+    type === "subscription.canceled" ? "canceled" :
     (type === "subscription.active" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
   if (!status) return null;
   const stringValue = (value: unknown): string | null => typeof value === "string" ? value : null;
-  return { userId: metadata.user_id, email: stringValue(metadata.email), status, plan: typeof metadata.plan === "string" ? metadata.plan : "relay", periodStart: stringValue(data?.current_period_start), periodEnd: stringValue(data?.current_period_end), polarCustomerId: stringValue(data?.customer_id) ?? stringValue(customer?.id) };
+  const eventAt = stringValue(data?.created_at) ?? stringValue(data?.updated_at) ?? stringValue(root.created_at) ?? stringValue(root.timestamp);
+  return {
+    userId: metadata.user_id,
+    email: stringValue(metadata.email),
+    status,
+    plan: typeof metadata.plan === "string" ? metadata.plan : "relay",
+    periodStart: stringValue(data?.current_period_start),
+    periodEnd: stringValue(data?.current_period_end),
+    polarCustomerId: stringValue(data?.customer_id) ?? stringValue(customer?.id),
+    providerEventAt: eventAt,
+    providerEventId: stringValue(data?.id) ?? stringValue(root.id),
+  };
 }

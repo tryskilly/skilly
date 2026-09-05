@@ -88,7 +88,9 @@ The desktop token request remains a `GET` and carries these headers:
 JSON with a stable `code`: `409 {"code":"client_migration_required"}` (non-paying desktop
 request without the v1 marker), `403 {"code":"trial_exhausted"}`, `403
 {"code":"subscription_inactive"}`, or `429 {"code":"cap_reached"}`. Authentication remains
-`401`; missing configuration/database failures remain `5xx` and never become a fresh trial.
+`401`; missing configuration/database failures remain `5xx` and never become a fresh trial. An
+active paid row without a valid canonical `period_start` is unavailable for hosted starts and
+returns a `5xx`; the server must not substitute the calendar month or invent a new allowance.
 
 The extension token route keeps its existing paid-only behavior and does **not** send `0` or mark
 desktop trial migration. It may omit migration headers indefinitely; an active subscriber is
@@ -110,8 +112,9 @@ session. New clients preserve the existing flat telemetry fields and add only th
 `eventId` is required for idempotent new-client accounting; `sessionId` is required when present
 in the token response. The server looks up `sessionId` and rejects unknown or another user's
 session; it assigns `source`, trial/paid mode, and billing period from that issuance record and
-ignores any client-supplied mode/source. The server returns `{ "ok": true, "recordedSeconds": 42,
-"duplicate": false }`.
+ignores any client-supplied hosted mode/source. The existing flat token counters and cost fields
+remain flat; extension action counts may be carried for telemetry without changing allowance math.
+The server returns `{ "ok": true, "recordedSeconds": 42, "duplicate": false }`.
 Seconds remain non-negative and retain the existing per-event clamp. Malformed new reports are
 `400`; duplicate event ids are successful no-ops. Legacy reports are retained without an id and
 counted conservatively.
@@ -140,8 +143,9 @@ attacker can still under-report future seconds, which is the known limit without
   paid-only token route and handle the server's explicit block codes; submit an idempotent usage
   event when the host closes. One WorkOS identity therefore shares the paid-period counter across
   Mac, Windows, and extension without allowing extension-first trial migration.
-* BYOK continues to call OpenAI with the user's own key and reports telemetry only; it does not
-  use hosted-token access enforcement.
+* BYOK continues to call OpenAI with the user's own key and reports telemetry only (the explicit
+  legacy Mac `source=byok` report has no issued session); it does not use hosted-token access
+  enforcement or consume the hosted allowance.
 
 ## Concurrency and non-goals
 

@@ -64,6 +64,23 @@ describe("GET /api/extension/openai/token", () => {
     expect(response.status).toBe(502);
   });
 
+  test("returns a server access block without contacting OpenAI", async () => {
+    process.env.OPENAI_API_KEY_EXTENSION = "sk-test";
+    let minted = false;
+    const blockedDependencies: ExtensionOpenAITokenDependencies = {
+      ...dependencies,
+      authorizeHostedAccess: async () => ({ allowed: false, status: 429, code: "cap_reached" }),
+      mintRealtimeToken: async () => {
+        minted = true;
+        return { clientSecret: "should_not_mint", expiresAt: null, model: "gpt-realtime" };
+      },
+    };
+    const response = await handleExtensionOpenAITokenRequest(authedRequest() as never, blockedDependencies);
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "cap_reached", code: "cap_reached" });
+    expect(minted).toBe(false);
+  });
+
   // The unauthenticated path must short-circuit before the key check, so a misconfigured server
   // still answers 401 (not 500) to a caller with no credentials — otherwise the response leaks
   // server configuration state to anyone who asks.

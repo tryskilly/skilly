@@ -10,6 +10,7 @@ import {
   hasCurrentPersonalEntitlement,
   interpretPersonalSubscriptionEvent,
   parseCheckoutAttemptId,
+  shouldApplyPersonalProviderEvent,
 } from "../src/domain/billing";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
 
@@ -190,8 +191,16 @@ describe("personal subscription webhook status", () => {
   const event = (type: string, status?: string) => ({ type, data: { status, product_id: "mac_prod", metadata: { surface: "mac", user_id: "user_1", plan: "relay", email: "u@example.com" }, customer_id: "cust_1" } });
   test("does not grant active for incomplete created or past_due", () => {
     expect(interpretPersonalSubscriptionEvent(event("subscription.created", "incomplete"), env)).toBeNull();
-    expect(interpretPersonalSubscriptionEvent(event("subscription.past_due", "past_due"), env)?.status).toBe("canceled");
-    expect(interpretPersonalSubscriptionEvent(event("subscription.updated", "past_due"), env)?.status).toBe("canceled");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.past_due", "past_due"), env)?.status).toBe("past_due");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.updated", "past_due"), env)?.status).toBe("past_due");
+  });
+  test("preserves provider event ordering metadata for the entitlement write guard", () => {
+    const update = interpretPersonalSubscriptionEvent({
+      ...event("subscription.active", "active"),
+      data: { ...event("subscription.active", "active").data, id: "sub_evt_2", updated_at: "2026-09-06T12:00:00Z" },
+    }, env);
+    expect(update?.providerEventAt).toBe("2026-09-06T12:00:00Z");
+    expect(update?.providerEventId).toBe("sub_evt_2");
   });
   test("revoked removes access and active updates grant it", () => {
     expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"), env)?.status).toBe("none");
@@ -207,5 +216,14 @@ describe("checkout attempt validation", () => {
     expect(parseCheckoutAttemptId(42).valid).toBe(false);
     expect(parseCheckoutAttemptId("x".repeat(501)).valid).toBe(false);
     expect(parseCheckoutAttemptId(null)).toEqual({ valid: true, value: null });
+  });
+});
+
+describe("personal provider event ordering", () => {
+  test("does not let a delayed active event overwrite past_due/revoked state", () => {
+    expect(shouldApplyPersonalProviderEvent("2026-09-06T12:00:00Z", "2026-09-06T11:59:59Z")).toBe(false);
+    expect(shouldApplyPersonalProviderEvent("2026-09-06T12:00:00Z", "2026-09-06T12:00:01Z")).toBe(true);
+    expect(shouldApplyPersonalProviderEvent("2026-09-06T12:00:00Z", null)).toBe(false);
+    expect(shouldApplyPersonalProviderEvent(null, "2026-09-06T12:00:00Z")).toBe(true);
   });
 });

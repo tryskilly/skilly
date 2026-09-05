@@ -97,6 +97,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       periodEnd: macUpdate.periodEnd,
       plan: "byok",
       polarCustomerId: macUpdate.polarCustomerId,
+      providerEventAt: macUpdate.providerEventAt ?? webhookTimestampIso(request.headers.get("webhook-timestamp")),
+      providerEventId: macUpdate.providerEventId ?? request.headers.get("webhook-id"),
     });
     await captureServerEvent("mac_byok_plan_updated", {
       workos_user_id: macUpdate.userId,
@@ -115,6 +117,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       periodEnd: personalUpdate.periodEnd,
       plan: personalUpdate.plan,
       polarCustomerId: personalUpdate.polarCustomerId,
+      providerEventAt: personalUpdate.providerEventAt ?? webhookTimestampIso(request.headers.get("webhook-timestamp")),
+      providerEventId: personalUpdate.providerEventId ?? request.headers.get("webhook-id"),
     });
     await captureServerEvent("mac_personal_plan_updated", {
       workos_user_id: personalUpdate.userId,
@@ -135,10 +139,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 function interpretMacByokSubscriptionEvent(event: unknown): {
   userId: string;
   email?: string | null;
-  status: "active" | "canceled" | "none";
+  status: "active" | "canceled" | "past_due" | "none";
   periodStart?: string | null;
   periodEnd?: string | null;
   polarCustomerId?: string | null;
+  providerEventAt?: string | null;
+  providerEventId?: string | null;
 } | null {
   if (!event || typeof event !== "object") {
     return null;
@@ -153,8 +159,11 @@ function interpretMacByokSubscriptionEvent(event: unknown): {
     return null;
   }
 
-  let status: "active" | "canceled" | "none" | null = null;
-  if (type === "subscription.created" || type === "subscription.active" || type === "subscription.updated") {
+  const providerStatus = typeof data?.status === "string" ? data.status : null;
+  let status: "active" | "canceled" | "past_due" | "none" | null = null;
+  if (type === "subscription.past_due" || providerStatus === "past_due") {
+    status = "past_due";
+  } else if (type === "subscription.created" || type === "subscription.active" || type === "subscription.updated") {
     status = "active";
   } else if (type === "subscription.canceled" || type === "subscription.revoked") {
     status = "canceled";
@@ -170,6 +179,8 @@ function interpretMacByokSubscriptionEvent(event: unknown): {
     periodStart: stringOrNull(data?.current_period_start),
     periodEnd: stringOrNull(data?.current_period_end),
     polarCustomerId: stringOrNull(data?.customer_id) ?? stringOrNull(customer?.id),
+    providerEventAt: stringOrNull(data?.created_at) ?? stringOrNull(data?.updated_at) ?? stringOrNull(eventRecord.created_at) ?? stringOrNull(eventRecord.timestamp),
+    providerEventId: stringOrNull(data?.id) ?? stringOrNull(eventRecord.id),
   };
 }
 
@@ -179,4 +190,10 @@ function recordOrNull(value: unknown): Record<string, unknown> | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function webhookTimestampIso(value: string | null): string | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
 }
