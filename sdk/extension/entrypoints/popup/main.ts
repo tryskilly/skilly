@@ -1,5 +1,6 @@
 import { BUNDLED_SKILLS } from "../../src/bundledSkills";
 import { GENERIC_SKILL_VALUE } from "../../src/skillMatcher";
+import { accessErrorMessage } from "../../src/access";
 import type { PopupToBackgroundMessage, SessionStatusReply, LoginReply } from "../../src/messages";
 
 function requireElement<T extends HTMLElement>(id: string): T {
@@ -33,7 +34,13 @@ function populateSkillOptions(select: HTMLSelectElement, selectedValue: string):
   select.value = selectedValue;
 }
 
-async function render(): Promise<void> {
+function renderStatus(message: string | null): void {
+  const status = requireElement<HTMLParagraphElement>("status-message");
+  status.textContent = message ?? "";
+  status.hidden = !message;
+}
+
+async function render(statusMessage: string | null = null): Promise<void> {
   const stored = await chrome.storage.local.get(["sessionToken", "email", "skillOverride"]);
   const signedOutSection = requireElement("signed-out");
   const signedInSection = requireElement("signed-in");
@@ -46,12 +53,13 @@ async function render(): Promise<void> {
 
   signedOutSection.hidden = true;
   signedInSection.hidden = false;
+  renderStatus(statusMessage);
   requireElement("email").textContent = (stored.email as string) ?? "";
 
   populateSkillOptions(requireElement<HTMLSelectElement>("skill-override"), (stored.skillOverride as string) ?? "");
 
-  const statusMessage: PopupToBackgroundMessage = { type: "get-session-status" };
-  chrome.runtime.sendMessage(statusMessage, (response: SessionStatusReply | undefined) => {
+  const sessionStatusMessage: PopupToBackgroundMessage = { type: "get-session-status" };
+  chrome.runtime.sendMessage(sessionStatusMessage, (response: SessionStatusReply | undefined) => {
     requireElement<HTMLButtonElement>("toggle-session").textContent = response?.active
       ? "Stop on this page"
       : "Start on this page";
@@ -60,19 +68,20 @@ async function render(): Promise<void> {
 
 requireElement("sign-in").addEventListener("click", () => {
   const loginMessage: PopupToBackgroundMessage = { type: "login-start" };
-  chrome.runtime.sendMessage(loginMessage, (_response: LoginReply | undefined) => {
-    void render();
+  chrome.runtime.sendMessage(loginMessage, (response: LoginReply | undefined) => {
+    void render(response?.ok ? null : "Sign-in could not be completed. Try again.");
   });
 });
 
 requireElement("sign-out").addEventListener("click", () => {
-  void chrome.storage.local.remove(["sessionToken", "email"]).then(render);
+  void chrome.storage.local.remove(["sessionToken", "email"]).then(() => render());
 });
 
 requireElement("toggle-session").addEventListener("click", () => {
   const toggleMessage: PopupToBackgroundMessage = { type: "toggle-session" };
-  chrome.runtime.sendMessage(toggleMessage, (_response: SessionStatusReply | undefined) => {
-    void render();
+  chrome.runtime.sendMessage(toggleMessage, (response: SessionStatusReply | undefined) => {
+    const message = response?.error ? accessErrorMessage(response.error) : null;
+    void render(message);
   });
 });
 

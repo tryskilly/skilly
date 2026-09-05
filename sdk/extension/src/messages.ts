@@ -72,7 +72,13 @@ export interface AssistantTextMessage {
 }
 export interface UsageReportMessage {
   type: "usage-report";
+  /** Server-issued token session id; absent only for legacy host messages. */
+  sessionId: string;
+  /** One id per completed session; retries must reuse this value. */
+  eventId: string;
   seconds: number;
+  model: string;
+  result: "completed" | "remaining_time_reached";
   actionsExecuted: number;
   actionsRefused: number;
 }
@@ -88,6 +94,10 @@ export interface StartSessionMessage {
   type: "start-session";
   clientSecret: string;
   model: string;
+  sessionId: string;
+  accessMode: "paid";
+  /** Honest-client close hint from Studio; it is not a server-enforced cap. */
+  remainingSeconds: number;
   instructions: string;
   actionsEnabled: boolean;
 }
@@ -120,7 +130,16 @@ export type PopupToBackgroundMessage = ToggleSessionMessage | GetSessionStatusMe
 /** Replies the popup receives back from the background, one per PopupToBackgroundMessage. */
 export interface SessionStatusReply {
   active: boolean;
+  error?: AccessErrorCode;
 }
 export interface LoginReply {
   ok: boolean;
 }
+
+/** Stable user-facing categories returned by Studio access preflight. */
+export type AccessErrorCode =
+  | "subscription_inactive"
+  | "cap_reached"
+  | "trial_exhausted"
+  | "authentication_required"
+  | "backend_unavailable";

@@ -36,6 +36,10 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
   let sessionStartedAt = 0;
   let actionsExecuted = 0;
   let actionsRefused = 0;
+  let sessionId = "";
+  let eventId = "";
+  let sessionModel = "gpt-realtime";
+  let remainingTimeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** callId -> resolver, for action results routed back from the content script. */
   const pendingActionResolvers = new Map<string, (result: ActionResult) => void>();
@@ -88,17 +92,33 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
     owningSession.sendFunctionCallOutput(call.callId, JSON.stringify(result));
   }
 
-  function stopSession(): void {
+  function stopSession(result: "completed" | "remaining_time_reached" = "completed"): void {
+    if (remainingTimeTimer !== null) {
+      clearTimeout(remainingTimeTimer);
+      remainingTimeTimer = null;
+    }
     if (session) {
       const elapsedSeconds = sessionStartedAt ? (currentTime() - sessionStartedAt) / 1000 : 0;
       if (elapsedSeconds > 0) {
-        post({ type: "usage-report", seconds: elapsedSeconds, actionsExecuted, actionsRefused });
+        post({
+          type: "usage-report",
+          sessionId,
+          eventId,
+          seconds: Math.max(0, Math.round(elapsedSeconds)),
+          model: sessionModel,
+          result,
+          actionsExecuted,
+          actionsRefused,
+        });
       }
     }
     releasePendingActions();
     session?.close();
     session = null;
     sessionStartedAt = 0;
+    sessionId = "";
+    eventId = "";
+    sessionModel = "gpt-realtime";
     actionsExecuted = 0;
     actionsRefused = 0;
   }
@@ -111,6 +131,9 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
     }
 
     sessionStartedAt = currentTime();
+    sessionId = payload.sessionId;
+    eventId = crypto.randomUUID();
+    sessionModel = payload.model;
     actionsExecuted = 0;
     actionsRefused = 0;
 
@@ -130,6 +153,16 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
       },
     });
     session = startedSession;
+    // This is an honest-client close hint only. The backend remains the authority and a live
+    // WebRTC session cannot be revoked by an ephemeral credential after it has been issued.
+    if (Number.isFinite(payload.remainingSeconds) && payload.remainingSeconds > 0) {
+      const delayMs = Math.min(payload.remainingSeconds * 1000, 2_147_000_000);
+      remainingTimeTimer = setTimeout(() => {
+        if (session === startedSession) {
+          stopSession("remaining_time_reached");
+        }
+      }, delayMs);
+    }
     void startedSession.connect();
   }
 

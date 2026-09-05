@@ -1,4 +1,4 @@
-// The coordinator. Owns the active tab, the frame registry, entitlement checks and login; the
+// The coordinator. Owns the active tab, the frame registry, Studio access preflight and login; the
 // Realtime session itself lives in a host (src/realtimeHost.ts) whose location is per-browser.
 //
 // On Chrome that host is an offscreen document, because an MV3 service worker has no
@@ -10,12 +10,15 @@ import { matchSkillForUrl, GENERIC_SKILL_VALUE } from "../src/skillMatcher";
 import { BUNDLED_SKILLS } from "../src/bundledSkills";
 import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches } from "../src/auth";
 import { createRealtimeHost, type RealtimeHost } from "../src/realtimeHost";
+import { accessErrorMessage, accessFailureFromResponse, isExtensionTokenResponse } from "../src/access";
+import { reportExtensionUsage } from "../src/usage";
 import type {
   ContentToBackgroundMessage,
   OffscreenToBackgroundMessage,
   BackgroundToOffscreenMessage,
   BackgroundToContentMessage,
   PopupToBackgroundMessage,
+  AccessErrorCode,
 } from "../src/messages";
 
 const BACKEND_URL = "https://studio.tryskilly.app"; // TODO(config): build-time env var once staging/prod diverge
@@ -106,7 +109,9 @@ export default defineBackground(() => {
     });
   }
 
-  async function startSession(tabId: number): Promise<void> {
+  type StartSessionResult = { active: boolean; error?: AccessErrorCode };
+
+  async function startSession(tabId: number): Promise<StartSessionResult> {
     activeTabId = tabId;
     frameRegistry.clear();
 
@@ -115,26 +120,36 @@ export default defineBackground(() => {
     const skillOverride = (stored.skillOverride as string | null | undefined) ?? null;
     if (!sessionToken) {
       activeTabId = null;
-      return; // not logged in — the popup owns prompting the user to sign in
+      return { active: false, error: "authentication_required" }; // popup owns prompting sign-in
     }
 
     const authorizationHeader = { authorization: `Bearer ${sessionToken}` };
-    const [entitlementResponse, tokenResponse] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/extension/entitlement`, { headers: authorizationHeader }),
-      fetch(`${BACKEND_URL}/api/extension/openai/token`, { headers: authorizationHeader }),
-    ]);
-    if (!entitlementResponse.ok || !tokenResponse.ok) {
-      notifyActiveTab("Skilly couldn't connect. Try again in a moment.");
+    let tokenResponse: Response;
+    try {
+      // The token route is the access gate. Entitlement GET is intentionally not used as an
+      // authorization decision because it can be stale relative to billing/capacity preflight.
+      tokenResponse = await fetch(`${BACKEND_URL}/api/extension/openai/token`, {
+        headers: authorizationHeader,
+      });
+    } catch {
+      notifyActiveTab(accessErrorMessage("backend_unavailable"));
       activeTabId = null;
-      return;
+      return { active: false, error: "backend_unavailable" };
     }
-    const entitlement = (await entitlementResponse.json()) as { status: string };
-    if (entitlement.status !== "active") {
-      notifyActiveTab("Your Skilly subscription isn't active.");
+
+    const tokenBody: unknown = await tokenResponse.json().catch(() => undefined);
+    if (!tokenResponse.ok) {
+      const failure = accessFailureFromResponse(tokenResponse.status, tokenBody);
+      notifyActiveTab(accessErrorMessage(failure.code));
       activeTabId = null;
-      return;
+      return { active: false, error: failure.code };
     }
-    const token = (await tokenResponse.json()) as { clientSecret: string; model: string };
+    if (!isExtensionTokenResponse(tokenBody)) {
+      notifyActiveTab(accessErrorMessage("backend_unavailable"));
+      activeTabId = null;
+      return { active: false, error: "backend_unavailable" };
+    }
+    const token = tokenBody;
 
     const tab = await chrome.tabs.get(tabId);
     const skill = selectSkill(tab.url, skillOverride);
@@ -147,7 +162,7 @@ export default defineBackground(() => {
     // The session may have been stopped (or the tab navigated) while we were awaiting the
     // network and the digest settle — starting a Realtime session now would orphan it.
     if (activeTabId !== tabId) {
-      return;
+      return { active: false };
     }
 
     const instructions = [
@@ -159,16 +174,20 @@ export default defineBackground(() => {
 
     await ensureSessionHost();
     if (activeTabId !== tabId) {
-      return;
+      return { active: false };
     }
     const startMessage: BackgroundToOffscreenMessage = {
       type: "start-session",
       clientSecret: token.clientSecret,
       model: token.model,
+      sessionId: token.sessionId,
+      accessMode: token.accessMode,
+      remainingSeconds: token.remainingSeconds,
       instructions,
       actionsEnabled: true,
     };
     sendToSessionHost(startMessage);
+    return { active: true };
   }
 
   function stopSession(): void {
@@ -193,7 +212,9 @@ export default defineBackground(() => {
           sendResponse({ active: false });
           return;
         }
-        void startSession(tab.id).then(() => sendResponse({ active: activeTabId === tab.id }));
+        void startSession(tab.id)
+          .then((result) => sendResponse({ ...result, active: activeTabId === tab.id && result.active }))
+          .catch(() => sendResponse({ active: false, error: "backend_unavailable" as const }));
       });
       return true; // async sendResponse
     }
@@ -307,14 +328,10 @@ export default defineBackground(() => {
 
       if (rawMessage.type === "usage-report") {
         void chrome.storage.local.get(["sessionToken"]).then(({ sessionToken }) => {
-          if (!sessionToken) {
+          if (typeof sessionToken !== "string" || !sessionToken) {
             return;
           }
-          void fetch(`${BACKEND_URL}/api/extension/usage`, {
-            method: "POST",
-            headers: { authorization: `Bearer ${sessionToken}`, "content-type": "application/json" },
-            body: JSON.stringify({ seconds: rawMessage.seconds }),
-          }).catch(() => undefined);
+          void reportExtensionUsage(BACKEND_URL, sessionToken, rawMessage);
         });
         return;
       }

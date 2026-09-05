@@ -18,7 +18,8 @@ Builds are MV3 for both targets (`manifestVersion: 3` is pinned in `wxt.config.t
 otherwise emit MV2 for Firefox), producing `.output/chrome-mv3/` and `.output/firefox-mv3/`.
 
 The Studio backend surface is `POST /api/extension/auth/exchange`, `GET
-/api/extension/entitlement`, `GET /api/extension/openai/token`, and `POST
-/api/extension/usage`. Chrome and Firefox manifests are generated separately: Chrome receives the
+/api/extension/openai/token` (the authoritative paid-access preflight), and `POST
+/api/extension/usage`. The entitlement endpoint remains available for diagnostics but is not used
+as a session authorization decision. Chrome and Firefox manifests are generated separately: Chrome receives the
 `offscreen` permission and pinned Chromium key, while Firefox receives its Gecko ID and required
 data-collection disclosure.
