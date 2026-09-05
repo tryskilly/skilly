@@ -64,6 +64,7 @@ export interface ActionRequestMessage {
 }
 export interface SessionStateMessage {
   type: "session-state";
+  sessionId: string;
   state: "connecting" | "live" | "closed" | "error";
 }
 export interface AssistantTextMessage {
@@ -72,6 +73,7 @@ export interface AssistantTextMessage {
 }
 export interface UsageReportMessage {
   type: "usage-report";
+  accountId: string;
   /** Server-issued token session id; absent only for legacy host messages. */
   sessionId: string;
   /** One id per completed session; retries must reuse this value. */
@@ -95,6 +97,7 @@ export interface StartSessionMessage {
   clientSecret: string;
   model: string;
   sessionId: string;
+  accountId: string;
   accessMode: "paid";
   /** Honest-client close hint from Studio; it is not a server-enforced cap. */
   remainingSeconds: number;

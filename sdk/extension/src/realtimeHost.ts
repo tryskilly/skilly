@@ -37,6 +37,7 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
   let actionsExecuted = 0;
   let actionsRefused = 0;
   let sessionId = "";
+  let sessionAccount = "";
   let eventId = "";
   let sessionModel = "gpt-realtime";
   let remainingTimeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -102,6 +103,7 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
       if (elapsedSeconds > 0) {
         post({
           type: "usage-report",
+          accountId: sessionAccount,
           sessionId,
           eventId,
           seconds: Math.max(0, Math.round(elapsedSeconds)),
@@ -114,9 +116,13 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
     }
     releasePendingActions();
     session?.close();
+    if (session) {
+      post({ type: "session-state", sessionId, state: "closed" });
+    }
     session = null;
     sessionStartedAt = 0;
     sessionId = "";
+    sessionAccount = "";
     eventId = "";
     sessionModel = "gpt-realtime";
     actionsExecuted = 0;
@@ -132,6 +138,7 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
 
     sessionStartedAt = currentTime();
     sessionId = payload.sessionId;
+    sessionAccount = payload.accountId;
     eventId = crypto.randomUUID();
     sessionModel = payload.model;
     actionsExecuted = 0;
@@ -143,13 +150,13 @@ export function createRealtimeHost({ post, createSession, now }: RealtimeHostOpt
       instructions: payload.instructions,
       actions: payload.actionsEnabled,
       callbacks: {
-        onStateChange: (state) => post({ type: "session-state", state }),
+        onStateChange: (state) => post({ type: "session-state", sessionId: payload.sessionId, state }),
         onUserTranscript: () => {},
         onAssistantText: (text) => post({ type: "assistant-text", text }),
         onActionToolCall: (call: RealtimeActionToolCall) => {
           void handleActionToolCall(startedSession, call);
         },
-        onError: () => post({ type: "session-state", state: "error" }),
+        onError: () => post({ type: "session-state", sessionId: payload.sessionId, state: "error" }),
       },
     });
     session = startedSession;

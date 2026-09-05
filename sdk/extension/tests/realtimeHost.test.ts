@@ -44,6 +44,7 @@ const START = {
   clientSecret: "ek_test",
   model: "gpt-realtime",
   sessionId: "session_1",
+  accountId: "user_1",
   accessMode: "paid",
   remainingSeconds: 10_800,
   instructions: "be helpful",
@@ -67,6 +68,7 @@ describe("createRealtimeHost", () => {
     const usage = posted.find((m) => m.type === "usage-report");
     expect(usage).toMatchObject({
       type: "usage-report",
+      accountId: "user_1",
       sessionId: "session_1",
       seconds: 42,
       model: "gpt-realtime",

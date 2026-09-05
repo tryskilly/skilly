@@ -8,10 +8,16 @@
 import { FrameRegistry, parseQualifiedTarget } from "../src/frameRegistry";
 import { matchSkillForUrl, GENERIC_SKILL_VALUE } from "../src/skillMatcher";
 import { BUNDLED_SKILLS } from "../src/bundledSkills";
-import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches } from "../src/auth";
+import {
+  buildWorkOSAuthorizeUrl,
+  exchangeCodeForSession,
+  generateAuthState,
+  authStateMatches,
+  sessionAccountId,
+} from "../src/auth";
 import { createRealtimeHost, type RealtimeHost } from "../src/realtimeHost";
 import { accessErrorMessage, accessFailureFromResponse, isExtensionTokenResponse } from "../src/access";
-import { reportExtensionUsage } from "../src/usage";
+import { enqueueExtensionUsage, flushExtensionUsageOutbox, type ExtensionUsageReport } from "../src/usage";
 import type {
   ContentToBackgroundMessage,
   OffscreenToBackgroundMessage,
@@ -36,6 +42,22 @@ const DIGEST_SETTLE_MS = 300;
 export default defineBackground(() => {
   const frameRegistry = new FrameRegistry();
   let activeTabId: number | null = null;
+  let activeSessionId: string | null = null;
+  let usageOutboxWork = Promise.resolve();
+
+  function scheduleUsageOutboxWork(work: () => Promise<void>): void {
+    usageOutboxWork = usageOutboxWork.then(work).catch(() => undefined);
+  }
+
+  function flushCurrentAccountUsage(): void {
+    scheduleUsageOutboxWork(async () => {
+      const stored = await chrome.storage.local.get(["sessionToken"]);
+      const token = typeof stored.sessionToken === "string" ? stored.sessionToken : null;
+      const accountId = token ? sessionAccountId(token) : null;
+      if (!token || !accountId) return;
+      await flushExtensionUsageOutbox(chrome.storage.local, BACKEND_URL, token, accountId);
+    });
+  }
 
   /**
    * Offscreen documents are a Chrome-only MV3 API, needed there because a service worker has no
@@ -150,6 +172,13 @@ export default defineBackground(() => {
       return { active: false, error: "backend_unavailable" };
     }
     const token = tokenBody;
+    const accountId = sessionAccountId(sessionToken);
+    if (!accountId) {
+      notifyActiveTab(accessErrorMessage("authentication_required"));
+      activeTabId = null;
+      return { active: false, error: "authentication_required" };
+    }
+    flushCurrentAccountUsage();
 
     const tab = await chrome.tabs.get(tabId);
     const skill = selectSkill(tab.url, skillOverride);
@@ -164,6 +193,7 @@ export default defineBackground(() => {
     if (activeTabId !== tabId) {
       return { active: false };
     }
+    activeSessionId = token.sessionId;
 
     const instructions = [
       "You are Skilly, a browser extension companion. Help the user with the page they're on.",
@@ -181,6 +211,7 @@ export default defineBackground(() => {
       clientSecret: token.clientSecret,
       model: token.model,
       sessionId: token.sessionId,
+      accountId,
       accessMode: token.accessMode,
       remainingSeconds: token.remainingSeconds,
       instructions,
@@ -192,6 +223,7 @@ export default defineBackground(() => {
 
   function stopSession(): void {
     activeTabId = null;
+    activeSessionId = null;
     frameRegistry.clear();
     sendToSessionHost({ type: "stop-session" });
   }
@@ -241,6 +273,7 @@ export default defineBackground(() => {
             chrome.storage.local.set({ sessionToken: session.sessionToken, email: session.email }),
           )
           .then(() => sendResponse({ ok: true }))
+          .then(() => flushCurrentAccountUsage())
           .catch(() => sendResponse({ ok: false }));
       });
       return true; // keep the channel open for the async sendResponse
@@ -327,12 +360,32 @@ export default defineBackground(() => {
       }
 
       if (rawMessage.type === "usage-report") {
-        void chrome.storage.local.get(["sessionToken"]).then(({ sessionToken }) => {
-          if (typeof sessionToken !== "string" || !sessionToken) {
+        const report: ExtensionUsageReport = rawMessage;
+        scheduleUsageOutboxWork(async () => {
+          const saved = await enqueueExtensionUsage(chrome.storage.local, report);
+          if (!saved) {
+            notifyActiveTab("Skilly couldn't save this usage report. Please try again after reconnecting.");
             return;
           }
-          void reportExtensionUsage(BACKEND_URL, sessionToken, rawMessage);
+          const stored = await chrome.storage.local.get(["sessionToken"]);
+          const token = typeof stored.sessionToken === "string" ? stored.sessionToken : null;
+          const accountId = token ? sessionAccountId(token) : null;
+          if (token && accountId === report.accountId) {
+            await flushExtensionUsageOutbox(chrome.storage.local, BACKEND_URL, token, accountId);
+          }
         });
+        return;
+      }
+
+      if (
+        rawMessage.type === "session-state" &&
+        rawMessage.state === "closed" &&
+        rawMessage.sessionId === activeSessionId
+      ) {
+        // A remaining-time client timer can close the host without a background stop message.
+        activeTabId = null;
+        activeSessionId = null;
+        frameRegistry.clear();
         return;
       }
     }
