@@ -9,6 +9,7 @@ import {
   verifyWebhookSignature,
   hasCurrentPersonalEntitlement,
   interpretPersonalSubscriptionEvent,
+  parseCheckoutAttemptId,
 } from "../src/domain/billing";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
 
@@ -185,17 +186,26 @@ describe("Polar customer id extraction", () => {
 });
 
 describe("personal subscription webhook status", () => {
-  const event = (type: string, status?: string) => ({ type, data: { status, metadata: { surface: "mac", user_id: "user_1", plan: "relay", email: "u@example.com" }, customer_id: "cust_1" } });
+  const env = { POLAR_MAC_PRODUCT_ID: "mac_prod" };
+  const event = (type: string, status?: string) => ({ type, data: { status, product_id: "mac_prod", metadata: { surface: "mac", user_id: "user_1", plan: "relay", email: "u@example.com" }, customer_id: "cust_1" } });
   test("does not grant active for incomplete created or past_due", () => {
-    expect(interpretPersonalSubscriptionEvent(event("subscription.created", "incomplete"))).toBeNull();
-    expect(interpretPersonalSubscriptionEvent(event("subscription.past_due", "past_due"))?.status).toBe("canceled");
-    expect(interpretPersonalSubscriptionEvent(event("subscription.updated", "past_due"))?.status).toBe("canceled");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.created", "incomplete"), env)).toBeNull();
+    expect(interpretPersonalSubscriptionEvent(event("subscription.past_due", "past_due"), env)?.status).toBe("canceled");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.updated", "past_due"), env)?.status).toBe("canceled");
   });
   test("revoked removes access and active updates grant it", () => {
-    expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"))?.status).toBe("none");
-    expect(interpretPersonalSubscriptionEvent(event("subscription.active", "active"))?.status).toBe("active");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"), env)?.status).toBe("none");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.active", "active"), env)?.status).toBe("active");
   });
   test("ignores unrelated products without personal metadata", () => {
-    expect(interpretPersonalSubscriptionEvent({ type: "subscription.active", data: { metadata: { tenantId: "tenant_1" } } })).toBeNull();
+    expect(interpretPersonalSubscriptionEvent({ type: "subscription.active", data: { product_id: "builder_prod", metadata: { tenantId: "tenant_1" } } }, env)).toBeNull();
+  });
+});
+
+describe("checkout attempt validation", () => {
+  test("rejects non-string and values over 500 characters", () => {
+    expect(parseCheckoutAttemptId(42).valid).toBe(false);
+    expect(parseCheckoutAttemptId("x".repeat(501)).valid).toBe(false);
+    expect(parseCheckoutAttemptId(null)).toEqual({ valid: true, value: null });
   });
 });

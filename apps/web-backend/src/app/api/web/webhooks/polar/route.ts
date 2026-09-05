@@ -58,7 +58,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const parsedEvent = event as Parameters<typeof interpretSubscriptionEvent>[0];
   const update = interpretSubscriptionEvent(parsedEvent, activeCapSeconds);
   const macUpdate = interpretMacByokSubscriptionEvent(event);
-  const personalUpdate = interpretPersonalSubscriptionEvent(event);
+  const personalUpdate = interpretPersonalSubscriptionEvent(event, process.env);
   if (parsedEvent.type === "subscription.past_due" && parsedEvent.data?.customer?.email) {
     const emailResult = await sendPastDueEmail({
       eventId: request.headers.get("webhook-id") ?? `${parsedEvent.type}:${parsedEvent.data.customer_id ?? parsedEvent.data.customer.email}`,

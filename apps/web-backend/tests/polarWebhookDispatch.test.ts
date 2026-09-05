@@ -20,11 +20,11 @@ function signed(body: string): Request {
 }
 
 describe("Polar webhook dispatch", () => {
-  beforeEach(() => { process.env = { ...originalEnv, POLAR_WEBHOOK_SECRET: secret }; upserts.length = 0; tenantUpdates.length = 0; });
+  beforeEach(() => { process.env = { ...originalEnv, POLAR_WEBHOOK_SECRET: secret, POLAR_MAC_PRODUCT_ID: "mac_prod" }; upserts.length = 0; tenantUpdates.length = 0; });
   afterEach(() => { process.env = { ...originalEnv }; });
 
   test("stores standard Mac subscription in shared entitlement table", async () => {
-    const body = JSON.stringify({ type: "subscription.active", data: { status: "active", metadata: { surface: "mac", user_id: "u1", email: "u@example.com", plan: "relay" }, customer_id: "c1" } });
+    const body = JSON.stringify({ type: "subscription.active", data: { status: "active", product_id: "mac_prod", metadata: { surface: "mac", user_id: "u1", email: "u@example.com", plan: "relay" }, customer_id: "c1" } });
     const response = await POST(signed(body) as never);
     expect(response.status).toBe(200);
     expect(upserts).toHaveLength(1);
@@ -32,7 +32,7 @@ describe("Polar webhook dispatch", () => {
   });
 
   test("keeps BYOK and Builders paths distinct", async () => {
-    const byok = JSON.stringify({ type: "subscription.active", data: { status: "active", metadata: { surface: "mac", plan: "byok", macUserId: "u2" }, customer_id: "c2" } });
+    const byok = JSON.stringify({ type: "subscription.active", data: { status: "active", product_id: "mac_prod", metadata: { surface: "mac", plan: "byok", macUserId: "u2" }, customer_id: "c2" } });
     await POST(signed(byok) as never);
     expect(upserts[0]).toMatchObject({ userId: "u2", entitlementType: "byok" });
     const builder = JSON.stringify({ type: "subscription.active", data: { metadata: { tenantId: "t1", plan: "studio", planCapSeconds: 90000 }, customer_id: "c3" } });

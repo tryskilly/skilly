@@ -224,6 +224,12 @@ export function buildPersonalCheckoutBody(input: PersonalCheckoutInput): Record<
   };
 }
 
+export function parseCheckoutAttemptId(value: unknown): { valid: true; value: string | null } | { valid: false } {
+  if (value == null) return { valid: true, value: null };
+  if (typeof value !== "string" || value.length > 500) return { valid: false };
+  return { valid: true, value: value.trim() || null };
+}
+
 export function hasCurrentPersonalEntitlement(record: {
   status?: string | null;
   period_end?: string | null;
@@ -244,7 +250,11 @@ export interface PersonalSubscriptionUpdate {
   polarCustomerId?: string | null;
 }
 
-export function interpretPersonalSubscriptionEvent(event: unknown): PersonalSubscriptionUpdate | null {
+export function getPersonalProductIds(env: BillingEnv): Set<string> {
+  return new Set([env.POLAR_MAC_PRODUCT_ID, env.POLAR_BETA_PRODUCT_ID, env.POLAR_EXTENSION_PRODUCT_ID].filter((id): id is string => Boolean(id)));
+}
+
+export function interpretPersonalSubscriptionEvent(event: unknown, env: BillingEnv = process.env): PersonalSubscriptionUpdate | null {
   if (!event || typeof event !== "object") return null;
   const root = event as Record<string, unknown>;
   const type = typeof root.type === "string" ? root.type : null;
@@ -252,7 +262,13 @@ export function interpretPersonalSubscriptionEvent(event: unknown): PersonalSubs
   const customer = data?.customer && typeof data.customer === "object" ? data.customer as Record<string, unknown> : null;
   const rawMetadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : customer?.metadata;
   const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Record<string, unknown> : null;
-  if (!type || metadata?.surface !== "mac" || metadata.plan === "byok" || typeof metadata.user_id !== "string") return null;
+  const surface = metadata?.surface;
+  const productId = typeof data?.product_id === "string" ? data.product_id :
+    (data?.product && typeof data.product === "object" && typeof (data.product as Record<string, unknown>).id === "string" ? (data.product as Record<string, unknown>).id as string : null);
+  const surfaceAllowed = surface === undefined || surface === "mac" || surface === "extension";
+  if (!type || !surfaceAllowed || metadata?.plan === "byok" || typeof metadata?.user_id !== "string") return null;
+  const personalProducts = getPersonalProductIds(env);
+  if (!productId || personalProducts.size === 0 || !personalProducts.has(productId)) return null;
   const providerStatus = typeof data?.status === "string" ? data.status : null;
   const status = type === "subscription.revoked" ? "none" :
     type === "subscription.canceled" || type === "subscription.past_due" || providerStatus === "past_due" ? "canceled" :
