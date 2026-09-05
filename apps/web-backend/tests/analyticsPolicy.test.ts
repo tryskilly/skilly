@@ -51,6 +51,8 @@ describe("analytics policy", () => {
 
     expect(shouldSuppressServerAnalytics({ account_email: "eng.mohamedszaied@gmail.com" })).toBe(true);
     expect(shouldSuppressServerAnalytics({ analytics_suppressed: true })).toBe(true);
+    expect(shouldSuppressServerAnalytics({ role_surface: "super_admin" })).toBe(false);
+    expect(shouldSuppressServerAnalytics({ role_surface: "tenant_admin" })).toBe(false);
     expect(shouldSuppressServerAnalytics({ tenant_id: "tenant_customer" })).toBe(false);
   });
 
