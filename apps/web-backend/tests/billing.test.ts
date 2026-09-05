@@ -8,6 +8,7 @@ import {
   resolveBuilderPlan,
   verifyWebhookSignature,
   hasCurrentPersonalEntitlement,
+  interpretPersonalSubscriptionEvent,
 } from "../src/domain/billing";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
 
@@ -180,5 +181,21 @@ describe("Polar customer id extraction", () => {
       36_000,
     );
     expect(update?.polarCustomerId).toBeUndefined();
+  });
+});
+
+describe("personal subscription webhook status", () => {
+  const event = (type: string, status?: string) => ({ type, data: { status, metadata: { surface: "mac", user_id: "user_1", plan: "relay", email: "u@example.com" }, customer_id: "cust_1" } });
+  test("does not grant active for incomplete created or past_due", () => {
+    expect(interpretPersonalSubscriptionEvent(event("subscription.created", "incomplete"))).toBeNull();
+    expect(interpretPersonalSubscriptionEvent(event("subscription.past_due", "past_due"))?.status).toBe("canceled");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.updated", "past_due"))?.status).toBe("canceled");
+  });
+  test("revoked removes access and active updates grant it", () => {
+    expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"))?.status).toBe("none");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.active", "active"))?.status).toBe("active");
+  });
+  test("ignores unrelated products without personal metadata", () => {
+    expect(interpretPersonalSubscriptionEvent({ type: "subscription.active", data: { metadata: { tenantId: "tenant_1" } } })).toBeNull();
   });
 });

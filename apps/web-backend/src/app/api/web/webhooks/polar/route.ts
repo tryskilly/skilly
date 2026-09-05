@@ -4,7 +4,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
-import { interpretSubscriptionEvent, verifyWebhookSignature } from "@/domain/billing";
+import { interpretPersonalSubscriptionEvent, interpretSubscriptionEvent, verifyWebhookSignature } from "@/domain/billing";
 import { captureServerEvent } from "@/lib/analytics";
 import { sendPastDueEmail } from "@/lib/billingEmail";
 import { upsertMacEntitlement } from "@/lib/macSession";
@@ -130,35 +130,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json({ ok: true, applied: Boolean(update || macUpdate || personalUpdate) }, { status: 200 });
-}
-
-function interpretPersonalSubscriptionEvent(event: unknown): {
-  userId: string;
-  email?: string | null;
-  status: "active" | "canceled" | "none";
-  plan?: string | null;
-  periodStart?: string | null;
-  periodEnd?: string | null;
-  polarCustomerId?: string | null;
-} | null {
-  const eventRecord = recordOrNull(event);
-  const type = typeof eventRecord?.type === "string" ? eventRecord.type : null;
-  const data = recordOrNull(eventRecord?.data);
-  const customer = recordOrNull(data?.customer);
-  const metadata = recordOrNull(data?.metadata) ?? recordOrNull(customer?.metadata);
-  if (!type || metadata?.surface !== "mac" || metadata.plan === "byok" || typeof metadata.user_id !== "string") return null;
-  const status = type === "subscription.canceled" || type === "subscription.revoked" ? "canceled" :
-    type === "subscription.created" || type === "subscription.active" || type === "subscription.updated" ? "active" : null;
-  if (!status) return null;
-  return {
-    userId: metadata.user_id,
-    email: typeof metadata.email === "string" ? metadata.email : null,
-    status,
-    plan: typeof metadata.plan === "string" ? metadata.plan : "relay",
-    periodStart: stringOrNull(data?.current_period_start),
-    periodEnd: stringOrNull(data?.current_period_end),
-    polarCustomerId: stringOrNull(data?.customer_id) ?? stringOrNull(customer?.id),
-  };
 }
 
 function interpretMacByokSubscriptionEvent(event: unknown): {

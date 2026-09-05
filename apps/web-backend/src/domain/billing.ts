@@ -233,3 +233,31 @@ export function hasCurrentPersonalEntitlement(record: {
   const periodEnd = Date.parse(record.period_end);
   return Number.isNaN(periodEnd) || periodEnd > Date.now();
 }
+
+export interface PersonalSubscriptionUpdate {
+  userId: string;
+  email?: string | null;
+  status: "active" | "canceled" | "none";
+  plan?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  polarCustomerId?: string | null;
+}
+
+export function interpretPersonalSubscriptionEvent(event: unknown): PersonalSubscriptionUpdate | null {
+  if (!event || typeof event !== "object") return null;
+  const root = event as Record<string, unknown>;
+  const type = typeof root.type === "string" ? root.type : null;
+  const data = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : null;
+  const customer = data?.customer && typeof data.customer === "object" ? data.customer as Record<string, unknown> : null;
+  const rawMetadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : customer?.metadata;
+  const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Record<string, unknown> : null;
+  if (!type || metadata?.surface !== "mac" || metadata.plan === "byok" || typeof metadata.user_id !== "string") return null;
+  const providerStatus = typeof data?.status === "string" ? data.status : null;
+  const status = type === "subscription.revoked" ? "none" :
+    type === "subscription.canceled" || type === "subscription.past_due" || providerStatus === "past_due" ? "canceled" :
+    (type === "subscription.active" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
+  if (!status) return null;
+  const stringValue = (value: unknown): string | null => typeof value === "string" ? value : null;
+  return { userId: metadata.user_id, email: stringValue(metadata.email), status, plan: typeof metadata.plan === "string" ? metadata.plan : "relay", periodStart: stringValue(data?.current_period_start), periodEnd: stringValue(data?.current_period_end), polarCustomerId: stringValue(data?.customer_id) ?? stringValue(customer?.id) };
+}
