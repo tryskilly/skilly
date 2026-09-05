@@ -104,6 +104,12 @@ struct AppPreferences {
     shortcut: PushToTalkShortcut,
 }
 
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+struct PendingUsageReport {
+    user_id: String,
+    report: backend_client::UsageReportRequest,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct ReqwestTransport;
 
@@ -316,6 +322,96 @@ fn persist_usage_counter(kind: &str, user_id: &str, period: Option<&str>, second
     }
 }
 
+fn usage_outbox_path(user_id: &str) -> Option<PathBuf> {
+    history_path().and_then(|path| {
+        path.parent()
+            .map(|parent| parent.join(usage_outbox_filename(user_id)))
+    })
+}
+
+fn usage_outbox_filename(user_id: &str) -> String {
+    let safe_user_id = user_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("usage-outbox-{safe_user_id}.json")
+}
+
+fn load_usage_outbox(user_id: &str) -> Vec<PendingUsageReport> {
+    usage_outbox_path(user_id)
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn save_usage_outbox(user_id: &str, reports: &[PendingUsageReport]) -> bool {
+    let Some(path) = usage_outbox_path(user_id) else {
+        return false;
+    };
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    if reports.len() > 100 || std::fs::create_dir_all(parent).is_err() {
+        return false;
+    }
+    let Ok(encoded) = serde_json::to_vec(reports) else {
+        return false;
+    };
+    let temporary = path.with_extension("json.tmp");
+    if std::fs::write(&temporary, encoded).is_ok() {
+        let _ = std::fs::rename(temporary, path);
+        return true;
+    }
+    false
+}
+
+fn enqueue_usage_report(user_id: &str, report: backend_client::UsageReportRequest) -> bool {
+    let mut reports = load_usage_outbox(user_id);
+    if reports
+        .iter()
+        .any(|entry| entry.report.event_id == report.event_id)
+    {
+        return true;
+    }
+    reports.push(PendingUsageReport {
+        user_id: user_id.to_owned(),
+        report,
+    });
+    save_usage_outbox(user_id, &reports)
+}
+
+fn usage_outbox_is_full(user_id: &str) -> bool {
+    load_usage_outbox(user_id).len() >= 100
+}
+
+fn flush_usage_outbox(
+    client: &backend_client::BackendClient<ReqwestTransport>,
+    session: &auth::PersistedAuthSession,
+    user_id: &str,
+) {
+    let reports = load_usage_outbox(user_id);
+    for pending in reports {
+        if pending.user_id != user_id {
+            continue;
+        }
+        if client
+            .report_usage_with_retry(&session.session_token, &pending.report)
+            .is_err()
+        {
+            return;
+        }
+        let mut remaining = load_usage_outbox(user_id);
+        remaining.retain(|entry| entry.report.event_id != pending.report.event_id);
+        let _ = save_usage_outbox(user_id, &remaining);
+    }
+}
+
 fn configure_usage(runtime: &RuntimeStore, session: &auth::PersistedAuthSession) {
     let user_id = session.user_id.as_deref().unwrap_or(&session.email);
     runtime.trial_seconds_used.store(
@@ -342,6 +438,22 @@ fn fresh_oauth_state() -> Result<String, String> {
         .fill_bytes(&mut bytes)
         .map_err(|error| error.to_string())?;
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn fresh_event_id() -> String {
+    let mut bytes = [0_u8; 16];
+    if auth::OsEntropy.fill_bytes(&mut bytes).is_err() {
+        // A process-local fallback still has UUID shape; the server's
+        // idempotency key remains unique for normal successful entropy.
+        return format!("00000000-0000-4000-8000-{:012x}", current_time_ms());
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    )
 }
 
 fn open_external_url(url: &str) -> Result<(), String> {
@@ -725,6 +837,14 @@ impl RuntimeStore {
     }
 
     fn can_start_turn(&self) -> Result<(), String> {
+        if let Some(session) = self.authenticated_session() {
+            let user_id = session.user_id.as_deref().unwrap_or(&session.email);
+            if usage_outbox_is_full(user_id) {
+                return Err(
+                    "Usage sync is pending. Reconnect to the internet to continue.".to_owned(),
+                );
+            }
+        }
         let entitlement = self.entitlement.lock().ok().and_then(|value| value.clone());
         let entitlement_state = match entitlement.as_ref().map(|value| value.status.as_str()) {
             Some("active") => skilly_core_domain::EntitlementState::Active,
@@ -909,10 +1029,6 @@ fn current_teaching_prompt() -> (String, Option<String>) {
 fn process_committed_turn(app_handle: tauri::AppHandle, generation: u64) {
     std::thread::spawn(move || {
         let runtime = app_handle.state::<RuntimeStore>();
-        if let Err(message) = runtime.can_start_turn() {
-            runtime.fail_teaching_turn(generation, message);
-            return;
-        }
         let Some(session) = runtime.authenticated_session() else {
             runtime.fail_teaching_turn(
                 generation,
@@ -920,25 +1036,50 @@ fn process_committed_turn(app_handle: tauri::AppHandle, generation: u64) {
             );
             return;
         };
-        let Some(audio) = windows_audio::stop_and_take_capture(std::time::Duration::from_secs(3))
-        else {
-            runtime.fail_teaching_turn(generation, "No microphone audio was captured.".to_owned());
-            return;
-        };
-        let token = match backend_client().and_then(|client| {
-            client
-                .fetch_openai_token(
-                    &session.session_token,
-                    Some(realtime_protocol::DEFAULT_REALTIME_MODEL),
-                )
-                .map_err(|error| error.to_string())
-        }) {
-            Ok(token) => token,
+        let client = match backend_client() {
+            Ok(client) => client,
             Err(error) => {
                 runtime.fail_teaching_turn(generation, error);
                 return;
             }
         };
+        // A previous authenticated opportunity may have left reports queued;
+        // flush them before deciding whether another hosted turn may start.
+        let user_id = session.user_id.as_deref().unwrap_or(&session.email);
+        flush_usage_outbox(&client, &session, user_id);
+        if let Err(message) = runtime.can_start_turn() {
+            runtime.fail_teaching_turn(generation, message);
+            return;
+        }
+        let Some(audio) = windows_audio::stop_and_take_capture(std::time::Duration::from_secs(3))
+        else {
+            runtime.fail_teaching_turn(generation, "No microphone audio was captured.".to_owned());
+            return;
+        };
+        let user_id = session.user_id.as_deref().unwrap_or(&session.email);
+        let migration_sent = load_usage_counter("migration", user_id, None) > 0;
+        let legacy_trial_seconds = runtime
+            .trial_seconds_used
+            .load(Ordering::Relaxed)
+            .min(TRIAL_SECONDS);
+        let token = match client.fetch_openai_token_with_migration(
+            &session.session_token,
+            Some(realtime_protocol::DEFAULT_REALTIME_MODEL),
+            legacy_trial_seconds,
+            !migration_sent,
+        ) {
+            Ok(token) => token,
+            Err(error) => {
+                runtime.fail_teaching_turn(generation, error.to_string());
+                return;
+            }
+        };
+        if !migration_sent {
+            persist_usage_counter("migration", user_id, None, 1);
+        }
+        // Deliver reports queued by this account before adding the current
+        // turn. The queue contains no credentials and is isolated by user id.
+        flush_usage_outbox(&client, &session, user_id);
         let capture = windows_screen_capture::capture_primary_monitor_for_realtime(1280).ok();
         let screenshot_data_url = capture.as_ref().map(|frame| {
             format!(
@@ -961,6 +1102,29 @@ fn process_committed_turn(app_handle: tauri::AppHandle, generation: u64) {
                 }
                 runtime.finish_teaching_turn(generation, &result);
                 runtime.record_turn_usage(audio.duration_ms);
+                let usage_payload = backend_client::UsageReportRequest {
+                    event_id: fresh_event_id(),
+                    session_id: token.session_id.clone(),
+                    seconds: audio.duration_ms.saturating_add(999) / 1_000,
+                    result: "relay_completed".to_owned(),
+                    source: Some("relay".to_owned()),
+                    model: Some(token.model.clone()),
+                    audio_input_tokens: None,
+                    audio_output_tokens: None,
+                    text_input_tokens: None,
+                    text_output_tokens: None,
+                    cached_input_tokens: None,
+                    total_tokens: None,
+                    estimated_cost_usd: None,
+                };
+                if !enqueue_usage_report(user_id, usage_payload) {
+                    telemetry::capture(
+                        "windows_usage_sync_required",
+                        telemetry_distinct_id(&runtime),
+                        telemetry::properties(&[("reason", serde_json::json!("outbox_full"))]),
+                    );
+                }
+                flush_usage_outbox(&client, &session, user_id);
                 telemetry::capture(
                     "windows_teaching_turn_completed",
                     telemetry_distinct_id(&runtime),
@@ -1958,6 +2122,23 @@ mod tests {
         let protected = super::data_protection::protect(payload).expect("protect");
         let restored = super::data_protection::unprotect(&protected).expect("unprotect");
         assert_eq!(restored, payload);
+    }
+
+    #[test]
+    fn usage_event_ids_are_uuid_v4_shaped() {
+        let event_id = super::fresh_event_id();
+        assert_eq!(event_id.len(), 36);
+        assert_eq!(&event_id[14..15], "4");
+        assert!(matches!(&event_id[19..20], "8" | "9" | "a" | "b"));
+    }
+
+    #[test]
+    fn usage_outbox_is_scoped_to_the_authenticated_account() {
+        let first = super::usage_outbox_filename("user_alpha");
+        let second = super::usage_outbox_filename("user_beta");
+        assert_ne!(first, second);
+        assert!(first.contains("user_alpha"));
+        assert!(second.contains("user_beta"));
     }
 
     #[test]

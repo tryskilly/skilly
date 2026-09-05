@@ -9,6 +9,7 @@ enum BlockReason: Sendable {
     case capReached
     case subscriptionInactive
     case expired
+    case usageSyncRequired
     case none
 
     var displayMessage: String {
@@ -21,6 +22,8 @@ enum BlockReason: Sendable {
             return "No active subscription found."
         case .expired:
             return "Your subscription has expired."
+        case .usageSyncRequired:
+            return "Usage sync is pending. Reconnect to the internet to continue."
         case .none:
             return ""
         }
@@ -133,6 +136,7 @@ final class EntitlementManager: ObservableObject {
             let record = try await fetchEntitlementRecord(userId: userId)
 
             applyEntitlementRecord(record)
+            UsageTracker.shared.flushPendingStudioUsage()
 
             if case .active = status {
                 TrialTracker.shared.recordConversionToPaid()
@@ -266,6 +270,14 @@ final class EntitlementManager: ObservableObject {
             default:
                 return (false, .subscriptionInactive)
             }
+        }
+
+        // Do not start another hosted turn when local reports cannot be
+        // preserved. The outbox drains after connectivity returns.
+        if !AppSettings.shared.hasOwnAPIKey,
+           UsageTracker.shared.isOutboxFull {
+            UsageTracker.shared.flushPendingStudioUsage()
+            return (false, .usageSyncRequired)
         }
 
         // MARK: - Skilly — Prefer shared Rust policy when available.

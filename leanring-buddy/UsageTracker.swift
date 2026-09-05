@@ -17,6 +17,27 @@ final class UsageTracker: ObservableObject {
 
     private let userDefaults = UserDefaults.standard
 
+    private struct PendingUsageReport: Codable, Equatable {
+        let userId: String
+        let eventId: String
+        let sessionId: String?
+        let seconds: Int
+        let result: String
+        let source: String
+        let model: String?
+        let audioInputTokens: Int?
+        let audioOutputTokens: Int?
+        let textInputTokens: Int?
+        let textOutputTokens: Int?
+        let cachedInputTokens: Int?
+        let totalTokens: Int?
+        let estimatedCostUsd: String?
+    }
+
+    private var outboxFlushTask: Task<Void, Never>?
+    private var outboxFlushRequested = false
+    private static let maxOutboxEntries = 100
+
     private var userId: String? { AuthManager.shared.currentUser?.id }
 
     // MARK: - Keys
@@ -76,7 +97,7 @@ final class UsageTracker: ObservableObject {
 
     // MARK: - Period Management
 
-    /// Called by EntitlementManager after fetching entitlement from the Worker.
+    /// Called by EntitlementManager after fetching entitlement from Studio.
     func refreshFromEntitlement(periodStart: Date, periodEnd: Date) {
         // If we're in a new period, reset usage
         if let currentPeriodStart = self.periodStart, periodStart > currentPeriodStart {
@@ -118,52 +139,157 @@ final class UsageTracker: ObservableObject {
         source: String,
         model: String?,
         usage: RealtimeUsage?,
-        estimatedCostUsd: Double?
+        estimatedCostUsd: Double?,
+        sessionId: String? = nil,
+        eventId: String? = nil
     ) {
         guard AuthManager.shared.isAuthenticated,
+              let userId = AuthManager.shared.currentUser?.id,
               let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/usage") else {
             return
         }
 
-        Task {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else { return }
-            var body: [String: Any] = [
-                "seconds": max(0, Int(seconds.rounded())),
-                "result": result,
-                "source": source,
-            ]
-            if let model {
-                body["model"] = model
-            }
-            if let usage {
-                if let audioInputTokens = usage.audio_input_tokens {
-                    body["audioInputTokens"] = audioInputTokens
-                }
-                if let audioOutputTokens = usage.audio_output_tokens {
-                    body["audioOutputTokens"] = audioOutputTokens
-                }
-                if let textInputTokens = usage.text_input_tokens {
-                    body["textInputTokens"] = textInputTokens
-                }
-                if let textOutputTokens = usage.text_output_tokens {
-                    body["textOutputTokens"] = textOutputTokens
-                }
-                if let cachedInputTokens = usage.cached_input_tokens {
-                    body["cachedInputTokens"] = cachedInputTokens
-                }
-                if let totalTokens = usage.total_tokens {
-                    body["totalTokens"] = totalTokens
-                }
-            }
-            if let estimatedCostUsd {
-                body["estimatedCostUsd"] = String(format: "%.8f", estimatedCostUsd)
-            }
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            _ = try? await URLSession.shared.data(for: request)
+        // Generate one id for this logical report. Every retry below reuses the
+        // same id so a timeout cannot double-count a completed turn.
+        let reportEventId = eventId ?? UUID().uuidString
+        let report = PendingUsageReport(
+            userId: userId,
+            eventId: reportEventId,
+            sessionId: sessionId,
+            seconds: max(0, Int(seconds.rounded())),
+            result: result,
+            source: source,
+            model: model,
+            audioInputTokens: usage?.audio_input_tokens,
+            audioOutputTokens: usage?.audio_output_tokens,
+            textInputTokens: usage?.text_input_tokens,
+            textOutputTokens: usage?.text_output_tokens,
+            cachedInputTokens: usage?.cached_input_tokens,
+            totalTokens: usage?.total_tokens,
+            estimatedCostUsd: estimatedCostUsd.map { String(format: "%.8f", $0) }
+        )
+        enqueue(report)
+        flushOutbox(for: userId, url: url)
+    }
+
+    private func outboxKey(for userId: String) -> String {
+        "studio_usage_outbox_\(userId)"
+    }
+
+    private func loadOutbox(for userId: String) -> [PendingUsageReport] {
+        guard let data = userDefaults.data(forKey: outboxKey(for: userId)),
+              let reports = try? JSONDecoder().decode([PendingUsageReport].self, from: data) else {
+            return []
         }
+        return reports
+    }
+
+    private func saveOutbox(_ reports: [PendingUsageReport], for userId: String) -> Bool {
+        // Never evict unacknowledged usage. A full queue is explicit backpressure;
+        // the entitlement gate blocks the next hosted start until it drains.
+        guard reports.count <= Self.maxOutboxEntries,
+              let data = try? JSONEncoder().encode(reports) else { return false }
+        userDefaults.set(data, forKey: outboxKey(for: userId))
+        return true
+    }
+
+    @discardableResult
+    private func enqueue(_ report: PendingUsageReport) -> Bool {
+        var reports = loadOutbox(for: report.userId)
+        guard !reports.contains(where: { $0.eventId == report.eventId }) else { return true }
+        reports.append(report)
+        guard saveOutbox(reports, for: report.userId) else {
+            userDefaults.set(true, forKey: "studio_usage_outbox_full_\(report.userId)")
+            NotificationCenter.default.post(name: .studioUsageSyncRequired, object: nil)
+            return false
+        }
+        userDefaults.set(false, forKey: "studio_usage_outbox_full_\(report.userId)")
+        return true
+    }
+
+    private func flushOutbox(for userId: String, url: URL) {
+        if outboxFlushTask != nil {
+            outboxFlushRequested = true
+            return
+        }
+        outboxFlushTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.outboxFlushTask = nil
+                if self.outboxFlushRequested {
+                    self.outboxFlushRequested = false
+                    self.flushOutbox(for: userId, url: url)
+                }
+            }
+            let reports = self.loadOutbox(for: userId)
+            guard !reports.isEmpty else { return }
+            for report in reports {
+                guard !Task.isCancelled,
+                      AuthManager.shared.isAuthenticated,
+                      AuthManager.shared.currentUser?.id == userId else { return }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else { return }
+                var body: [String: Any] = [
+                    "eventId": report.eventId,
+                    "seconds": report.seconds,
+                    "result": report.result,
+                    "source": report.source,
+                ]
+                if let sessionId = report.sessionId { body["sessionId"] = sessionId }
+                if let model = report.model { body["model"] = model }
+                if let value = report.audioInputTokens { body["audioInputTokens"] = value }
+                if let value = report.audioOutputTokens { body["audioOutputTokens"] = value }
+                if let value = report.textInputTokens { body["textInputTokens"] = value }
+                if let value = report.textOutputTokens { body["textOutputTokens"] = value }
+                if let value = report.cachedInputTokens { body["cachedInputTokens"] = value }
+                if let value = report.totalTokens { body["totalTokens"] = value }
+                if let value = report.estimatedCostUsd { body["estimatedCostUsd"] = value }
+                guard let encodedBody = try? JSONSerialization.data(withJSONObject: body) else { return }
+                request.httpBody = encodedBody
+
+                var delivered = false
+                for attempt in 0..<3 {
+                    do {
+                        let (_, response) = try await URLSession.shared.data(for: request)
+                        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        if (200..<300).contains(status) { delivered = true; break }
+                        let retryable = status == 408 || status == 425 || status == 429 || status >= 500
+                        guard retryable, attempt < 2 else { break }
+                    } catch {
+                        guard attempt < 2 else { break }
+                    }
+                    try? await Task.sleep(for: .milliseconds(300 * (attempt + 1)))
+                }
+                guard delivered else { return }
+                var remaining = self.loadOutbox(for: userId)
+                remaining.removeAll { $0.eventId == report.eventId }
+                _ = self.saveOutbox(remaining, for: userId)
+                if remaining.count < Self.maxOutboxEntries {
+                    self.userDefaults.set(false, forKey: "studio_usage_outbox_full_\(userId)")
+                }
+            }
+        }
+    }
+
+    /// Flushes reports queued while offline or while auth was recovering.
+    /// The queue is keyed by the current WorkOS user, so an account switch
+    /// cannot submit another user's telemetry.
+    func flushPendingStudioUsage() {
+        guard AuthManager.shared.isAuthenticated,
+              let userId = AuthManager.shared.currentUser?.id,
+              let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/usage") else {
+            return
+        }
+        flushOutbox(for: userId, url: url)
+    }
+
+    var isOutboxFull: Bool {
+        guard let userId else { return false }
+        return userDefaults.bool(forKey: "studio_usage_outbox_full_\(userId)")
+            || loadOutbox(for: userId).count >= Self.maxOutboxEntries
     }
 
     /// Call each time a turn is blocked due to cap.
@@ -200,4 +326,5 @@ extension SkillyAnalytics {
 
 extension Notification.Name {
     static let usage80PercentWarning = Notification.Name("SkillyUsage80PercentWarning")
+    static let studioUsageSyncRequired = Notification.Name("StudioUsageSyncRequired")
 }

@@ -132,9 +132,16 @@ final class OpenAIRealtimeClient: ObservableObject {
         let clientSecret: String
         let expiresAt: Int
         let model: String
+        let accessMode: String?
+        let remainingSeconds: Int?
+        let sessionId: String?
+        let periodStart: String?
+        let periodEnd: String?
     }
 
     private var cachedToken: OpenAITokenResponse?
+    /// Studio-issued correlation id for the currently connected hosted session.
+    private(set) var currentBackendSessionId: String?
 
     private func fetchToken(attemptedRefresh: Bool = false) async throws -> OpenAITokenResponse {
         if let cached = cachedToken {
@@ -151,6 +158,7 @@ final class OpenAIRealtimeClient: ObservableObject {
         // OpenAI for the session; no Skilly server involvement.
         if AppSettings.shared.hasOwnAPIKey {
             let tokenResponse = try await fetchTokenBYOK(apiKey: AppSettings.shared.openAIAPIKey)
+            currentBackendSessionId = nil
             cachedToken = tokenResponse
             return tokenResponse
         }
@@ -172,6 +180,14 @@ final class OpenAIRealtimeClient: ObservableObject {
             // No session token in Keychain at all — same recovery path as a 401.
             throw OpenAIRealtimeError.authExpired
         }
+        // Send the migration floor on every hosted token preflight. Studio
+        // applies it idempotently, while always sending it avoids a restored
+        // local profile getting stuck behind a stale "already sent" bit.
+        request.setValue("v1", forHTTPHeaderField: "X-Skilly-Client-Migration")
+        request.setValue(
+            String(TrialTracker.shared.legacyTrialSecondsForMigration),
+            forHTTPHeaderField: "X-Skilly-Legacy-Trial-Seconds"
+        )
         let (data, response) = try await URLSession.shared.data(for: request)
 
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -206,6 +222,9 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         guard statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "unknown"
+            if let code = Self.accessBlockCode(from: data) {
+                throw OpenAIRealtimeError.accessBlocked(code)
+            }
             SkillyAnalytics.trackSilentFailure(
                 subsystem: "openai_token_fetch",
                 httpStatus: statusCode,
@@ -217,8 +236,39 @@ final class OpenAIRealtimeClient: ObservableObject {
         }
 
         let tokenResponse = try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
+        applyServerAccessSnapshot(tokenResponse)
         cachedToken = tokenResponse
         return tokenResponse
+    }
+
+    private static func accessBlockCode(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = object["code"] as? String,
+              ["client_migration_required", "trial_exhausted", "subscription_inactive", "cap_reached"].contains(code)
+        else { return nil }
+        return code
+    }
+
+    private func applyServerAccessSnapshot(_ token: OpenAITokenResponse) {
+        currentBackendSessionId = token.sessionId
+        guard let remaining = token.remainingSeconds else { return }
+        let boundedRemaining = max(0, remaining)
+        switch token.accessMode {
+        case "trial":
+            let serverUsed = max(0, Int(TrialTracker.maxTrialSeconds) - boundedRemaining)
+            TrialTracker.shared.totalSecondsUsed = max(
+                TrialTracker.shared.totalSecondsUsed,
+                TimeInterval(serverUsed)
+            )
+        case "paid":
+            let serverUsed = max(0, Int(UsageTracker.maxSecondsPerPeriod) - boundedRemaining)
+            UsageTracker.shared.secondsUsed = max(
+                UsageTracker.shared.secondsUsed,
+                TimeInterval(serverUsed)
+            )
+        default:
+            break
+        }
     }
 
     // MARK: - Skilly — BYOK direct session mint
@@ -298,7 +348,12 @@ final class OpenAIRealtimeClient: ObservableObject {
         return OpenAITokenResponse(
             clientSecret: decoded.value,
             expiresAt: decoded.expires_at,
-            model: decoded.session.model
+            model: decoded.session.model,
+            accessMode: nil,
+            remainingSeconds: nil,
+            sessionId: nil,
+            periodStart: nil,
+            periodEnd: nil
         )
     }
 
@@ -548,6 +603,7 @@ final class OpenAIRealtimeClient: ObservableObject {
         isModelSpeaking = false
         currentModel = "unknown"
         cachedToken = nil
+        currentBackendSessionId = nil
         // MARK: - Skilly — Debug logging (stripped in release)
         #if DEBUG
         print("🔴 OpenAI Realtime: disconnected")
@@ -950,12 +1006,24 @@ final class OpenAIRealtimeClient: ObservableObject {
         /// should respond by signing out and re-opening the panel so the sign-in flow
         /// is visible instead of failing silently on every hotkey press.
         case authExpired
+        /// Studio's start gate rejected the hosted session. The code is stable
+        /// (`trial_exhausted`, `cap_reached`, or `subscription_inactive`) so the
+        /// existing paywall can present the right action.
+        case accessBlocked(String)
 
         var errorDescription: String? {
             switch self {
             case .connectionFailed(let detail): return "OpenAI Realtime connection failed: \(detail)"
             case .encodingFailed: return "Failed to encode event"
             case .authExpired: return "Your Skilly session has expired. Please sign in again."
+            case .accessBlocked(let code):
+                switch code {
+                case "trial_exhausted": return "Your free trial has ended. Subscribe to continue."
+                case "cap_reached": return "You've reached your monthly usage limit."
+                case "subscription_inactive": return "No active subscription found."
+                case "client_migration_required": return "Please update Skilly before starting a hosted session."
+                default: return "Hosted access is currently unavailable."
+                }
             }
         }
     }

@@ -37,6 +37,12 @@ final class TrialTracker: ObservableObject {
         max(0, Self.maxTrialSeconds - totalSecondsUsed)
     }
 
+    /// Integer preservation floor sent once to Studio during the Worker
+    /// migration. This is deliberately clamped and never resets local usage.
+    var legacyTrialSecondsForMigration: Int {
+        max(0, min(Int(Self.maxTrialSeconds), Int(totalSecondsUsed.rounded(.down))))
+    }
+
     var isExhausted: Bool {
         // MARK: - Skilly — Prefer shared Rust policy when available.
         if let rustTrialIsExhausted = RustPolicyBridge.shared.trialIsExhausted(

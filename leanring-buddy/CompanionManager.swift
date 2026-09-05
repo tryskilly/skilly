@@ -120,6 +120,12 @@ final class CompanionManager: ObservableObject {
     /// When the user pressed push-to-talk for the current turn. Used to
     /// measure turn duration for usage tracking (recorded on response.done).
     private var currentTurnStartTime: Date?
+    /// Hosted usage is reported per completed turn. A session-close summary is
+    /// only emitted when no turn report was sent, preventing double counting.
+    private var hasReportedHostedUsageInSession = false
+    /// Captured when the Realtime connection is opened; settings changes during
+    /// a live session must not reclassify its usage as BYOK or hosted.
+    private var currentRealtimeSessionUsesBYOK: Bool?
 
     private var shortcutTransitionCancellable: AnyCancellable?
     // MARK: - Skilly — Escape key cancel
@@ -423,12 +429,27 @@ final class CompanionManager: ObservableObject {
 
         RealtimeTelemetry.shared.endSession()
         openAIRealtimeClient.disconnect()
+        hasReportedHostedUsageInSession = false
+        currentRealtimeSessionUsesBYOK = nil
     }
 
-    private func recordSessionSecondsIfNeeded(_ seconds: TimeInterval, usage: RealtimeUsage? = nil) {
-        guard seconds > 0 else { return }
-        let usageResult = AppSettings.shared.hasOwnAPIKey ? "byok_completed" : "relay_completed"
-        let usageSource = AppSettings.shared.hasOwnAPIKey ? "byok" : "relay"
+    private func recordSessionSecondsIfNeeded(
+        _ seconds: TimeInterval,
+        usage: RealtimeUsage? = nil,
+        isTurnReport: Bool = false
+    ) {
+        let sessionUsesBYOK = currentRealtimeSessionUsesBYOK ?? AppSettings.shared.hasOwnAPIKey
+        let billedSeconds = TimeInterval(max(0, Int(seconds.rounded())))
+        guard billedSeconds > 0 else { return }
+        if !sessionUsesBYOK {
+            if isTurnReport {
+                hasReportedHostedUsageInSession = true
+            } else if hasReportedHostedUsageInSession {
+                return
+            }
+        }
+        let usageResult = sessionUsesBYOK ? "byok_completed" : "relay_completed"
+        let usageSource = sessionUsesBYOK ? "byok" : "relay"
         let estimatedCostUsd = usage.map {
             RealtimePricing.turnCost(
                 audioInputTokens: $0.audio_input_tokens,
@@ -439,14 +460,15 @@ final class CompanionManager: ObservableObject {
             )
         }
         UsageTracker.shared.reportStudioMacUsage(
-            seconds: seconds,
+            seconds: billedSeconds,
             result: usageResult,
             source: usageSource,
             model: openAIRealtimeClient.currentModel == "unknown" ? nil : openAIRealtimeClient.currentModel,
             usage: usage,
-            estimatedCostUsd: estimatedCostUsd
+            estimatedCostUsd: estimatedCostUsd,
+            sessionId: sessionUsesBYOK ? nil : openAIRealtimeClient.currentBackendSessionId
         )
-        if AppSettings.shared.hasOwnAPIKey {
+        if sessionUsesBYOK {
             return
         }
 
@@ -458,9 +480,9 @@ final class CompanionManager: ObservableObject {
             // Ensure the trial has been started before recording seconds;
             // otherwise recordSessionSeconds bails out on !hasStarted.
             TrialTracker.shared.beginTrialIfNeeded()
-            TrialTracker.shared.recordSessionSeconds(seconds)
+            TrialTracker.shared.recordSessionSeconds(billedSeconds)
         case .active, .canceled:
-            UsageTracker.shared.recordSessionSeconds(seconds)
+            UsageTracker.shared.recordSessionSeconds(billedSeconds)
         case .expired:
             break
         }
@@ -775,6 +797,7 @@ final class CompanionManager: ObservableObject {
 
         let configuredVoiceName = AppSettings.shared.voiceName
         let currentSystemPrompt = composedSystemPrompt
+        currentRealtimeSessionUsesBYOK = AppSettings.shared.hasOwnAPIKey
         prewarmConnectionTask = Task { @MainActor in
             try await openAIRealtimeClient.connect(
                 systemPrompt: currentSystemPrompt,
@@ -824,6 +847,8 @@ final class CompanionManager: ObservableObject {
         }
 
         if !openAIRealtimeClient.isConnected {
+            hasReportedHostedUsageInSession = false
+            currentRealtimeSessionUsesBYOK = AppSettings.shared.hasOwnAPIKey
             try await openAIRealtimeClient.connect(
                 systemPrompt: currentSystemPrompt,
                 voiceName: configuredVoiceName
@@ -1400,6 +1425,8 @@ final class CompanionManager: ObservableObject {
             resetRustRealtimeTracking()
             SkillyAnalytics.trackTextPromptFailed(reason: "turn_setup_failed")
 
+            handleHostedAccessBlock(error)
+
             if case OpenAIRealtimeClient.OpenAIRealtimeError.authExpired = error {
                 do {
                     try await AuthManager.shared.refreshAccessToken()
@@ -1591,6 +1618,8 @@ final class CompanionManager: ObservableObject {
                 clearRealtimeResponseBubble()
                 resetRustRealtimeTracking()
 
+                handleHostedAccessBlock(error)
+
                 // MARK: - Skilly — Auth recovery: if token minting reports an
                 // expired session, refresh once before clearing Keychain. This
                 // keeps Studio/Worker migration fallback failures from forcing
@@ -1734,6 +1763,27 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Translate Studio's stable hosted-access codes into the existing paywall
+    /// notification path. Local policy remains a cache; the server is allowed
+    /// to be stricter when another device has consumed the allowance.
+    private func handleHostedAccessBlock(_ error: Error) {
+        guard case OpenAIRealtimeClient.OpenAIRealtimeError.accessBlocked(let code) = error else {
+            return
+        }
+        let reason: BlockReason
+        switch code {
+        case "trial_exhausted": reason = .trialExhausted
+        case "cap_reached": reason = .capReached
+        case "subscription_inactive": reason = .subscriptionInactive
+        default: reason = .subscriptionInactive
+        }
+        NotificationCenter.default.post(
+            name: .skillyTurnBlocked,
+            object: nil,
+            userInfo: ["blockReason": reason]
+        )
+    }
+
     private func handleRealtimeEvent(_ event: OpenAIRealtimeEvent) {
         switch event {
         case .sessionCreated:
@@ -1821,7 +1871,7 @@ final class CompanionManager: ObservableObject {
             // MARK: - Skilly — Record per-turn usage for trial/cap tracking
             if let turnStart = currentTurnStartTime {
                 let turnDurationSeconds = Date().timeIntervalSince(turnStart)
-                recordSessionSecondsIfNeeded(turnDurationSeconds, usage: usage)
+                recordSessionSecondsIfNeeded(turnDurationSeconds, usage: usage, isTurnReport: true)
                 // Fire the first-turn milestone on the very first trial turn
                 TrialTracker.shared.recordFirstTurn()
                 // Check for 80% warning thresholds after each recording
