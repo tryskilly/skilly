@@ -8,7 +8,7 @@ export PATH="/opt/homebrew/bin:$PATH"
 # release.sh — Automates the full release pipeline for Skilly
 #
 # What it does (in order):
-#   1. Auto-detects version + build from the latest GitHub Release
+#   1. Auto-detects version from latest GitHub Release and build from local metadata
 #   2. Archives the app via xcodebuild
 #   3. Exports a signed + notarized .app
 #   4. Wraps it in a DMG with the drag-to-Applications background
@@ -19,7 +19,7 @@ export PATH="/opt/homebrew/bin:$PATH"
 #   9. Pushes the updated appcast.xml to the configured releases repo
 #
 # Usage:
-#   ./scripts/release.sh              Auto-bumps: 1.5 → 1.6, build 6 → 7
+#   ./scripts/release.sh              Auto-bumps: 3.0 → 3.1, build 26 → 27
 #   ./scripts/release.sh 2.0          Sets marketing version to 2.0, auto-bumps build
 #   ./scripts/release.sh 2.0 10       Sets both marketing version and build number
 #
@@ -46,16 +46,115 @@ DMG_BACKGROUND="${PROJECT_DIR}/dmg-background.png"
 
 GITHUB_REPO="${GITHUB_REPO:-tryskilly/skilly}"
 
-# Sparkle tools (auto-discovered from Xcode's SPM cache)
-SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/leanring-buddy*/SourcePackages/artifacts/sparkle/Sparkle/bin -maxdepth 0 2>/dev/null | head -1)
+APPCAST_PATH="${PROJECT_DIR}/appcast.xml"
+PROJECT_FILE="${PROJECT_DIR}/leanring-buddy.xcodeproj/project.pbxproj"
 
-if [ -z "$SPARKLE_BIN" ]; then
-    echo "❌ Sparkle tools not found. Build the project in Xcode first so SPM downloads Sparkle."
+# Read the highest build number already advertised by Sparkle or configured in
+# the Xcode project. Release count is not a build number: old releases can be
+# deleted, skipped, or published outside GitHub, so counting them can regress
+# Sparkle's monotonic CFBundleVersion requirement.
+metadata_build_floor() {
+    local appcast_file="$1"
+    local project_file="$2"
+    local appcast_max=0
+    local project_max=0
+
+    if [[ -f "${appcast_file}" ]]; then
+        appcast_max=$(awk '
+            match($0, /<sparkle:version>[0-9]+</) {
+                value = substr($0, RSTART + length("<sparkle:version>"), RLENGTH - length("<sparkle:version>") - 1)
+                if (value + 0 > max) max = value + 0
+            }
+            END { print max + 0 }
+        ' "${appcast_file}")
+    fi
+
+    if [[ -f "${project_file}" ]]; then
+        project_max=$(awk '
+            match($0, /CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*[0-9]+/) {
+                value = $0
+                sub(/^.*=[[:space:]]*/, "", value)
+                if (value + 0 > max) max = value + 0
+            }
+            END { print max + 0 }
+        ' "${project_file}")
+    fi
+
+    if (( project_max > appcast_max )); then
+        printf '%s\n' "${project_max}"
+    else
+        printf '%s\n' "${appcast_max}"
+    fi
+}
+
+validate_build_number() {
+    local candidate="$1"
+    local floor="$2"
+
+    if [[ ! "${candidate}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "❌ Build number must be a positive integer (received: ${candidate})" >&2
+        return 1
+    fi
+
+    if (( candidate <= floor )); then
+        echo "❌ Build ${candidate} is not greater than the existing build floor ${floor}." >&2
+        echo "   Choose a build number greater than ${floor}." >&2
+        return 1
+    fi
+}
+
+validate_sparkle_bin() {
+    local sparkle_bin="$1"
+
+    if [[ -z "${sparkle_bin}" || ! -d "${sparkle_bin}" || ! -x "${sparkle_bin}/generate_appcast" || ! -x "${sparkle_bin}/sign_update" ]]; then
+        cat >&2 <<'EOF'
+❌ Sparkle release tools are unavailable.
+   Set SPARKLE_BIN to the `bin` directory from the pinned Sparkle distribution
+   (it must contain executable generate_appcast and sign_update), or open/build
+   the project once in Xcode so Swift Package Manager resolves Sparkle.
+EOF
+        return 1
+    fi
+}
+
+# Offline helper mode is intentionally small and side-effect free so build
+# numbering and tool-path checks can be regression-tested without credentials,
+# GitHub, Xcode, signing, notarization, or a release operation.
+if [[ "${SKILLY_RELEASE_TEST_MODE:-0}" == "1" ]]; then
+    case "${1:-}" in
+        floor)
+            metadata_build_floor "$2" "$3"
+            ;;
+        validate-build)
+            validate_build_number "$2" "$3"
+            ;;
+        validate-sparkle)
+            validate_sparkle_bin "$2"
+            ;;
+        *)
+            echo "usage: SKILLY_RELEASE_TEST_MODE=1 $0 {floor|validate-build|validate-sparkle} ..." >&2
+            exit 2
+            ;;
+    esac
+    exit $?
+fi
+
+# Sparkle tools may be supplied explicitly from the pinned distribution archive
+# (recommended for release machines) or discovered in Xcode's SPM cache.
+SPARKLE_BIN="${SPARKLE_BIN:-}"
+if [[ -z "${SPARKLE_BIN}" ]]; then
+    SPARKLE_BIN=$(find "${HOME}/Library/Developer/Xcode/DerivedData" \
+        -path '*/SourcePackages/artifacts/sparkle/Sparkle/bin' \
+        -type d -print -quit 2>/dev/null || true)
+fi
+
+if ! validate_sparkle_bin "${SPARKLE_BIN}"; then
     exit 1
 fi
 
 # ── Auto-detect version from latest GitHub Release ──────────────────────────
-# Fetches the latest release tag (e.g. "v1.5") and build number from GitHub.
+# Fetches the latest release tag (e.g. "v1.5") from GitHub. Build numbers come
+# from the highest local Sparkle/Xcode metadata, not the number of releases.
 # If no arguments are provided, bumps the minor version by 0.1 and build by 1.
 # You can override either or both by passing arguments.
 
@@ -67,17 +166,9 @@ if [ -n "$LATEST_TAG" ]; then
     # Strip the "v" prefix to get the version number (e.g. "v1.5" → "1.5")
     LATEST_VERSION="${LATEST_TAG#v}"
 
-    # Get the build number from the latest release's app bundle inside the DMG.
-    # We download just the release metadata (not the DMG) and parse the body/notes,
-    # but the simplest reliable approach is to track it from the GitHub release title
-    # or from a known incrementing sequence. We use the GitHub API to get asset info
-    # and derive the build number from the release list count.
-    LATEST_BUILD=$(gh release list --repo "${GITHUB_REPO}" --json tagName --jq 'length' 2>/dev/null || echo "0")
-
-    echo "   Latest release: ${LATEST_TAG} (build ${LATEST_BUILD})"
+    echo "   Latest release: ${LATEST_TAG}"
 else
     LATEST_VERSION="0.0"
-    LATEST_BUILD=0
     echo "   No previous releases found — starting from scratch"
 fi
 
@@ -96,12 +187,17 @@ else
     MARKETING_VERSION="${MAJOR}.${NEXT_MINOR}"
 fi
 
-# Determine the next build number: always increment by 1
+# Determine the next build number from the highest existing appcast/project
+# metadata, never from the number of GitHub releases.
+BUILD_FLOOR=$(metadata_build_floor "${APPCAST_PATH}" "${PROJECT_FILE}")
 if [ $# -ge 2 ]; then
     BUILD_NUMBER="$2"
+    validate_build_number "${BUILD_NUMBER}" "${BUILD_FLOOR}"
 else
-    BUILD_NUMBER=$((LATEST_BUILD + 1))
+    BUILD_NUMBER=$((BUILD_FLOOR + 1))
 fi
+
+echo "   Existing build floor: ${BUILD_FLOOR}"
 
 DMG_FILENAME="${APP_NAME}.dmg"
 TAG="v${MARKETING_VERSION}"
