@@ -6,6 +6,7 @@
 // products[] checkout) into the web backend — reuse, not reinvention.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 export interface WebhookVerifyInput {
   /** `whsec_<base64>` secret from Polar. */
@@ -197,4 +198,38 @@ export function buildCheckoutBody(input: CheckoutInput): Record<string, unknown>
       ...(input.planCapSeconds ? { planCapSeconds: input.planCapSeconds } : {}),
     },
   };
+}
+
+export interface PersonalCheckoutInput {
+  productId: string;
+  userId: string;
+  email: string;
+  successUrl: string;
+  checkoutAttemptId?: string | null;
+  surface: "mac" | "extension";
+}
+
+/** Build the single-user Polar payload used by native clients. */
+export function buildPersonalCheckoutBody(input: PersonalCheckoutInput): Record<string, unknown> {
+  const checkoutAttemptId = input.checkoutAttemptId?.trim() || randomUUID();
+  return {
+    products: [input.productId],
+    success_url: input.successUrl,
+    metadata: {
+      surface: input.surface,
+      user_id: input.userId,
+      email: input.email,
+      checkout_attempt_id: checkoutAttemptId,
+    },
+  };
+}
+
+export function hasCurrentPersonalEntitlement(record: {
+  status?: string | null;
+  period_end?: string | null;
+} | null): boolean {
+  if (!record || record.status !== "active") return false;
+  if (!record.period_end) return true;
+  const periodEnd = Date.parse(record.period_end);
+  return Number.isNaN(periodEnd) || periodEnd > Date.now();
 }

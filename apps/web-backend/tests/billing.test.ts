@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import {
   buildCheckoutBody,
+  buildPersonalCheckoutBody,
   getBuilderPlans,
   interpretSubscriptionEvent,
   resolveBuilderPlan,
   verifyWebhookSignature,
+  hasCurrentPersonalEntitlement,
 } from "../src/domain/billing";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
 
@@ -120,6 +122,21 @@ describe("buildCheckoutBody + cap update", () => {
     expect((await repo.getTenant(tenantId))?.polarCustomerId).toBeNull();
     await repo.setTenantPolarCustomerId(tenantId, "cust_abc");
     expect((await repo.getTenant(tenantId))?.polarCustomerId).toBe("cust_abc");
+  });
+});
+
+describe("personal billing helpers", () => {
+  test("uses the authenticated user and preserves a supplied attempt id", () => {
+    expect(buildPersonalCheckoutBody({ productId: "mac_prod", userId: "user_1", email: "u@example.com", surface: "mac", checkoutAttemptId: "attempt_1", successUrl: "https://x/billing" })).toEqual({
+      products: ["mac_prod"], success_url: "https://x/billing",
+      metadata: { surface: "mac", user_id: "user_1", email: "u@example.com", checkout_attempt_id: "attempt_1" },
+    });
+  });
+
+  test("recognizes only a current active entitlement", () => {
+    expect(hasCurrentPersonalEntitlement({ status: "active", period_end: "2999-01-01T00:00:00Z" })).toBe(true);
+    expect(hasCurrentPersonalEntitlement({ status: "canceled", period_end: "2999-01-01T00:00:00Z" })).toBe(false);
+    expect(hasCurrentPersonalEntitlement({ status: "active", period_end: "2000-01-01T00:00:00Z" })).toBe(false);
   });
 });
 
