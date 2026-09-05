@@ -37,6 +37,13 @@ let responseBody: unknown = { url: "https://polar.sh/checkout/fixture" };
 let responseStatus = 200;
 let networkFailure = false;
 let calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+const diagnostics: string[] = [];
+const originalConsoleError = console.error;
+console.error = (...args: unknown[]) => {
+  const line = args.map((arg) => String(arg)).join(" ");
+  diagnostics.push(line);
+  originalConsoleError(...args);
+};
 globalThis.fetch = Object.assign(async (url: string | URL | Request, init?: RequestInit) => {
   calls.push({ url: String(url), body: JSON.parse(String(init?.body ?? "{}")) });
   if (networkFailure) throw new Error("network down");
@@ -115,7 +122,16 @@ async function main(): Promise<void> {
   await assert.rejects(checkout(request("checkout", "{}")), /redirect/);
   await assert.rejects(portal(request("portal")), /redirect/);
 
+  for (const line of diagnostics) {
+    assert.ok(!line.includes("provider-secret-body"), "diagnostics must not include provider response bodies");
+    assert.ok(!line.includes("fixture-token"), "diagnostics must not include provider credentials");
+    assert.ok(!line.includes("owner@example.com"), "diagnostics must not include owner email");
+    assert.ok(!line.includes("secret.example"), "diagnostics must not include provider URLs");
+  }
+
   console.log("builders billing reliability scenarios passed; endpoint and diagnostics fixtures were isolated");
 }
 
-await main();
+await main().finally(() => {
+  console.error = originalConsoleError;
+});
