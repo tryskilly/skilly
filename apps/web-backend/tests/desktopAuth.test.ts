@@ -22,6 +22,13 @@ function configure(): void {
 }
 
 describe("Studio desktop auth", () => {
+  test("rejects unknown grants and invalid JSON bodies", async () => {
+    const { POST } = await import("../src/app/api/mac/auth/token/route");
+    for (const body of ["null", "[]", "broken", JSON.stringify({ grant_type: "password", code: "code_12345678" })]) {
+      const response = await POST(new Request("https://studio.example/api/mac/auth/token", { method: "POST", body }) as never);
+      expect(response.status).toBe(400);
+    }
+  });
   test("builds a WorkOS authorize URL with the registered callback", () => {
     configure();
     const url = new URL(buildDesktopAuthorizeUrl("state_1234567890123456"));

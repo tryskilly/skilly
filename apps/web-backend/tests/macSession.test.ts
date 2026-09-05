@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import { authenticateMacRequestWithWorkerFallback, verifyMacSessionToken } from "../src/lib/macSession";
+import { authenticateMacRequest, verifyMacSessionToken, selectMacRealtimeModel } from "../src/lib/macSession";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const originalEnv = { ...process.env };
 const originalFetch = globalThis.fetch;
@@ -25,6 +27,11 @@ function createToken(payload: Record<string, unknown>, secret = "desktop-secret"
 }
 
 describe("Mac session verification", () => {
+  test("preserves only allowlisted desktop model overrides", () => {
+    expect(selectMacRealtimeModel("gpt-realtime-2.1-mini")).toBe("gpt-realtime-2.1-mini");
+    expect(selectMacRealtimeModel("arbitrary-model")).toBeUndefined();
+    expect(selectMacRealtimeModel(null)).toBeUndefined();
+  });
   test("accepts the Worker-issued desktop session token shape", () => {
     process.env.SESSION_TOKEN_SECRET = "desktop-secret";
     const now = Math.floor(Date.now() / 1000);
@@ -61,11 +68,12 @@ describe("Mac session verification", () => {
     };
 
     expect(verifyMacSessionToken(`${createToken(validPayload)}x`)).toBeNull();
+    expect(verifyMacSessionToken(`${createToken(validPayload)}.extra`)).toBeNull();
     expect(verifyMacSessionToken(createToken({ ...validPayload, exp: now - 1 }))).toBeNull();
     expect(verifyMacSessionToken(createToken({ ...validPayload, aud: "web" }))).toBeNull();
   });
 
-  test("can validate existing Mac sessions through the Worker when Studio lacks the shared secret", async () => {
+  test("missing local secret fails closed without contacting the Worker", async () => {
     delete process.env.SESSION_TOKEN_SECRET;
     process.env.SKILLY_WORKER_BASE_URL = "https://worker.example.com";
     const now = Math.floor(Date.now() / 1000);
@@ -78,19 +86,36 @@ describe("Mac session verification", () => {
       aud: "skilly-desktop",
     });
 
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("https://worker.example.com/entitlement?user_id=user_123");
-      expect(init?.headers).toEqual({ authorization: `Bearer ${token}` });
-      return new Response(JSON.stringify({ status: "none" }), { status: 200 });
-    }) as typeof fetch;
+    let networkCalls = 0;
+    globalThis.fetch = Object.assign(async () => {
+      networkCalls++;
+      throw new Error("Authentication must not contact a second backend");
+    }, { preconnect: originalFetch.preconnect });
 
-    const session = await authenticateMacRequestWithWorkerFallback(
+    const session = authenticateMacRequest(
       new Request("https://studio.example.com/api/mac/entitlement", {
         headers: { authorization: `Bearer ${token}` },
       }),
     );
 
-    expect(session?.userId).toBe("user_123");
-    expect(session?.email).toBe("customer@example.com");
+    expect(session).toBeNull();
+    expect(networkCalls).toBe(0);
+  });
+
+  test("accepts Studio desktop tokens but never extension tokens", () => {
+    process.env.SESSION_TOKEN_SECRET = "desktop-secret";
+    const now = Math.floor(Date.now() / 1000);
+    const payload = { sub: "user_123", email: "customer@example.com", iat: now, exp: now + 60, iss: "skilly-studio", aud: "skilly-desktop" };
+    expect(verifyMacSessionToken(createToken(payload))?.userId).toBe("user_123");
+    expect(verifyMacSessionToken(createToken({ ...payload, aud: "skilly-extension" }))).toBeNull();
+  });
+});
+
+describe("Authoritative Studio storage", () => {
+  test("missing database cannot masquerade as no subscription or a saved event", () => {
+    // Other route suites mock this module. Exercise the real database functions
+    // in an isolated process so file ordering cannot turn this into a stub test.
+    const output = execFileSync(process.execPath, ["run", fileURLToPath(new URL("../scripts/check-storage-failure-contract.ts", import.meta.url))], { encoding: "utf8" });
+    expect(output).toContain("3 storage failure contracts passed");
   });
 });

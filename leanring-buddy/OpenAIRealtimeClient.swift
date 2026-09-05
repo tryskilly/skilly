@@ -155,14 +155,10 @@ final class OpenAIRealtimeClient: ObservableObject {
             return tokenResponse
         }
 
-        if let studioToken = await fetchStudioMacTokenIfEnabled() {
-            cachedToken = studioToken
-            return studioToken
-        }
-
-        var tokenURLString = "\(AppSettings.shared.workerBaseURL)/openai/token"
+        // MARK: - Skilly — Hosted voice shares the same Studio backend as billing.
+        var tokenURLString = "\(AppSettings.shared.studioBackendBaseURL)/api/mac/openai/token"
         #if DEBUG
-        // Skilly Dev: canary a specific model (e.g. gpt-realtime-2.1-mini). The worker
+        // Skilly Dev: canary a specific model (e.g. gpt-realtime-2.1-mini). The backend
         // only honors allow-listed ids; empty override = server default.
         let debugModel = AppSettings.shared.debugRealtimeModel
         if !debugModel.isEmpty {
@@ -179,7 +175,7 @@ final class OpenAIRealtimeClient: ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        // MARK: - Skilly — Detect a stale/invalid Worker session token and surface it
+        // MARK: - Skilly — Detect a stale/invalid backend session token and surface it
         // as an auth-failure instead of a generic connection failure. Without this,
         // every push-to-talk press fails silently with HTTP 401 because the app has
         // no way to know its Keychain session token has drifted out of sync with
@@ -189,7 +185,7 @@ final class OpenAIRealtimeClient: ObservableObject {
                 subsystem: "openai_token_fetch",
                 httpStatus: 401,
                 errorCode: "auth_expired",
-                errorMessage: "Worker returned 401 — Keychain session token likely stale",
+                errorMessage: "Backend returned 401 — please refresh the account session",
                 surface: "user_ptt"
             )
             // MARK: - Skilly — Seamless auth recovery: on a stale session token,
@@ -213,7 +209,7 @@ final class OpenAIRealtimeClient: ObservableObject {
             SkillyAnalytics.trackSilentFailure(
                 subsystem: "openai_token_fetch",
                 httpStatus: statusCode,
-                errorCode: "non_200_from_worker",
+                errorCode: "non_200_from_backend",
                 errorMessage: body,
                 surface: "user_ptt"
             )
@@ -223,43 +219,6 @@ final class OpenAIRealtimeClient: ObservableObject {
         let tokenResponse = try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
         cachedToken = tokenResponse
         return tokenResponse
-    }
-
-    private func fetchStudioMacTokenIfEnabled() async -> OpenAITokenResponse? {
-        guard AppSettings.shared.useStudioMacBackend,
-              let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/openai/token") else {
-            return nil
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
-            return nil
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            guard statusCode == 200 else {
-                // MARK: - Skilly — The Studio Mac-token endpoint may not be deployed
-                // yet; a non-200 here is an EXPECTED, recoverable fallback to the
-                // worker relay, not user-facing breakage. Reporting it as a
-                // silent_failure on every push-to-talk floods the metric with false
-                // alarms — the worker relay logs its own real errors, so a fully
-                // broken token path is still captured downstream.
-                #if DEBUG
-                let body = String(data: data, encoding: .utf8) ?? "unknown"
-                print("ℹ️ Studio Mac-token \(statusCode) — falling back to worker: \(body.prefix(80))")
-                #endif
-                return nil
-            }
-            return try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
-        } catch {
-            #if DEBUG
-            print("ℹ️ Studio Mac-token exception — falling back to worker: \(error)")
-            #endif
-            return nil
-        }
     }
 
     // MARK: - Skilly — BYOK direct session mint

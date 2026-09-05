@@ -3,7 +3,7 @@
 // can pay a platform fee without consuming Skilly's shared OpenAI budget.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { authenticateMacRequestWithWorkerFallback } from "@/lib/macSession";
+import { authenticateMacRequest } from "@/lib/macSession";
 import { publicUrl } from "@/lib/requestOrigin";
 import { captureServerEvent } from "@/lib/analytics";
 
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const session = await authenticateMacRequestWithWorkerFallback(request);
+  const session = authenticateMacRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

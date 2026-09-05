@@ -18,9 +18,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const response = await fetch(`${process.env.POLAR_API_BASE ?? "https://api.polar.sh"}/v1/customer-sessions`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ customer_id: record.polar_customer_id, return_url: publicUrl(request, "/dashboard/billing?surface=extension").toString() }) });
   if (!response.ok) return NextResponse.json({ error: "portal session failed" }, { status: 502 });
   const portal = (await response.json()) as { customer_portal_url?: string; url?: string };
-  await captureServerEvent("extension_portal_opened", { workos_user_id: session.userId, source_surface: "studio_backend" });
   const portalUrl = portal.customer_portal_url ?? portal.url;
   if (!isValidBillingUrl(portalUrl)) return NextResponse.json({ error: "portal session failed" }, { status: 502 });
+  await captureServerEvent("extension_portal_url_created", { workos_user_id: session.userId, source_surface: "studio_backend" });
   return NextResponse.json({ portal_url: portalUrl }, { status: 200 });
 }
 

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-const DEFAULT_WORKER_BASE_URL: &str = "https://skilly-proxy.eng-mohamedszaied.workers.dev";
+const DEFAULT_BACKEND_BASE_URL: &str = "https://studio.tryskilly.app/api/mac";
 const MAX_PUBLIC_ERROR_LEN: usize = 120;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,7 +240,7 @@ impl<T> BackendClient<T> {
     }
 
     pub fn with_default_base_url(transport: T) -> Result<Self, BackendClientError> {
-        Self::new(DEFAULT_WORKER_BASE_URL, transport)
+        Self::new(DEFAULT_BACKEND_BASE_URL, transport)
     }
 
     pub fn base_url(&self) -> &str {
@@ -304,7 +304,7 @@ where
             "checkout attempt id is required",
         )?;
         let request = self.post_json(
-            "/checkout/create",
+            "/checkout",
             payload,
             Some(session_token),
             "checkout/create",
@@ -591,7 +591,7 @@ mod tests {
         assert_eq!(requests[0].method, HttpMethod::Get);
         assert_eq!(
             requests[0].url,
-            "https://skilly-proxy.eng-mohamedszaied.workers.dev/auth/url?state=state_123"
+            "https://studio.tryskilly.app/api/mac/auth/url?state=state_123"
         );
         assert!(requests[0].body.is_none());
     }
@@ -708,7 +708,7 @@ mod tests {
         assert_eq!(response.portal_url, "https://polar.sh/portal/123");
         assert_eq!(
             client.transport.requests()[0].url,
-            "https://skilly-proxy.eng-mohamedszaied.workers.dev/portal?email=person%40example.com"
+            "https://studio.tryskilly.app/api/mac/portal?email=person%40example.com"
         );
     }
 
@@ -727,7 +727,7 @@ mod tests {
         assert_eq!(response.client_secret, "secret_123");
         assert_eq!(
             client.transport.requests()[0].url,
-            "https://skilly-proxy.eng-mohamedszaied.workers.dev/openai/token?model=gpt-realtime-2.1-mini"
+            "https://studio.tryskilly.app/api/mac/openai/token?model=gpt-realtime-2.1-mini"
         );
     }
 

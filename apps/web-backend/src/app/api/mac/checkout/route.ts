@@ -41,8 +41,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
   }
   const checkout = (await response.json()) as { url?: string; checkout_url?: string };
-  await captureServerEvent("mac_checkout_url_created", { workos_user_id: session.userId, source_surface: "studio_backend" });
   const checkoutUrl = checkout.checkout_url ?? checkout.url;
   if (!isValidBillingUrl(checkoutUrl)) return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+  await captureServerEvent("mac_checkout_url_created", { workos_user_id: session.userId, source_surface: "studio_backend", checkout_attempt_id: String((body.metadata as Record<string, unknown>).checkout_attempt_id) });
   return NextResponse.json({ checkout_url: checkoutUrl }, { status: 200 });
 }

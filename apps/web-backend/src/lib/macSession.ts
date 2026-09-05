@@ -19,10 +19,9 @@ export interface MacEntitlementRecord {
   polar_customer_id?: string | null;
 }
 
-const MAC_SESSION_ISSUER = "skilly-proxy";
+const MAC_SESSION_ISSUER = "skilly-studio";
 const MAC_SESSION_AUDIENCE = "skilly-desktop";
 const MAC_USAGE_MAX_SECONDS = 3600;
-const DEFAULT_WORKER_BASE_URL = "https://skilly-proxy.eng-mohamedszaied.workers.dev";
 
 function sessionSecret(): string | null {
   const secret = process.env.SESSION_TOKEN_SECRET;
@@ -38,7 +37,9 @@ function signPayload(payload: string): string | null {
 }
 
 export function verifyMacSessionToken(token: string): MacSession | null {
-  const [encodedHeader, encodedPayload, signature] = token.split(".");
+  const segments = token.split(".");
+  if (segments.length !== 3) return null;
+  const [encodedHeader, encodedPayload, signature] = segments;
   if (!encodedHeader || !encodedPayload || !signature) {
     return null;
   }
@@ -60,7 +61,9 @@ function sessionFromPayload(payload: Record<string, unknown> | null): MacSession
     typeof email !== "string" ||
     typeof issuedAt !== "number" ||
     typeof expiresAt !== "number" ||
-    payload?.iss !== MAC_SESSION_ISSUER ||
+    // Verify old signed sessions locally during the client update window.
+    // This does not consult or depend on the retired Worker.
+    (payload?.iss !== MAC_SESSION_ISSUER && payload?.iss !== "skilly-proxy") ||
     payload?.aud !== MAC_SESSION_AUDIENCE ||
     expiresAt <= Math.floor(Date.now() / 1000)
   ) {
@@ -78,44 +81,20 @@ export function authenticateMacRequest(request: Request): MacSession | null {
   return token ? verifyMacSessionToken(token) : null;
 }
 
-export async function authenticateMacRequestWithWorkerFallback(request: Request): Promise<MacSession | null> {
-  const verifiedSession = authenticateMacRequest(request);
-  if (verifiedSession) {
-    return verifiedSession;
-  }
-
-  const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ")) {
-    return null;
-  }
-  const token = authorization.slice("Bearer ".length).trim();
-  const [, encodedPayload] = token.split(".");
-  const session = sessionFromPayload(encodedPayload ? decodeBase64UrlJson(encodedPayload) : null);
-  if (!session) {
-    return null;
-  }
-
-  const workerBaseURL = process.env.SKILLY_WORKER_BASE_URL ?? DEFAULT_WORKER_BASE_URL;
-  const url = new URL("/entitlement", workerBaseURL);
-  url.searchParams.set("user_id", session.userId);
-  const response = await fetch(url, {
-    headers: { authorization },
-  }).catch(() => null);
-
-  if (!response || response.status !== 200) {
-    return null;
-  }
-  return session;
-}
-
 export function selectMacOpenAIAPIKey(): string {
   return process.env.OPENAI_API_KEY_MAC ?? process.env.OPENAI_API_KEY ?? "";
+}
+
+// Preserve the desktop development canary contract without permitting arbitrary models.
+export function selectMacRealtimeModel(requested: string | null): string | undefined {
+  return requested && ["gpt-realtime", "gpt-realtime-2.1", "gpt-realtime-2.1-mini"].includes(requested)
+    ? requested : undefined;
 }
 
 export async function getMacEntitlement(userId: string): Promise<MacEntitlementRecord | null> {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
-    return null;
+    throw new Error("Studio database is not configured");
   }
   const pool = new Pool({ connectionString: databaseUrl });
   try {
@@ -126,11 +105,6 @@ export async function getMacEntitlement(userId: string): Promise<MacEntitlementR
       [userId],
     );
     return result.rows[0] ?? null;
-  } catch (error) {
-    if (isUndefinedTableError(error)) {
-      return null;
-    }
-    throw error;
   } finally {
     await pool.end();
   }
@@ -148,7 +122,7 @@ export async function upsertMacEntitlement(input: {
 }): Promise<void> {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
-    return;
+    throw new Error("Studio database is not configured");
   }
   const pool = new Pool({ connectionString: databaseUrl });
   try {
@@ -177,10 +151,6 @@ export async function upsertMacEntitlement(input: {
         input.polarCustomerId ?? null,
       ],
     );
-  } catch (error) {
-    if (!isUndefinedTableError(error) && !isUndefinedColumnError(error)) {
-      throw error;
-    }
   } finally {
     await pool.end();
   }
@@ -203,7 +173,7 @@ export async function recordMacUsage(input: {
 }): Promise<void> {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
-    return;
+    throw new Error("Studio database is not configured");
   }
   const seconds = Math.max(0, Math.min(MAC_USAGE_MAX_SECONDS, Math.round(input.seconds)));
   const result = input.result?.slice(0, 64) ?? null;
@@ -234,10 +204,6 @@ export async function recordMacUsage(input: {
         input.estimatedCostUsd?.slice(0, 32) ?? null,
       ],
     );
-  } catch (error) {
-    if (!isUndefinedTableError(error) && !isUndefinedColumnError(error)) {
-      throw error;
-    }
   } finally {
     await pool.end();
   }
@@ -248,12 +214,4 @@ function nullableNonNegativeInt(value: number | null | undefined): number | null
     return null;
   }
   return Math.max(0, Math.round(value as number));
-}
-
-function isUndefinedTableError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "42P01");
-}
-
-function isUndefinedColumnError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "42703");
 }

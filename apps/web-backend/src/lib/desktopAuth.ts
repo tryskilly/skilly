@@ -30,7 +30,7 @@ export function isValidDesktopOAuthState(value: string | null | undefined): valu
 }
 
 export function desktopRedirectUri(requestOrigin?: string): string {
-  const configured = process.env.WORKOS_MAC_REDIRECT_URI ?? process.env.WORKOS_REDIRECT_URI;
+  const configured = process.env.WORKOS_MAC_REDIRECT_URI;
   if (configured) return configured;
   if (process.env.NODE_ENV === "production") {
     throw new Error("WORKOS_MAC_REDIRECT_URI is required in production");
@@ -66,7 +66,7 @@ function parseUser(data: Record<string, unknown>): DesktopAuthUser {
 }
 
 async function authenticate(payload: Record<string, string>): Promise<DesktopAuthResponse> {
-  if (!process.env.WORKOS_CLIENT_ID || !process.env.WORKOS_API_KEY) {
+  if (!process.env.WORKOS_CLIENT_ID || !process.env.WORKOS_API_KEY || !process.env.SESSION_TOKEN_SECRET) {
     throw new Error("WorkOS authentication is not configured");
   }
   const response = await fetch("https://api.workos.com/user_management/authenticate", {
