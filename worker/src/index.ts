@@ -815,7 +815,17 @@ async function handleCheckoutCreate(
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { user_id, email, checkout_attempt_id } = body;
+  const { user_id, email } = body;
+  if (body.checkout_attempt_id !== undefined &&
+      (typeof body.checkout_attempt_id !== "string" || body.checkout_attempt_id.length > 500)) {
+    return new Response(JSON.stringify({ error: "Invalid checkout_attempt_id" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  // MARK: - Skilly — Older clients omit the attempt ID. Polar metadata strings
+  // cannot be empty; generate one here so those clients can still purchase.
+  const checkout_attempt_id = body.checkout_attempt_id?.trim() || crypto.randomUUID();
   if (user_id && user_id !== authenticatedSession.userId) {
     return forbiddenResponse("Requested user does not match authenticated user");
   }
@@ -863,7 +873,7 @@ async function handleCheckoutCreate(
         customer_email: authenticatedSession.email,
         metadata: {
           user_id: authenticatedSession.userId,
-          checkout_attempt_id: checkout_attempt_id ?? "",
+          checkout_attempt_id,
           product_line: "people",
           plan: "beta_19",
         },
