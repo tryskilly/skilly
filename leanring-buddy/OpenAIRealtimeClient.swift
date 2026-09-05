@@ -132,9 +132,16 @@ final class OpenAIRealtimeClient: ObservableObject {
         let clientSecret: String
         let expiresAt: Int
         let model: String
+        let accessMode: String?
+        let remainingSeconds: Int?
+        let sessionId: String?
+        let periodStart: String?
+        let periodEnd: String?
     }
 
     private var cachedToken: OpenAITokenResponse?
+    /// Studio-issued correlation id for the currently connected hosted session.
+    private(set) var currentBackendSessionId: String?
 
     private func fetchToken(attemptedRefresh: Bool = false) async throws -> OpenAITokenResponse {
         if let cached = cachedToken {
@@ -151,18 +158,15 @@ final class OpenAIRealtimeClient: ObservableObject {
         // OpenAI for the session; no Skilly server involvement.
         if AppSettings.shared.hasOwnAPIKey {
             let tokenResponse = try await fetchTokenBYOK(apiKey: AppSettings.shared.openAIAPIKey)
+            currentBackendSessionId = nil
             cachedToken = tokenResponse
             return tokenResponse
         }
 
-        if let studioToken = await fetchStudioMacTokenIfEnabled() {
-            cachedToken = studioToken
-            return studioToken
-        }
-
-        var tokenURLString = "\(AppSettings.shared.workerBaseURL)/openai/token"
+        // MARK: - Skilly — Hosted voice shares the same Studio backend as billing.
+        var tokenURLString = "\(AppSettings.shared.studioBackendBaseURL)/api/mac/openai/token"
         #if DEBUG
-        // Skilly Dev: canary a specific model (e.g. gpt-realtime-2.1-mini). The worker
+        // Skilly Dev: canary a specific model (e.g. gpt-realtime-2.1-mini). The backend
         // only honors allow-listed ids; empty override = server default.
         let debugModel = AppSettings.shared.debugRealtimeModel
         if !debugModel.isEmpty {
@@ -176,10 +180,18 @@ final class OpenAIRealtimeClient: ObservableObject {
             // No session token in Keychain at all — same recovery path as a 401.
             throw OpenAIRealtimeError.authExpired
         }
+        // Send the migration floor on every hosted token preflight. Studio
+        // applies it idempotently, while always sending it avoids a restored
+        // local profile getting stuck behind a stale "already sent" bit.
+        request.setValue("v1", forHTTPHeaderField: "X-Skilly-Client-Migration")
+        request.setValue(
+            String(TrialTracker.shared.legacyTrialSecondsForMigration),
+            forHTTPHeaderField: "X-Skilly-Legacy-Trial-Seconds"
+        )
         let (data, response) = try await URLSession.shared.data(for: request)
 
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        // MARK: - Skilly — Detect a stale/invalid Worker session token and surface it
+        // MARK: - Skilly — Detect a stale/invalid backend session token and surface it
         // as an auth-failure instead of a generic connection failure. Without this,
         // every push-to-talk press fails silently with HTTP 401 because the app has
         // no way to know its Keychain session token has drifted out of sync with
@@ -189,7 +201,7 @@ final class OpenAIRealtimeClient: ObservableObject {
                 subsystem: "openai_token_fetch",
                 httpStatus: 401,
                 errorCode: "auth_expired",
-                errorMessage: "Worker returned 401 — Keychain session token likely stale",
+                errorMessage: "Backend returned 401 — please refresh the account session",
                 surface: "user_ptt"
             )
             // MARK: - Skilly — Seamless auth recovery: on a stale session token,
@@ -210,10 +222,13 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         guard statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "unknown"
+            if let code = Self.accessBlockCode(from: data) {
+                throw OpenAIRealtimeError.accessBlocked(code)
+            }
             SkillyAnalytics.trackSilentFailure(
                 subsystem: "openai_token_fetch",
                 httpStatus: statusCode,
-                errorCode: "non_200_from_worker",
+                errorCode: "non_200_from_backend",
                 errorMessage: body,
                 surface: "user_ptt"
             )
@@ -221,44 +236,38 @@ final class OpenAIRealtimeClient: ObservableObject {
         }
 
         let tokenResponse = try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
+        applyServerAccessSnapshot(tokenResponse)
         cachedToken = tokenResponse
         return tokenResponse
     }
 
-    private func fetchStudioMacTokenIfEnabled() async -> OpenAITokenResponse? {
-        guard AppSettings.shared.useStudioMacBackend,
-              let url = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/openai/token") else {
-            return nil
-        }
+    private static func accessBlockCode(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = object["code"] as? String,
+              ["client_migration_required", "trial_exhausted", "subscription_inactive", "cap_reached"].contains(code)
+        else { return nil }
+        return code
+    }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
-            return nil
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            guard statusCode == 200 else {
-                // MARK: - Skilly — The Studio Mac-token endpoint may not be deployed
-                // yet; a non-200 here is an EXPECTED, recoverable fallback to the
-                // worker relay, not user-facing breakage. Reporting it as a
-                // silent_failure on every push-to-talk floods the metric with false
-                // alarms — the worker relay logs its own real errors, so a fully
-                // broken token path is still captured downstream.
-                #if DEBUG
-                let body = String(data: data, encoding: .utf8) ?? "unknown"
-                print("ℹ️ Studio Mac-token \(statusCode) — falling back to worker: \(body.prefix(80))")
-                #endif
-                return nil
-            }
-            return try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
-        } catch {
-            #if DEBUG
-            print("ℹ️ Studio Mac-token exception — falling back to worker: \(error)")
-            #endif
-            return nil
+    private func applyServerAccessSnapshot(_ token: OpenAITokenResponse) {
+        currentBackendSessionId = token.sessionId
+        guard let remaining = token.remainingSeconds else { return }
+        let boundedRemaining = max(0, remaining)
+        switch token.accessMode {
+        case "trial":
+            let serverUsed = max(0, Int(TrialTracker.maxTrialSeconds) - boundedRemaining)
+            TrialTracker.shared.totalSecondsUsed = max(
+                TrialTracker.shared.totalSecondsUsed,
+                TimeInterval(serverUsed)
+            )
+        case "paid":
+            let serverUsed = max(0, Int(UsageTracker.maxSecondsPerPeriod) - boundedRemaining)
+            UsageTracker.shared.secondsUsed = max(
+                UsageTracker.shared.secondsUsed,
+                TimeInterval(serverUsed)
+            )
+        default:
+            break
         }
     }
 
@@ -339,7 +348,12 @@ final class OpenAIRealtimeClient: ObservableObject {
         return OpenAITokenResponse(
             clientSecret: decoded.value,
             expiresAt: decoded.expires_at,
-            model: decoded.session.model
+            model: decoded.session.model,
+            accessMode: nil,
+            remainingSeconds: nil,
+            sessionId: nil,
+            periodStart: nil,
+            periodEnd: nil
         )
     }
 
@@ -589,6 +603,7 @@ final class OpenAIRealtimeClient: ObservableObject {
         isModelSpeaking = false
         currentModel = "unknown"
         cachedToken = nil
+        currentBackendSessionId = nil
         // MARK: - Skilly — Debug logging (stripped in release)
         #if DEBUG
         print("🔴 OpenAI Realtime: disconnected")
@@ -991,12 +1006,24 @@ final class OpenAIRealtimeClient: ObservableObject {
         /// should respond by signing out and re-opening the panel so the sign-in flow
         /// is visible instead of failing silently on every hotkey press.
         case authExpired
+        /// Studio's start gate rejected the hosted session. The code is stable
+        /// (`trial_exhausted`, `cap_reached`, or `subscription_inactive`) so the
+        /// existing paywall can present the right action.
+        case accessBlocked(String)
 
         var errorDescription: String? {
             switch self {
             case .connectionFailed(let detail): return "OpenAI Realtime connection failed: \(detail)"
             case .encodingFailed: return "Failed to encode event"
             case .authExpired: return "Your Skilly session has expired. Please sign in again."
+            case .accessBlocked(let code):
+                switch code {
+                case "trial_exhausted": return "Your free trial has ended. Subscribe to continue."
+                case "cap_reached": return "You've reached your monthly usage limit."
+                case "subscription_inactive": return "No active subscription found."
+                case "client_migration_required": return "Please update Skilly before starting a hosted session."
+                default: return "Hosted access is currently unavailable."
+                }
             }
         }
     }

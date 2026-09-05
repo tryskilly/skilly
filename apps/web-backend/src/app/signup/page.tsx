@@ -1,5 +1,7 @@
 import { isWorkOSDashboardAuthConfigured } from "@/lib/dashboardAuth";
+import { sanitizeSignupHandoff, type SignupHandoff } from "@/lib/signupHandoff";
 import { AuthMarketingPanel, Footer, LogoMark, type AuthSlide } from "../dashboard/v2";
+import { SignupHandoffBootstrap } from "./SignupHandoffBootstrap";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +9,10 @@ export const metadata = {
   title: "Create a workspace · Skilly",
   description: "Create your Skilly workspace and teach your users directly inside your product.",
 };
+
+function firstQueryValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 const signupErrorMessages: Record<string, string> = {
   magic_email: "Enter a valid email address.",
@@ -62,18 +68,40 @@ const signupSlides: AuthSlide[] = [
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; next?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const nextPath = params.next?.startsWith("/dashboard") ? params.next : "/dashboard";
+  const auditUrlParam = firstQueryValue(params.audit_url) ?? firstQueryValue(params.auditUrl);
+  const activationGoalParam = firstQueryValue(params.activation_goal) ?? firstQueryValue(params.activationGoal);
+  const prefillSkillParam = firstQueryValue(params.prefill_skill) ?? firstQueryValue(params.prefillSkill);
+  const handoffResult = sanitizeSignupHandoff({
+    auditUrl: auditUrlParam,
+    activationGoal: activationGoalParam,
+    prefillSkill: prefillSkillParam,
+  });
+  const handoff: SignupHandoff | null = handoffResult.ok ? handoffResult.value ?? null : null;
+  const requestedNext = firstQueryValue(params.next);
+  const nextPath = requestedNext?.startsWith("/dashboard") ? requestedNext : handoff ? "/dashboard?handoff=1" : "/dashboard";
   const workosConfigured = isWorkOSDashboardAuthConfigured();
   // intent=signup makes the WorkOS callback create a fresh tenant + super_admin
   // membership for brand-new users, then route to onboarding.
   const googleUrl = `/api/auth/workos/start?method=google&intent=signup&next=${encodeURIComponent(nextPath)}`;
-  const errorMessage = params.error ? signupErrorMessages[params.error] : null;
+  const errorParam = firstQueryValue(params.error);
+  const errorMessage = errorParam ? signupErrorMessages[errorParam] : null;
 
   return (
     <div className="flex min-h-dvh flex-col">
+      <SignupHandoffBootstrap handoff={handoff} />
+      {handoff && (
+        <p className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-200" data-handoff-captured="true">
+          Your audit draft is ready. Continue signup to review it in your dashboard.
+        </p>
+      )}
+      {!handoff && (auditUrlParam || prefillSkillParam) && (
+        <p role="alert" className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-200">
+          This audit draft could not be carried over safely. Return to the <a className="underline" href="https://tryskilly.app/tools/ai-onboarding-audit/">AI onboarding audit</a> and generate a new draft.
+        </p>
+      )}
       <div className="grid flex-1 lg:grid-cols-2">
         {/* Left — signup form (full-bleed half, no card) */}
         <main className="flex w-full flex-col justify-center px-6 py-12 sm:px-10 lg:px-16">

@@ -9,6 +9,7 @@ enum BlockReason: Sendable {
     case capReached
     case subscriptionInactive
     case expired
+    case usageSyncRequired
     case none
 
     var displayMessage: String {
@@ -21,6 +22,8 @@ enum BlockReason: Sendable {
             return "No active subscription found."
         case .expired:
             return "Your subscription has expired."
+        case .usageSyncRequired:
+            return "Usage sync is pending. Reconnect to the internet to continue."
         case .none:
             return ""
         }
@@ -108,8 +111,8 @@ final class EntitlementManager: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var isCheckoutInProgress: Bool = false
 
-    private var workerBaseURL: String {
-        AppSettings.shared.workerBaseURL
+    private var backendBaseURL: String {
+        AppSettings.shared.studioBackendBaseURL
     }
 
     private let userDefaults = UserDefaults.standard
@@ -133,6 +136,7 @@ final class EntitlementManager: ObservableObject {
             let record = try await fetchEntitlementRecord(userId: userId)
 
             applyEntitlementRecord(record)
+            UsageTracker.shared.flushPendingStudioUsage()
 
             if case .active = status {
                 TrialTracker.shared.recordConversionToPaid()
@@ -144,18 +148,10 @@ final class EntitlementManager: ObservableObject {
     }
 
     private func fetchEntitlementRecord(userId: String) async throws -> EntitlementRecord {
-        if AppSettings.shared.useStudioMacBackend,
-           let studioURL = URL(string: "\(AppSettings.shared.studioBackendBaseURL)/api/mac/entitlement?user_id=\(userId)"),
-           let studioRecord = try? await fetchEntitlementRecord(from: studioURL) {
-            if studioRecord.status != "none" {
-                return studioRecord
-            }
-        }
-
-        guard let workerURL = URL(string: "\(workerBaseURL)/entitlement?user_id=\(userId)") else {
+        guard let backendURL = URL(string: "\(backendBaseURL)/api/mac/entitlement") else {
             throw URLError(.badURL)
         }
-        return try await fetchEntitlementRecord(from: workerURL)
+        return try await fetchEntitlementRecord(from: backendURL)
     }
 
     private func fetchEntitlementRecord(from url: URL) async throws -> EntitlementRecord {
@@ -274,6 +270,14 @@ final class EntitlementManager: ObservableObject {
             default:
                 return (false, .subscriptionInactive)
             }
+        }
+
+        // Do not start another hosted turn when local reports cannot be
+        // preserved. The outbox drains after connectivity returns.
+        if !AppSettings.shared.hasOwnAPIKey,
+           UsageTracker.shared.isOutboxFull {
+            UsageTracker.shared.flushPendingStudioUsage()
+            return (false, .usageSyncRequired)
         }
 
         // MARK: - Skilly — Prefer shared Rust policy when available.
@@ -465,8 +469,8 @@ final class EntitlementManager: ObservableObject {
         )
 
         do {
-            guard let url = URL(string: "\(workerBaseURL)/checkout/create") else {
-                SkillyAnalytics.trackSilentFailure(subsystem: "checkout_start", errorCode: "invalid_worker_url", errorMessage: workerBaseURL, surface: "user_checkout_click")
+            guard let url = URL(string: "\(backendBaseURL)/api/mac/checkout") else {
+                SkillyAnalytics.trackSilentFailure(subsystem: "checkout_start", errorCode: "invalid_backend_url", errorMessage: backendBaseURL, surface: "user_checkout_click")
                 return
             }
             var request = URLRequest(url: url)
@@ -508,13 +512,13 @@ final class EntitlementManager: ObservableObject {
                 SkillyAnalytics.trackCheckoutFailed(
                     checkoutAttemptId: checkoutAttemptId,
                     entitlementStatus: entitlementStatus,
-                    reason: statusCode == 401 ? "worker_session_stale" : "worker_non_200",
+                    reason: statusCode == 401 ? "backend_session_stale" : "backend_non_200",
                     httpStatus: statusCode
                 )
                 SkillyAnalytics.trackSilentFailure(
                     subsystem: "polar_checkout",
                     httpStatus: statusCode,
-                    errorCode: statusCode == 401 ? "worker_session_stale" : "non_200_from_worker",
+                    errorCode: statusCode == 401 ? "backend_session_stale" : "non_200_from_backend",
                     errorMessage: body,
                     surface: "user_checkout_click"
                 )
@@ -601,7 +605,7 @@ final class EntitlementManager: ObservableObject {
         guard AuthManager.shared.isAuthenticated else { return }
 
         do {
-            guard let url = URL(string: "\(workerBaseURL)/portal") else { return }
+            guard let url = URL(string: "\(backendBaseURL)/api/mac/portal") else { return }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -18,24 +18,9 @@ final class AppSettings: ObservableObject {
 
     // MARK: - Skilly — Configurable Endpoints
 
-    /// Base URL for the Cloudflare Worker proxy. All API calls route through this endpoint.
-    /// Change this to point to your own Worker instance. Defaults to the Skilly-hosted proxy.
-    @Published var workerBaseURL: String {
-        didSet { UserDefaults.standard.set(workerBaseURL, forKey: "workerBaseURL") }
-    }
-
-    /// Base URL for Studio's Mac compatibility APIs. This is separate from
-    /// workerBaseURL because WorkOS auth and Polar checkout still live on the
-    /// Worker during the migration.
+    /// Single backend for account, billing, access, and hosted voice APIs.
     @Published var studioBackendBaseURL: String {
         didSet { UserDefaults.standard.set(studioBackendBaseURL, forKey: "studioBackendBaseURL") }
-    }
-
-    /// When enabled, the Mac app tries Studio's Mac API routes first for
-    /// Realtime token minting, entitlement reads, and usage telemetry. Every
-    /// customer-critical path keeps Worker fallback.
-    @Published var useStudioMacBackend: Bool {
-        didSet { UserDefaults.standard.set(useStudioMacBackend, forKey: "useStudioMacBackend") }
     }
 
     #if DEBUG
@@ -186,11 +171,8 @@ final class AppSettings: ObservableObject {
 
     private init() {
         // Skilly — Configurable endpoints
-        self.workerBaseURL = UserDefaults.standard.string(forKey: "workerBaseURL")
-            ?? "https://skilly-proxy.eng-mohamedszaied.workers.dev"
         self.studioBackendBaseURL = UserDefaults.standard.string(forKey: "studioBackendBaseURL")
             ?? "https://studio.tryskilly.app"
-        self.useStudioMacBackend = UserDefaults.standard.bool(forKey: "useStudioMacBackend")
         #if DEBUG
         self.debugRealtimeModel = UserDefaults.standard.string(forKey: "debugRealtimeModel") ?? ""
         #endif

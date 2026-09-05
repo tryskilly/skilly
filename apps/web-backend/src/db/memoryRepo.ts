@@ -87,6 +87,7 @@ export class MemoryRepo implements WebBackendRepo {
   private usageSequence = 0;
   private usage: Array<UsageEvent & UsageDimensions & { createdAt: Date; sequence: number }> = [];
   private widgetConfigs = new Map<string, WidgetConfig>();
+  private handoffLocks = new Map<string, Promise<void>>();
 
   constructor(seed: MemorySeed = defaultSeed()) {
     for (const tenant of seed.tenants) {
@@ -206,6 +207,28 @@ export class MemoryRepo implements WebBackendRepo {
     if (project) {
       project.skillContent = content;
       project.updatedAt = new Date();
+    }
+  }
+
+  async importProjectSkillIfEmpty(tenantId: string, content: string): Promise<{ saved: boolean }> {
+    const previous = this.handoffLocks.get(tenantId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const chain = previous.then(() => current);
+    this.handoffLocks.set(tenantId, chain);
+    await previous;
+    try {
+      const project = await this.ensureDefaultProject(tenantId);
+      if (project.skillContent.trim()) return { saved: false };
+      const stored = this.projects.get(project.id);
+      if (!stored || stored.skillContent.trim()) return { saved: false };
+      stored.skillContent = content;
+      stored.updatedAt = new Date();
+      this.skills.set(`${tenantId}:${project.skillId}`, { tenantId, skillId: project.skillId, content });
+      return { saved: true };
+    } finally {
+      release();
+      if (this.handoffLocks.get(tenantId) === chain) this.handoffLocks.delete(tenantId);
     }
   }
 

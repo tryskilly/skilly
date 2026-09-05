@@ -141,6 +141,8 @@ export interface WebBackendRepo {
   getProjectBySkillId(tenantId: string, skillId: string): Promise<Project | null>;
   /** Persist project-specific skill content. */
   saveProjectSkill(projectId: string, content: string): Promise<void>;
+  /** Atomically save an imported skill only when the project's skill is still empty. */
+  importProjectSkillIfEmpty(tenantId: string, content: string): Promise<{ saved: boolean }>;
   /** Replace project-specific allowed web origins. */
   setProjectOrigins(projectId: string, origins: string[]): Promise<void>;
   /** Replace project-specific allowed native app ids. */

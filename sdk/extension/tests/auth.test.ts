@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, mock } from "bun:test";
-import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches } from "../src/auth";
+import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches, sessionAccountId } from "../src/auth";
 
 const REAL_FETCH = globalThis.fetch;
 
@@ -31,6 +31,14 @@ describe("auth state", () => {
     expect(authStateMatches(issued, "some-other-state")).toBe(false);
     expect(authStateMatches(issued, null)).toBe(false);
     expect(authStateMatches(issued, "")).toBe(false);
+  });
+});
+
+describe("session account binding", () => {
+  test("reads the WorkOS subject from a session token without trusting it for auth", () => {
+    const payload = btoa(JSON.stringify({ sub: "user_abc" })).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+    expect(sessionAccountId(`header.${payload}.signature`)).toBe("user_abc");
+    expect(sessionAccountId("not-a-token")).toBeNull();
   });
 });
 

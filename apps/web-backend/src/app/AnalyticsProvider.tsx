@@ -177,10 +177,11 @@ export function AnalyticsProvider({
     if (analyticsSuppressed || browserAnalyticsSuppressed()) {
       return;
     }
-    const url = `${window.location.pathname}${window.location.search}`;
+    // Query strings may carry a guide draft or authentication handoff.
+    const url = window.location.pathname;
     window.gtag?.("event", "page_view", {
       page_path: url,
-      page_location: window.location.href,
+      page_location: `${window.location.origin}${url}`,
       page_title: document.title,
       ...gaSafeProperties(cleanProperties(baseProperties)),
     });

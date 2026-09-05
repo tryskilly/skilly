@@ -84,4 +84,12 @@ describe("POST /api/extension/usage", () => {
     expect(response.status).toBe(200);
     expect(recordedUsageCalls[0]?.seconds).toBe(0);
   });
+
+  test("rejects null, arrays, non-finite seconds, and invalid new identifiers", async () => {
+    expect((await POST(authedRequest("null") as never)).status).toBe(400);
+    expect((await POST(authedRequest("[]") as never)).status).toBe(400);
+    await POST(authedRequest({ seconds: "Infinity" }) as never);
+    expect(recordedUsageCalls.at(-1)?.seconds).toBe(0);
+    expect((await POST(authedRequest({ eventId: "" }) as never)).status).toBe(400);
+  });
 });

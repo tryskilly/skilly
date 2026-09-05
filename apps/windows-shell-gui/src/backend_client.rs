@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-const DEFAULT_WORKER_BASE_URL: &str = "https://skilly-proxy.eng-mohamedszaied.workers.dev";
+const DEFAULT_BACKEND_BASE_URL: &str = "https://studio.tryskilly.app/api/mac";
 const MAX_PUBLIC_ERROR_LEN: usize = 120;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,7 +121,9 @@ pub enum BackendClientError {
 impl Display for BackendClientError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            BackendClientError::InvalidBaseUrl => formatter.write_str("worker base url is invalid"),
+            BackendClientError::InvalidBaseUrl => {
+                formatter.write_str("backend base url is invalid")
+            }
             BackendClientError::InvalidArgument(message) => formatter.write_str(message),
             BackendClientError::Transport(message) | BackendClientError::Decode(message) => {
                 formatter.write_str(message)
@@ -222,6 +224,54 @@ pub struct OpenAiTokenResponse {
     pub client_secret: String,
     pub expires_at: u64,
     pub model: String,
+    #[serde(default)]
+    pub access_mode: Option<String>,
+    #[serde(default)]
+    pub remaining_seconds: Option<u64>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub period_start: Option<String>,
+    #[serde(default)]
+    pub period_end: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReportRequest {
+    pub event_id: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub seconds: u64,
+    pub result: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub audio_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub audio_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub text_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub text_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub cached_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub total_tokens: Option<u64>,
+    #[serde(default)]
+    pub estimated_cost_usd: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReportResponse {
+    pub ok: bool,
+    #[serde(default)]
+    pub recorded_seconds: u64,
+    #[serde(default)]
+    pub duplicate: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -240,7 +290,7 @@ impl<T> BackendClient<T> {
     }
 
     pub fn with_default_base_url(transport: T) -> Result<Self, BackendClientError> {
-        Self::new(DEFAULT_WORKER_BASE_URL, transport)
+        Self::new(DEFAULT_BACKEND_BASE_URL, transport)
     }
 
     pub fn base_url(&self) -> &str {
@@ -303,12 +353,8 @@ where
             &payload.checkout_attempt_id,
             "checkout attempt id is required",
         )?;
-        let request = self.post_json(
-            "/checkout/create",
-            payload,
-            Some(session_token),
-            "checkout/create",
-        )?;
+        let request =
+            self.post_json("/checkout", payload, Some(session_token), "checkout/create")?;
         let response = self.transport.send(request).map_err(transport_error)?;
         decode_json_response(response, "checkout/create")
     }
@@ -336,6 +382,16 @@ where
         session_token: &str,
         model: Option<&str>,
     ) -> Result<OpenAiTokenResponse, BackendClientError> {
+        self.fetch_openai_token_with_migration(session_token, model, 0, false)
+    }
+
+    pub fn fetch_openai_token_with_migration(
+        &self,
+        session_token: &str,
+        model: Option<&str>,
+        legacy_trial_seconds: u64,
+        include_migration_headers: bool,
+    ) -> Result<OpenAiTokenResponse, BackendClientError> {
         let request = self.get(
             "/openai/token",
             &model
@@ -345,8 +401,70 @@ where
             Some(session_token),
             "openai/token",
         )?;
+        let mut request = request;
+        if include_migration_headers {
+            request
+                .headers
+                .push(("X-Skilly-Client-Migration".to_owned(), "v1".to_owned()));
+            request.headers.push((
+                "X-Skilly-Legacy-Trial-Seconds".to_owned(),
+                legacy_trial_seconds.min(900).to_string(),
+            ));
+        }
         let response = self.transport.send(request).map_err(transport_error)?;
         decode_json_response(response, "openai/token")
+    }
+
+    pub fn report_usage(
+        &self,
+        session_token: &str,
+        payload: &UsageReportRequest,
+    ) -> Result<UsageReportResponse, BackendClientError> {
+        ensure_non_empty(&payload.event_id, "usage event id is required")?;
+        ensure_non_empty(&payload.result, "usage result is required")?;
+        let request = self.post_json("/usage", payload, Some(session_token), "usage")?;
+        let response = self.transport.send(request).map_err(transport_error)?;
+        decode_json_response(response, "usage")
+    }
+
+    /// Retry a report without changing its event id. This is safe when the
+    /// first request was accepted but its response was lost.
+    pub fn report_usage_with_retry(
+        &self,
+        session_token: &str,
+        payload: &UsageReportRequest,
+    ) -> Result<UsageReportResponse, BackendClientError> {
+        ensure_non_empty(&payload.event_id, "usage event id is required")?;
+        ensure_non_empty(&payload.result, "usage result is required")?;
+        let request = self.post_json("/usage", payload, Some(session_token), "usage")?;
+        let mut last_error = None;
+        for attempt in 0..3 {
+            match self.transport.send(request.clone()) {
+                Ok(response) if (200..=299).contains(&response.status) => {
+                    return response.json();
+                }
+                Ok(response) => {
+                    let retryable =
+                        matches!(response.status, 408 | 425 | 429) || response.status >= 500;
+                    last_error = Some(BackendClientError::Http {
+                        status: response.status,
+                        route: "usage",
+                        public_message: extract_public_error_message(&response.body),
+                    });
+                    if !retryable || attempt == 2 {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    last_error = Some(transport_error(error));
+                    if attempt == 2 {
+                        break;
+                    }
+                }
+            }
+        }
+        Err(last_error
+            .unwrap_or_else(|| BackendClientError::Transport("usage request failed".to_owned())))
     }
 
     fn get(
@@ -591,7 +709,7 @@ mod tests {
         assert_eq!(requests[0].method, HttpMethod::Get);
         assert_eq!(
             requests[0].url,
-            "https://skilly-proxy.eng-mohamedszaied.workers.dev/auth/url?state=state_123"
+            "https://studio.tryskilly.app/api/mac/auth/url?state=state_123"
         );
         assert!(requests[0].body.is_none());
     }
@@ -708,7 +826,7 @@ mod tests {
         assert_eq!(response.portal_url, "https://polar.sh/portal/123");
         assert_eq!(
             client.transport.requests()[0].url,
-            "https://skilly-proxy.eng-mohamedszaied.workers.dev/portal?email=person%40example.com"
+            "https://studio.tryskilly.app/api/mac/portal?email=person%40example.com"
         );
     }
 
@@ -717,7 +835,7 @@ mod tests {
         let transport = MockTransport::default();
         transport.push_json_response(
             200,
-            r#"{"clientSecret":"secret_123","expiresAt":123456,"model":"gpt-realtime-2.1-mini"}"#,
+            r#"{"clientSecret":"secret_123","expiresAt":123456,"model":"gpt-realtime-2.1-mini","accessMode":"trial","remainingSeconds":899,"sessionId":"session-id","periodStart":null,"periodEnd":null}"#,
         );
         let client = BackendClient::with_default_base_url(transport).expect("client");
         let response = client
@@ -725,9 +843,67 @@ mod tests {
             .expect("response");
 
         assert_eq!(response.client_secret, "secret_123");
+        assert_eq!(response.access_mode.as_deref(), Some("trial"));
+        assert_eq!(response.remaining_seconds, Some(899));
+        assert_eq!(response.session_id.as_deref(), Some("session-id"));
         assert_eq!(
             client.transport.requests()[0].url,
-            "https://skilly-proxy.eng-mohamedszaied.workers.dev/openai/token?model=gpt-realtime-2.1-mini"
+            "https://studio.tryskilly.app/api/mac/openai/token?model=gpt-realtime-2.1-mini"
+        );
+    }
+
+    #[test]
+    fn migration_token_request_sends_clamped_trial_floor_once() {
+        let transport = MockTransport::default();
+        transport.push_json_response(
+            200,
+            r#"{"clientSecret":"secret_123","expiresAt":123456,"model":"gpt-realtime"}"#,
+        );
+        let client = BackendClient::with_default_base_url(transport).expect("client");
+        client
+            .fetch_openai_token_with_migration("session_123", None, 2_000, true)
+            .expect("response");
+
+        let request = client.transport.requests()[0].clone();
+        assert_eq!(request.header("x-skilly-client-migration"), Some("v1"));
+        assert_eq!(request.header("x-skilly-legacy-trial-seconds"), Some("900"));
+    }
+
+    #[test]
+    fn usage_retry_reuses_event_and_session_ids() {
+        let transport = MockTransport::default();
+        transport.push_json_response(503, r#"{"error":"temporarily unavailable"}"#);
+        transport.push_json_response(200, r#"{"ok":true,"recordedSeconds":42,"duplicate":false}"#);
+        let client = BackendClient::with_default_base_url(transport).expect("client");
+        let payload = UsageReportRequest {
+            event_id: "11111111-1111-4111-8111-111111111111".to_owned(),
+            session_id: Some("22222222-2222-4222-8222-222222222222".to_owned()),
+            seconds: 42,
+            result: "relay_completed".to_owned(),
+            source: Some("relay".to_owned()),
+            model: Some("gpt-realtime".to_owned()),
+            audio_input_tokens: None,
+            audio_output_tokens: None,
+            text_input_tokens: None,
+            text_output_tokens: None,
+            cached_input_tokens: None,
+            total_tokens: None,
+            estimated_cost_usd: None,
+        };
+        let response = client
+            .report_usage_with_retry("session_123", &payload)
+            .expect("retry should succeed");
+        assert_eq!(response.recorded_seconds, 42);
+        let requests = client.transport.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].body, requests[1].body);
+        assert!(requests[0]
+            .body_as_str()
+            .expect("body")
+            .contains("11111111-1111-4111-8111-111111111111"));
+        assert_eq!(
+            requests[0].url,
+            "https://studio.tryskilly.app/api/mac/usage"
         );
     }
 

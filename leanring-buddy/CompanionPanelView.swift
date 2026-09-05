@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import PostHog
 
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager

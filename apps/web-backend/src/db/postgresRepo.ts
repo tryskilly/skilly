@@ -278,6 +278,36 @@ export class PostgresRepo implements WebBackendRepo {
     ]);
   }
 
+  async importProjectSkillIfEmpty(tenantId: string, content: string): Promise<{ saved: boolean }> {
+    await this.ensureDefaultProject(tenantId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const project = await client.query<{ id: string; skill_id: string; skill_content: string }>(
+        `SELECT id, skill_id, skill_content FROM projects WHERE tenant_id = $1 ORDER BY CASE WHEN slug = 'primary' THEN 0 ELSE 1 END, created_at ASC LIMIT 1 FOR UPDATE`,
+        [tenantId],
+      );
+      const row = project.rows[0];
+      if (!row || row.skill_content.trim()) {
+        await client.query("COMMIT");
+        return { saved: false };
+      }
+      await client.query(`UPDATE projects SET skill_content = $2, updated_at = now() WHERE id = $1`, [row.id, content]);
+      await client.query(
+        `INSERT INTO tenant_skills (tenant_id, skill_id, content) VALUES ($1, $2, $3)
+         ON CONFLICT (tenant_id, skill_id) DO UPDATE SET content = EXCLUDED.content, updated_at = now()`,
+        [tenantId, row.skill_id, content],
+      );
+      await client.query("COMMIT");
+      return { saved: true };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async setProjectOrigins(projectId: string, origins: string[]): Promise<void> {
     await this.pool.query(`UPDATE projects SET allowed_origins = $2, updated_at = now() WHERE id = $1`, [
       projectId,

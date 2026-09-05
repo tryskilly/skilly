@@ -34,6 +34,20 @@ export interface ExtensionSessionResult {
   email: string;
 }
 
+/** Decode the signed session's subject for local outbox binding (the backend remains authoritative). */
+export function sessionAccountId(sessionToken: string): string | null {
+  const [, encodedPayload] = sessionToken.split(".");
+  if (!encodedPayload) return null;
+  try {
+    const normalized = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { sub?: unknown };
+    return typeof payload.sub === "string" && payload.sub.length > 0 ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function exchangeCodeForSession(backendUrl: string, code: string): Promise<ExtensionSessionResult> {
   const response = await fetch(`${backendUrl.replace(/\/$/, "")}/api/extension/auth/exchange`, {
     method: "POST",

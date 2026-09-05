@@ -20,6 +20,7 @@ import {
   Tr,
   type ReadinessCheck,
 } from "./v2";
+import { HandoffDraftReview } from "./HandoffDraftReview";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,8 @@ function formatResult(result: string | null | undefined): React.ReactNode {
   return <StatusPill label={result} />;
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ handoff?: string }> }) {
+  const params = await searchParams;
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
   const [tenant, keys, usage, project, metrics, recentSessions] = await Promise.all([
@@ -88,6 +90,7 @@ export default async function DashboardPage() {
   ];
   const setupCompleted = setupChecks.filter((check) => check.status === "done").length;
   const setupComplete = hasOrigin && hasPublishableKey && hasSkill;
+  const hasSuccessfulSession = recentSessions.some((session) => session.result === "completed");
   const remainingSetup = setupChecks.length - setupCompleted;
   const usedMinutes = Math.round(usage.usageSecondsThisPeriod / 60);
   const capMinutes = usage.capSeconds > 0 ? Math.round(usage.capSeconds / 60) : 0;
@@ -103,12 +106,15 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <HandoffDraftReview handoffPending={params.handoff === "1"} />
       <PageHeader
         eyebrow="For builders"
-        title={setupComplete ? "This site is live." : "Get this site live."}
+        title={setupComplete ? "This site is configured." : "Get this site configured."}
         description={
           setupComplete
-            ? "Health, recent sessions, and minutes for the active customer project."
+            ? hasSuccessfulSession
+              ? "Configuration is complete; a recent successful tenant session is recorded below."
+              : "Configuration is complete. Run a live session to confirm the widget works for your users."
             : "Finish the setup path in order: teach, style, allow, install, and test."
         }
         action={
@@ -141,7 +147,7 @@ export default async function DashboardPage() {
             <h2 className="mt-4 max-w-[620px] text-[28px] font-extrabold leading-tight tracking-[-0.045em] text-gray-100">
               {setupComplete ? (
                 <>
-                  <span className="text-amber-300">{tenant?.name ?? "This workspace"}</span> is ready for Skilly.
+                  <span className="text-amber-300">{tenant?.name ?? "This workspace"}</span> is configured for Skilly.
                 </>
               ) : (
                 <>
@@ -151,7 +157,7 @@ export default async function DashboardPage() {
             </h2>
             <p className="mt-2 max-w-[690px] text-sm leading-relaxed text-muted">
               {setupComplete
-                ? "Run a live voice test before increasing production traffic."
+                ? "Configuration is not a live verification; use the test widget before increasing production traffic."
                 : "Complete the remaining checks before enabling the widget for visitors."}
             </p>
             <div className="mt-5">
@@ -161,8 +167,8 @@ export default async function DashboardPage() {
               <ButtonLink href="/dashboard/widget" variant={setupComplete ? "primary" : "secondary"}>
                 Test customer site
               </ButtonLink>
-              <ButtonLink href={setupComplete ? "/dashboard/install" : nextSetupHref} variant={setupComplete ? "secondary" : "primary"}>
-                {setupComplete ? "View install guide" : "Continue setup"}
+              <ButtonLink href={setupComplete ? "/dashboard/widget" : nextSetupHref} variant="primary">
+                {setupComplete ? "Run live test" : "Continue setup"}
               </ButtonLink>
             </div>
           </div>

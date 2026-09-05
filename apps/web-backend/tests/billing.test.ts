@@ -2,10 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import {
   buildCheckoutBody,
+  buildPersonalCheckoutBody,
   getBuilderPlans,
   interpretSubscriptionEvent,
   resolveBuilderPlan,
   verifyWebhookSignature,
+  hasCurrentPersonalEntitlement,
+  interpretPersonalSubscriptionEvent,
+  parseCheckoutAttemptId,
+  shouldApplyPersonalProviderEvent,
 } from "../src/domain/billing";
 import { MemoryRepo, defaultSeed } from "../src/db/memoryRepo";
 
@@ -123,6 +128,21 @@ describe("buildCheckoutBody + cap update", () => {
   });
 });
 
+describe("personal billing helpers", () => {
+  test("uses the authenticated user and preserves a supplied attempt id", () => {
+    expect(buildPersonalCheckoutBody({ productId: "mac_prod", userId: "user_1", email: "u@example.com", surface: "mac", checkoutAttemptId: "attempt_1", successUrl: "https://x/billing" })).toEqual({
+      products: ["mac_prod"], success_url: "https://x/billing",
+      metadata: { surface: "mac", user_id: "user_1", email: "u@example.com", checkout_attempt_id: "attempt_1" },
+    });
+  });
+
+  test("recognizes only a current active entitlement", () => {
+    expect(hasCurrentPersonalEntitlement({ status: "active", period_end: "2999-01-01T00:00:00Z" })).toBe(true);
+    expect(hasCurrentPersonalEntitlement({ status: "canceled", period_end: "2999-01-01T00:00:00Z" })).toBe(false);
+    expect(hasCurrentPersonalEntitlement({ status: "active", period_end: "2000-01-01T00:00:00Z" })).toBe(false);
+  });
+});
+
 describe("builder billing plan catalog", () => {
   test("resolves three beta-safe plans from env", () => {
     const env = {
@@ -163,5 +183,47 @@ describe("Polar customer id extraction", () => {
       36_000,
     );
     expect(update?.polarCustomerId).toBeUndefined();
+  });
+});
+
+describe("personal subscription webhook status", () => {
+  const env = { POLAR_MAC_PRODUCT_ID: "mac_prod" };
+  const event = (type: string, status?: string) => ({ type, data: { status, product_id: "mac_prod", metadata: { surface: "mac", user_id: "user_1", plan: "relay", email: "u@example.com" }, customer_id: "cust_1" } });
+  test("does not grant active for incomplete created or past_due", () => {
+    expect(interpretPersonalSubscriptionEvent(event("subscription.created", "incomplete"), env)).toBeNull();
+    expect(interpretPersonalSubscriptionEvent(event("subscription.past_due", "past_due"), env)?.status).toBe("past_due");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.updated", "past_due"), env)?.status).toBe("past_due");
+  });
+  test("preserves provider event ordering metadata for the entitlement write guard", () => {
+    const update = interpretPersonalSubscriptionEvent({
+      ...event("subscription.active", "active"),
+      data: { ...event("subscription.active", "active").data, id: "sub_evt_2", updated_at: "2026-09-06T12:00:00Z" },
+    }, env);
+    expect(update?.providerEventAt).toBe("2026-09-06T12:00:00Z");
+    expect(update?.providerEventId).toBe("sub_evt_2");
+  });
+  test("revoked removes access and active updates grant it", () => {
+    expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"), env)?.status).toBe("none");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.active", "active"), env)?.status).toBe("active");
+  });
+  test("ignores unrelated products without personal metadata", () => {
+    expect(interpretPersonalSubscriptionEvent({ type: "subscription.active", data: { product_id: "builder_prod", metadata: { tenantId: "tenant_1" } } }, env)).toBeNull();
+  });
+});
+
+describe("checkout attempt validation", () => {
+  test("rejects non-string and values over 500 characters", () => {
+    expect(parseCheckoutAttemptId(42).valid).toBe(false);
+    expect(parseCheckoutAttemptId("x".repeat(501)).valid).toBe(false);
+    expect(parseCheckoutAttemptId(null)).toEqual({ valid: true, value: null });
+  });
+});
+
+describe("personal provider event ordering", () => {
+  test("does not let a delayed active event overwrite past_due/revoked state", () => {
+    expect(shouldApplyPersonalProviderEvent("2026-09-06T12:00:00Z", "2026-09-06T11:59:59Z")).toBe(false);
+    expect(shouldApplyPersonalProviderEvent("2026-09-06T12:00:00Z", "2026-09-06T12:00:01Z")).toBe(true);
+    expect(shouldApplyPersonalProviderEvent("2026-09-06T12:00:00Z", null)).toBe(false);
+    expect(shouldApplyPersonalProviderEvent(null, "2026-09-06T12:00:00Z")).toBe(true);
   });
 });

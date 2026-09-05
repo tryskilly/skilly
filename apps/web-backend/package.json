@@ -12,6 +12,7 @@
     "db:migrate": "bun src/db/migrate.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:billing-contracts": "bun run scripts/check-personal-billing-contracts.ts",
     "smoke": "bun run scripts/production-smoke.ts",
     "migrate:workos-users": "bun run scripts/migrate-workos-users-to-studio.ts",
     "migrate:mac-entitlements": "bun run scripts/migrate-worker-kv-entitlements.ts",

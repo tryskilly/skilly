@@ -6,6 +6,7 @@
 // products[] checkout) into the web backend — reuse, not reinvention.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 export interface WebhookVerifyInput {
   /** `whsec_<base64>` secret from Polar. */
@@ -196,5 +197,114 @@ export function buildCheckoutBody(input: CheckoutInput): Record<string, unknown>
       ...(input.plan ? { plan: input.plan } : {}),
       ...(input.planCapSeconds ? { planCapSeconds: input.planCapSeconds } : {}),
     },
+  };
+}
+
+export interface PersonalCheckoutInput {
+  productId: string;
+  userId: string;
+  email: string;
+  successUrl: string;
+  checkoutAttemptId?: string | null;
+  surface: "mac" | "extension";
+}
+
+/** Build the single-user Polar payload used by native clients. */
+export function buildPersonalCheckoutBody(input: PersonalCheckoutInput): Record<string, unknown> {
+  const checkoutAttemptId = input.checkoutAttemptId?.trim() || randomUUID();
+  return {
+    products: [input.productId],
+    success_url: input.successUrl,
+    metadata: {
+      surface: input.surface,
+      user_id: input.userId,
+      email: input.email,
+      checkout_attempt_id: checkoutAttemptId,
+    },
+  };
+}
+
+export function parseCheckoutAttemptId(value: unknown): { valid: true; value: string | null } | { valid: false } {
+  if (value == null) return { valid: true, value: null };
+  if (typeof value !== "string" || value.length > 500) return { valid: false };
+  return { valid: true, value: value.trim() || null };
+}
+
+export function isValidBillingUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  try { return new URL(value).protocol === "https:"; } catch { return false; }
+}
+
+export function hasCurrentPersonalEntitlement(record: {
+  status?: string | null;
+  period_end?: string | null;
+} | null): boolean {
+  if (!record || record.status !== "active") return false;
+  if (!record.period_end) return true;
+  const periodEnd = Date.parse(record.period_end);
+  return Number.isNaN(periodEnd) || periodEnd > Date.now();
+}
+
+export interface PersonalSubscriptionUpdate {
+  userId: string;
+  email?: string | null;
+  status: "active" | "canceled" | "past_due" | "none";
+  plan?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  polarCustomerId?: string | null;
+  providerEventAt?: string | null;
+  providerEventId?: string | null;
+}
+
+/** Guard personal entitlement writes against out-of-order provider delivery. */
+export function shouldApplyPersonalProviderEvent(
+  existingEventAt: string | null | undefined,
+  incomingEventAt: string | null | undefined,
+): boolean {
+  if (!existingEventAt) return true;
+  if (!incomingEventAt) return false;
+  const existing = Date.parse(existingEventAt);
+  const incoming = Date.parse(incomingEventAt);
+  return Number.isFinite(existing) && Number.isFinite(incoming) && incoming >= existing;
+}
+
+export function getPersonalProductIds(env: BillingEnv): Set<string> {
+  return new Set([env.POLAR_MAC_PRODUCT_ID, env.POLAR_BETA_PRODUCT_ID, env.POLAR_EXTENSION_PRODUCT_ID].filter((id): id is string => Boolean(id)));
+}
+
+export function interpretPersonalSubscriptionEvent(event: unknown, env: BillingEnv = process.env): PersonalSubscriptionUpdate | null {
+  if (!event || typeof event !== "object") return null;
+  const root = event as Record<string, unknown>;
+  const type = typeof root.type === "string" ? root.type : null;
+  const data = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : null;
+  const customer = data?.customer && typeof data.customer === "object" ? data.customer as Record<string, unknown> : null;
+  const rawMetadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : customer?.metadata;
+  const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Record<string, unknown> : null;
+  const surface = metadata?.surface;
+  const productId = typeof data?.product_id === "string" ? data.product_id :
+    (data?.product && typeof data.product === "object" && typeof (data.product as Record<string, unknown>).id === "string" ? (data.product as Record<string, unknown>).id as string : null);
+  const surfaceAllowed = surface === undefined || surface === "mac" || surface === "extension";
+  if (!type || !surfaceAllowed || metadata?.plan === "byok" || typeof metadata?.user_id !== "string") return null;
+  const personalProducts = getPersonalProductIds(env);
+  if (!productId || personalProducts.size === 0 || !personalProducts.has(productId)) return null;
+  const providerStatus = typeof data?.status === "string" ? data.status : null;
+  const status = type === "subscription.revoked" ? "none" :
+    type === "subscription.past_due" || providerStatus === "past_due" ? "past_due" :
+    type === "subscription.canceled" ? "canceled" :
+    (type === "subscription.active" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
+  if (!status) return null;
+  const stringValue = (value: unknown): string | null => typeof value === "string" ? value : null;
+  const eventAt = stringValue(data?.created_at) ?? stringValue(data?.updated_at) ?? stringValue(root.created_at) ?? stringValue(root.timestamp);
+  return {
+    userId: metadata.user_id,
+    email: stringValue(metadata.email),
+    status,
+    plan: typeof metadata.plan === "string" ? metadata.plan : "relay",
+    periodStart: stringValue(data?.current_period_start),
+    periodEnd: stringValue(data?.current_period_end),
+    polarCustomerId: stringValue(data?.customer_id) ?? stringValue(customer?.id),
+    providerEventAt: eventAt,
+    providerEventId: stringValue(data?.id) ?? stringValue(root.id),
   };
 }

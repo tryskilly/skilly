@@ -1,4 +1,4 @@
-// The coordinator. Owns the active tab, the frame registry, entitlement checks and login; the
+// The coordinator. Owns the active tab, the frame registry, Studio access preflight and login; the
 // Realtime session itself lives in a host (src/realtimeHost.ts) whose location is per-browser.
 //
 // On Chrome that host is an offscreen document, because an MV3 service worker has no
@@ -8,14 +8,28 @@
 import { FrameRegistry, parseQualifiedTarget } from "../src/frameRegistry";
 import { matchSkillForUrl, GENERIC_SKILL_VALUE } from "../src/skillMatcher";
 import { BUNDLED_SKILLS } from "../src/bundledSkills";
-import { buildWorkOSAuthorizeUrl, exchangeCodeForSession, generateAuthState, authStateMatches } from "../src/auth";
+import {
+  buildWorkOSAuthorizeUrl,
+  exchangeCodeForSession,
+  generateAuthState,
+  authStateMatches,
+  sessionAccountId,
+} from "../src/auth";
 import { createRealtimeHost, type RealtimeHost } from "../src/realtimeHost";
+import { accessErrorMessage, accessFailureFromResponse, isExtensionTokenResponse } from "../src/access";
+import {
+  enqueueExtensionUsage,
+  flushExtensionUsageOutbox,
+  prepareUsageOutboxForSession,
+  type ExtensionUsageReport,
+} from "../src/usage";
 import type {
   ContentToBackgroundMessage,
   OffscreenToBackgroundMessage,
   BackgroundToOffscreenMessage,
   BackgroundToContentMessage,
   PopupToBackgroundMessage,
+  AccessErrorCode,
 } from "../src/messages";
 
 const BACKEND_URL = "https://studio.tryskilly.app"; // TODO(config): build-time env var once staging/prod diverge
@@ -33,6 +47,25 @@ const DIGEST_SETTLE_MS = 300;
 export default defineBackground(() => {
   const frameRegistry = new FrameRegistry();
   let activeTabId: number | null = null;
+  let activeSessionId: string | null = null;
+  let usageOutboxWork = Promise.resolve();
+
+  function scheduleUsageOutboxWork(work: () => Promise<void>): Promise<void> {
+    const next = usageOutboxWork.then(work);
+    usageOutboxWork = next.catch(() => undefined);
+    return next;
+  }
+
+  function flushCurrentAccountUsage(expectedToken?: string, expectedAccountId?: string): Promise<void> {
+    return scheduleUsageOutboxWork(async () => {
+      const stored = await chrome.storage.local.get(["sessionToken"]);
+      const token = typeof stored.sessionToken === "string" ? stored.sessionToken : null;
+      const accountId = token ? sessionAccountId(token) : null;
+      if (!token || !accountId) return;
+      if ((expectedToken && token !== expectedToken) || (expectedAccountId && accountId !== expectedAccountId)) return;
+      await flushExtensionUsageOutbox(chrome.storage.local, BACKEND_URL, token, accountId);
+    });
+  }
 
   /**
    * Offscreen documents are a Chrome-only MV3 API, needed there because a service worker has no
@@ -106,7 +139,9 @@ export default defineBackground(() => {
     });
   }
 
-  async function startSession(tabId: number): Promise<void> {
+  type StartSessionResult = { active: boolean; error?: AccessErrorCode };
+
+  async function startSession(tabId: number): Promise<StartSessionResult> {
     activeTabId = tabId;
     frameRegistry.clear();
 
@@ -115,27 +150,52 @@ export default defineBackground(() => {
     const skillOverride = (stored.skillOverride as string | null | undefined) ?? null;
     if (!sessionToken) {
       activeTabId = null;
-      return; // not logged in — the popup owns prompting the user to sign in
+      return { active: false, error: "authentication_required" }; // popup owns prompting sign-in
     }
 
     const authorizationHeader = { authorization: `Bearer ${sessionToken}` };
-    const [entitlementResponse, tokenResponse] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/extension/entitlement`, { headers: authorizationHeader }),
-      fetch(`${BACKEND_URL}/api/extension/openai/token`, { headers: authorizationHeader }),
-    ]);
-    if (!entitlementResponse.ok || !tokenResponse.ok) {
-      notifyActiveTab("Skilly couldn't connect. Try again in a moment.");
+    const accountId = sessionAccountId(sessionToken);
+    if (!accountId) {
       activeTabId = null;
-      return;
+      return { active: false, error: "authentication_required" };
     }
-    const entitlement = (await entitlementResponse.json()) as { status: string };
-    if (entitlement.status !== "active") {
-      notifyActiveTab("Your Skilly subscription isn't active.");
+    // Flush any durable reports for this account before minting a new session. If the outbox is
+    // full (including another account's queued history), do not create more unreportable usage.
+    let canStart = false;
+    await scheduleUsageOutboxWork(async () => {
+      canStart = await prepareUsageOutboxForSession(chrome.storage.local, BACKEND_URL, sessionToken, accountId);
+    });
+    if (!canStart) {
+      notifyActiveTab(accessErrorMessage("usage_outbox_full"));
       activeTabId = null;
-      return;
+      return { active: false, error: "usage_outbox_full" };
     }
-    const token = (await tokenResponse.json()) as { clientSecret: string; model: string };
+    let tokenResponse: Response;
+    try {
+      // The token route is the access gate. Entitlement GET is intentionally not used as an
+      // authorization decision because it can be stale relative to billing/capacity preflight.
+      tokenResponse = await fetch(`${BACKEND_URL}/api/extension/openai/token`, {
+        headers: authorizationHeader,
+      });
+    } catch {
+      notifyActiveTab(accessErrorMessage("backend_unavailable"));
+      activeTabId = null;
+      return { active: false, error: "backend_unavailable" };
+    }
 
+    const tokenBody: unknown = await tokenResponse.json().catch(() => undefined);
+    if (!tokenResponse.ok) {
+      const failure = accessFailureFromResponse(tokenResponse.status, tokenBody);
+      notifyActiveTab(accessErrorMessage(failure.code));
+      activeTabId = null;
+      return { active: false, error: failure.code };
+    }
+    if (!isExtensionTokenResponse(tokenBody)) {
+      notifyActiveTab(accessErrorMessage("backend_unavailable"));
+      activeTabId = null;
+      return { active: false, error: "backend_unavailable" };
+    }
+    const token = tokenBody;
     const tab = await chrome.tabs.get(tabId);
     const skill = selectSkill(tab.url, skillOverride);
     void chrome.tabs.sendMessage(tabId, { type: "refresh-digest" } satisfies BackgroundToContentMessage).catch(
@@ -147,8 +207,9 @@ export default defineBackground(() => {
     // The session may have been stopped (or the tab navigated) while we were awaiting the
     // network and the digest settle — starting a Realtime session now would orphan it.
     if (activeTabId !== tabId) {
-      return;
+      return { active: false };
     }
+    activeSessionId = token.sessionId;
 
     const instructions = [
       "You are Skilly, a browser extension companion. Help the user with the page they're on.",
@@ -159,20 +220,26 @@ export default defineBackground(() => {
 
     await ensureSessionHost();
     if (activeTabId !== tabId) {
-      return;
+      return { active: false };
     }
     const startMessage: BackgroundToOffscreenMessage = {
       type: "start-session",
       clientSecret: token.clientSecret,
       model: token.model,
+      sessionId: token.sessionId,
+      accountId,
+      accessMode: token.accessMode,
+      remainingSeconds: token.remainingSeconds,
       instructions,
       actionsEnabled: true,
     };
     sendToSessionHost(startMessage);
+    return { active: true };
   }
 
   function stopSession(): void {
     activeTabId = null;
+    activeSessionId = null;
     frameRegistry.clear();
     sendToSessionHost({ type: "stop-session" });
   }
@@ -193,7 +260,9 @@ export default defineBackground(() => {
           sendResponse({ active: false });
           return;
         }
-        void startSession(tab.id).then(() => sendResponse({ active: activeTabId === tab.id }));
+        void startSession(tab.id)
+          .then((result) => sendResponse({ ...result, active: activeTabId === tab.id && result.active }))
+          .catch(() => sendResponse({ active: false, error: "backend_unavailable" as const }));
       });
       return true; // async sendResponse
     }
@@ -220,6 +289,7 @@ export default defineBackground(() => {
             chrome.storage.local.set({ sessionToken: session.sessionToken, email: session.email }),
           )
           .then(() => sendResponse({ ok: true }))
+          .then(() => flushCurrentAccountUsage())
           .catch(() => sendResponse({ ok: false }));
       });
       return true; // keep the channel open for the async sendResponse
@@ -306,16 +376,32 @@ export default defineBackground(() => {
       }
 
       if (rawMessage.type === "usage-report") {
-        void chrome.storage.local.get(["sessionToken"]).then(({ sessionToken }) => {
-          if (!sessionToken) {
+        const report: ExtensionUsageReport = rawMessage;
+        scheduleUsageOutboxWork(async () => {
+          const saved = await enqueueExtensionUsage(chrome.storage.local, report);
+          if (!saved) {
+            notifyActiveTab("Skilly couldn't save this usage report. Please try again after reconnecting.");
             return;
           }
-          void fetch(`${BACKEND_URL}/api/extension/usage`, {
-            method: "POST",
-            headers: { authorization: `Bearer ${sessionToken}`, "content-type": "application/json" },
-            body: JSON.stringify({ seconds: rawMessage.seconds }),
-          }).catch(() => undefined);
+          const stored = await chrome.storage.local.get(["sessionToken"]);
+          const token = typeof stored.sessionToken === "string" ? stored.sessionToken : null;
+          const accountId = token ? sessionAccountId(token) : null;
+          if (token && accountId === report.accountId) {
+            await flushExtensionUsageOutbox(chrome.storage.local, BACKEND_URL, token, accountId);
+          }
         });
+        return;
+      }
+
+      if (
+        rawMessage.type === "session-state" &&
+        rawMessage.state === "closed" &&
+        rawMessage.sessionId === activeSessionId
+      ) {
+        // A remaining-time client timer can close the host without a background stop message.
+        activeTabId = null;
+        activeSessionId = null;
+        frameRegistry.clear();
         return;
       }
     }

@@ -1,16 +1,16 @@
 // GET /api/mac/entitlement — Mac-compatible entitlement lookup.
-// Before Worker KV migration, missing rows intentionally return {status:"none"}
-// instead of failing. The Mac app must keep Worker fallback during rollout.
+// Studio is authoritative: an absent user row means no subscription; database
+// failures propagate so they cannot be mistaken for a successful empty lookup.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { authenticateMacRequestWithWorkerFallback, getMacEntitlement } from "@/lib/macSession";
+import { authenticateMacRequest, getMacEntitlement } from "@/lib/macSession";
 import { captureServerEvent } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const session = await authenticateMacRequestWithWorkerFallback(request);
+  const session = authenticateMacRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

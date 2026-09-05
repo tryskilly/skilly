@@ -72,9 +72,8 @@ final class AuthManager: ObservableObject {
         currentUser != nil
     }
 
-    private var workerBaseURL: String {
-        UserDefaults.standard.string(forKey: "workerBaseURL")
-            ?? "https://skilly-proxy.eng-mohamedszaied.workers.dev"
+    private var backendBaseURL: String {
+        AppSettings.shared.studioBackendBaseURL
     }
 
     init() {
@@ -95,8 +94,8 @@ final class AuthManager: ObservableObject {
                 pendingOAuthState = oauthState
                 pendingOAuthStateCreatedAt = Date()
 
-                // Get the auth URL from the Worker
-                var components = URLComponents(string: "\(workerBaseURL)/auth/url")!
+                // Get the auth URL from the Studio backend.
+                var components = URLComponents(string: "\(backendBaseURL)/api/mac/auth/url")!
                 components.queryItems = [
                     URLQueryItem(name: "state", value: oauthState),
                 ]
@@ -143,7 +142,7 @@ final class AuthManager: ObservableObject {
 
         Task {
             do {
-                let url = URL(string: "\(workerBaseURL)/auth/token")!
+                let url = URL(string: "\(backendBaseURL)/api/mac/auth/token")!
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -241,7 +240,7 @@ final class AuthManager: ObservableObject {
             throw AuthError.noRefreshToken
         }
 
-        let url = URL(string: "\(workerBaseURL)/auth/token")!
+        let url = URL(string: "\(backendBaseURL)/api/mac/auth/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

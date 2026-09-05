@@ -43,6 +43,10 @@ const START = {
   type: "start-session",
   clientSecret: "ek_test",
   model: "gpt-realtime",
+  sessionId: "session_1",
+  accountId: "user_1",
+  accessMode: "paid",
+  remainingSeconds: 10_800,
   instructions: "be helpful",
   actionsEnabled: true,
 } as const;
@@ -62,7 +66,19 @@ describe("createRealtimeHost", () => {
     host.handle({ type: "stop-session" });
     expect(sessions[0]!.closed).toBe(true);
     const usage = posted.find((m) => m.type === "usage-report");
-    expect(usage).toEqual({ type: "usage-report", seconds: 42, actionsExecuted: 0, actionsRefused: 0 });
+    expect(usage).toMatchObject({
+      type: "usage-report",
+      accountId: "user_1",
+      sessionId: "session_1",
+      seconds: 42,
+      model: "gpt-realtime",
+      result: "completed",
+      actionsExecuted: 0,
+      actionsRefused: 0,
+    });
+    expect(typeof (usage as Extract<OffscreenToBackgroundMessage, { type: "usage-report" }> | undefined)?.eventId).toBe(
+      "string",
+    );
   });
 
   test("starting again tears the previous session down through the full stop path", () => {
@@ -158,5 +174,16 @@ describe("createRealtimeHost", () => {
     host.handle({ ...START });
     host.dispose();
     expect(sessions[0]!.closed).toBe(true);
+  });
+
+  test("restarts use a fresh id while preserving each server session id", () => {
+    const { host, posted, clock } = makeHost();
+    host.handle({ ...START });
+    clock.now += 1_000;
+    host.handle({ ...START, sessionId: "session_2" });
+    const reports = posted.filter((message) => message.type === "usage-report");
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.sessionId).toBe("session_1");
+    expect(typeof reports[0]?.eventId).toBe("string");
   });
 });
