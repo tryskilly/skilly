@@ -145,4 +145,5 @@ export type AccessErrorCode =
   | "cap_reached"
   | "trial_exhausted"
   | "authentication_required"
+  | "usage_outbox_full"
   | "backend_unavailable";

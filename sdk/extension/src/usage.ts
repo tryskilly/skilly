@@ -24,7 +24,7 @@ interface PendingUsage {
 export type UsageDelivery = "confirmed" | "permanent_invalid" | "deferred";
 
 const OUTBOX_KEY = "pendingUsageReports";
-const MAX_PENDING_REPORTS = 256;
+export const MAX_PENDING_REPORTS = 256;
 
 /** Persist before sending so a service-worker teardown cannot lose a completed session report. */
 export async function enqueueExtensionUsage(storage: UsageStorage, report: ExtensionUsageReport): Promise<boolean> {
@@ -33,6 +33,23 @@ export async function enqueueExtensionUsage(storage: UsageStorage, report: Exten
   pending.push({ accountId: report.accountId, report: withoutAccount(report) });
   await storage.set({ [OUTBOX_KEY]: pending });
   return true;
+}
+
+/** Return whether a completed session can still be durably recorded without evicting history. */
+export async function hasUsageOutboxCapacity(storage: UsageStorage): Promise<boolean> {
+  return (await readPending(storage)).length < MAX_PENDING_REPORTS;
+}
+
+/** Flush this account's pending history, then gate creation of a new hosted session on capacity. */
+export async function prepareUsageOutboxForSession(
+  storage: UsageStorage,
+  backendUrl: string,
+  sessionToken: string,
+  accountId: string,
+  fetchImpl: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response> = fetch,
+): Promise<boolean> {
+  await flushExtensionUsageOutbox(storage, backendUrl, sessionToken, accountId, fetchImpl);
+  return hasUsageOutboxCapacity(storage);
 }
 
 /**

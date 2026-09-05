@@ -65,6 +65,8 @@ export function accessErrorMessage(code: AccessErrorCode): string {
       return "Your Skilly trial is used up. Subscribe to continue.";
     case "authentication_required":
       return "Your Skilly sign-in expired. Sign in again to continue.";
+    case "usage_outbox_full":
+      return "Skilly is finishing an earlier usage report. Reconnect, then try again.";
     case "backend_unavailable":
       return "Skilly couldn't connect. Try again in a moment.";
   }

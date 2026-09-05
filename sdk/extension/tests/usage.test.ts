@@ -3,6 +3,8 @@ import {
   deliverExtensionUsage,
   enqueueExtensionUsage,
   flushExtensionUsageOutbox,
+  prepareUsageOutboxForSession,
+  MAX_PENDING_REPORTS,
   type ExtensionUsageReport,
   type UsageStorage,
 } from "../src/usage";
@@ -116,5 +118,27 @@ describe("usage outbox", () => {
     });
     expect(calls).toBe(1);
     expect(storage.value).toHaveLength(0);
+  });
+
+  test("full history blocks a new hosted session without evicting reports", async () => {
+    const fullQueue = Array.from({ length: MAX_PENDING_REPORTS }, (_, index) => ({
+      accountId: "other-user",
+      report: { ...report, eventId: `event_${index}` },
+    }));
+    const storage = makeStorage(fullQueue);
+    let calls = 0;
+    const canStart = await prepareUsageOutboxForSession(
+      storage,
+      "https://studio.tryskilly.app",
+      "user-token",
+      "user_1",
+      async () => {
+        calls += 1;
+        return new Response("should not send", { status: 200 });
+      },
+    );
+    expect(canStart).toBe(false);
+    expect(calls).toBe(0);
+    expect(storage.value).toHaveLength(MAX_PENDING_REPORTS);
   });
 });

@@ -17,7 +17,12 @@ import {
 } from "../src/auth";
 import { createRealtimeHost, type RealtimeHost } from "../src/realtimeHost";
 import { accessErrorMessage, accessFailureFromResponse, isExtensionTokenResponse } from "../src/access";
-import { enqueueExtensionUsage, flushExtensionUsageOutbox, type ExtensionUsageReport } from "../src/usage";
+import {
+  enqueueExtensionUsage,
+  flushExtensionUsageOutbox,
+  prepareUsageOutboxForSession,
+  type ExtensionUsageReport,
+} from "../src/usage";
 import type {
   ContentToBackgroundMessage,
   OffscreenToBackgroundMessage,
@@ -45,16 +50,19 @@ export default defineBackground(() => {
   let activeSessionId: string | null = null;
   let usageOutboxWork = Promise.resolve();
 
-  function scheduleUsageOutboxWork(work: () => Promise<void>): void {
-    usageOutboxWork = usageOutboxWork.then(work).catch(() => undefined);
+  function scheduleUsageOutboxWork(work: () => Promise<void>): Promise<void> {
+    const next = usageOutboxWork.then(work);
+    usageOutboxWork = next.catch(() => undefined);
+    return next;
   }
 
-  function flushCurrentAccountUsage(): void {
-    scheduleUsageOutboxWork(async () => {
+  function flushCurrentAccountUsage(expectedToken?: string, expectedAccountId?: string): Promise<void> {
+    return scheduleUsageOutboxWork(async () => {
       const stored = await chrome.storage.local.get(["sessionToken"]);
       const token = typeof stored.sessionToken === "string" ? stored.sessionToken : null;
       const accountId = token ? sessionAccountId(token) : null;
       if (!token || !accountId) return;
+      if ((expectedToken && token !== expectedToken) || (expectedAccountId && accountId !== expectedAccountId)) return;
       await flushExtensionUsageOutbox(chrome.storage.local, BACKEND_URL, token, accountId);
     });
   }
@@ -146,6 +154,22 @@ export default defineBackground(() => {
     }
 
     const authorizationHeader = { authorization: `Bearer ${sessionToken}` };
+    const accountId = sessionAccountId(sessionToken);
+    if (!accountId) {
+      activeTabId = null;
+      return { active: false, error: "authentication_required" };
+    }
+    // Flush any durable reports for this account before minting a new session. If the outbox is
+    // full (including another account's queued history), do not create more unreportable usage.
+    let canStart = false;
+    await scheduleUsageOutboxWork(async () => {
+      canStart = await prepareUsageOutboxForSession(chrome.storage.local, BACKEND_URL, sessionToken, accountId);
+    });
+    if (!canStart) {
+      notifyActiveTab(accessErrorMessage("usage_outbox_full"));
+      activeTabId = null;
+      return { active: false, error: "usage_outbox_full" };
+    }
     let tokenResponse: Response;
     try {
       // The token route is the access gate. Entitlement GET is intentionally not used as an
@@ -172,14 +196,6 @@ export default defineBackground(() => {
       return { active: false, error: "backend_unavailable" };
     }
     const token = tokenBody;
-    const accountId = sessionAccountId(sessionToken);
-    if (!accountId) {
-      notifyActiveTab(accessErrorMessage("authentication_required"));
-      activeTabId = null;
-      return { active: false, error: "authentication_required" };
-    }
-    flushCurrentAccountUsage();
-
     const tab = await chrome.tabs.get(tabId);
     const skill = selectSkill(tab.url, skillOverride);
     void chrome.tabs.sendMessage(tabId, { type: "refresh-digest" } satisfies BackgroundToContentMessage).catch(
