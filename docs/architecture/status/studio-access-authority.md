@@ -1,8 +1,7 @@
 # Studio access authority contract
 
-Status: proposal for root-judge approval (2026-09-05). This document is intentionally
-read-only design work; no database migration, route, deployment, or provider mutation is
-included in this assignment.
+Status: implemented in the isolated backend branch and locally verified (2026-09-06). Production
+deployment, provider configuration, and database migration remain root-judge gates.
 
 ## Scope and fixed policy
 
@@ -170,3 +169,7 @@ contract.
    handle explicit token block codes and ship its idempotent reports.
 4. Only after released clients and production usage parity are verified may Worker personal routes
    be retired. Cloudflare CDN/static assets remain untouched.
+
+Local evidence: `scripts/personal-access-pg-integration.ts` applied migrations 0000–0010 to a
+disposable PostgreSQL 17 Unix-socket cluster and passed trial-floor, duplicate/concurrent event,
+issued-period bucketing, invalid-session, missing-period, and out-of-order-provider scenarios.
