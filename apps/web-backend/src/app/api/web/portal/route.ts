@@ -8,6 +8,8 @@ import { getRepo } from "@/db";
 import { captureServerEvent } from "@/lib/analytics";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
 import { publicUrl } from "@/lib/requestOrigin";
+import { isValidBillingUrl } from "@/domain/billing";
+import { logBillingFailure } from "@/lib/billingDiagnostics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,13 +46,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const returnUrl = publicUrl(request, "/dashboard/billing").toString();
-  const response = await fetch(`${apiBase}/v1/customer-portal-sessions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ customer_id: polarCustomerId, return_url: returnUrl }),
-  });
+  let response: Response;
+  try {
+    // Polar's current Customer Session API is /v1/customer-sessions. It returns
+    // customer_portal_url for the signed-in portal destination.
+    response = await fetch(`${apiBase}/v1/customer-sessions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_id: polarCustomerId, return_url: returnUrl }),
+    });
+  } catch {
+    logBillingFailure({ surface: "builder_portal", reason: "provider_network_error" });
+    await captureServerEvent("dashboard_portal_failed", {
+      tenant_id: tenantId,
+      account_email: session.email ?? undefined,
+      reason: "provider_network_error",
+      source_surface: "web_backend",
+    }, session.workosUserId);
+    return NextResponse.json({ error: "portal session failed" }, { status: 502 });
+  }
 
   if (!response.ok) {
+    logBillingFailure({ surface: "builder_portal", status: response.status, reason: "provider_non_2xx" });
     await captureServerEvent("dashboard_portal_failed", {
       tenant_id: tenantId,
       account_email: session.email ?? undefined,
@@ -61,11 +78,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "portal session failed" }, { status: 502 });
   }
 
-  const portal = (await response.json()) as { url?: string };
+  let portal: { customer_portal_url?: unknown; url?: unknown };
+  try {
+    portal = (await response.json()) as { customer_portal_url?: unknown; url?: unknown };
+  } catch {
+    logBillingFailure({ surface: "builder_portal", status: response.status, reason: "provider_invalid_json" });
+    return NextResponse.json({ error: "portal session failed" }, { status: 502 });
+  }
+  if (!portal || typeof portal !== "object" || Array.isArray(portal)) {
+    logBillingFailure({ surface: "builder_portal", status: response.status, reason: "provider_missing_url" });
+    return NextResponse.json({ error: "portal session failed" }, { status: 502 });
+  }
+  const portalUrl = portal.customer_portal_url ?? portal.url;
+  if (typeof portalUrl !== "string") {
+    logBillingFailure({ surface: "builder_portal", status: response.status, reason: "provider_missing_url" });
+    return NextResponse.json({ error: "portal session failed" }, { status: 502 });
+  }
+  if (!isValidBillingUrl(portalUrl)) {
+    logBillingFailure({ surface: "builder_portal", status: response.status, reason: "provider_invalid_url" });
+    return NextResponse.json({ error: "portal session failed" }, { status: 502 });
+  }
   await captureServerEvent("dashboard_portal_opened", {
     tenant_id: tenantId,
     account_email: session.email ?? undefined,
     source_surface: "web_dashboard",
   }, session.workosUserId);
-  return NextResponse.json({ url: portal.url ?? null }, { status: 200 });
+  return NextResponse.json({ url: portalUrl }, { status: 200 });
 }
