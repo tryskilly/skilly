@@ -16,10 +16,14 @@ process.env.POLAR_WEBHOOK_SECRET = "webhook_fixture";
 process.env.SKILLY_BILLING_MODE = "production";
 
 let providerPayload: unknown = {};
+let providerStatus = 200;
+let providerRaw: string | null = null;
+let providerThrow = false;
 let calls: { url: string; body: Record<string, unknown> }[] = [];
 globalThis.fetch = Object.assign(async (url: string | URL | Request, init?: RequestInit) => {
   calls.push({ url: String(url), body: JSON.parse(String(init?.body ?? "{}")) });
-  return Response.json(providerPayload);
+  if (providerThrow) throw new Error("sk_test_UNMISTAKABLE_TOKEN customer@example.test https://evil.example.test BODY_SECRET");
+  return providerRaw === null ? new Response(JSON.stringify(providerPayload), { status: providerStatus, headers: { "content-type": "application/json" } }) : new Response(providerRaw, { status: providerStatus });
 }, { preconnect: globalThis.fetch.preconnect }) as typeof fetch;
 
 const { NextRequest } = await import("next/server");
@@ -50,8 +54,39 @@ for (const surface of ["mac", "extension"]) {
   }
   for (const payload of [{}, { url: "javascript:alert(1)" }, { url: 12 }]) {
     providerPayload = payload;
+    providerStatus = 200; providerRaw = null; providerThrow = false;
     assert.equal((await checkout(request("checkout", "POST", "{}"))).status, 502);
     checks++;
+  }
+  if (surface === "mac") {
+    const secretFixture = "sk_test_UNMISTAKABLE_TOKEN customer@example.test https://evil.example.test BODY_SECRET";
+    const originalError = console.error;
+    const diagnostics: string[] = [];
+    console.error = (...args: unknown[]) => diagnostics.push(args.map(String).join(" "));
+    try {
+      for (const scenario of [
+        { status: 401, reason: "provider_non_2xx", raw: secretFixture },
+        { status: 403, reason: "provider_non_2xx", raw: secretFixture },
+        { status: 422, reason: "provider_non_2xx", raw: JSON.stringify({ detail: secretFixture }) },
+        { status: 200, reason: "provider_network_error", raw: null, network: true },
+        { status: 200, reason: "provider_invalid_json", raw: "not-json " + secretFixture },
+      ]) {
+        providerStatus = scenario.status; providerRaw = scenario.raw ?? null; providerThrow = Boolean(scenario.network);
+        const response = await checkout(request("checkout", "POST", "{}"));
+        assert.equal(response.status, 502);
+        assert.deepEqual(await response.json(), { error: "checkout creation failed" });
+        checks++;
+      }
+    } finally { console.error = originalError; }
+    const output = diagnostics.join("\n");
+    for (const [status, reason] of [[401, "provider_non_2xx"], [403, "provider_non_2xx"], [422, "provider_non_2xx"], [200, "provider_invalid_json"], [null, "provider_network_error"]] as const) {
+      assert.ok(output.includes(`\"surface\":\"mac_checkout\",\"status\":${status === null ? "null" : status},\"reason\":\"${reason}\"`));
+    }
+    assert.ok(!output.includes(secretFixture));
+    assert.ok(!output.includes("customer@example.test"));
+    assert.ok(!output.includes("evil.example.test"));
+    assert.ok(!output.includes("BODY_SECRET"));
+    providerStatus = 200; providerRaw = null; providerThrow = false;
   }
   entitlement = { status: "active" };
   calls = [];

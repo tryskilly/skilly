@@ -69,4 +69,36 @@ describe("Polar sandbox harness gate", () => {
     const bad = await orchestratePolarSandboxCheckout({ product: "mac", session, requestUrl: "https://preview.example.test/x", fetchImpl: (async () => new Response(JSON.stringify({ url: "http://sandbox.polar.sh/checkout" }), { status: 200 })) as unknown as typeof fetch, mintToken: () => "x" });
     expect(bad.status).toBe(502);
   });
+
+  test("records fixed, surface-specific diagnostics without provider secrets", async () => {
+    const secretFixture = "sk_test_UNMISTAKABLE_TOKEN customer@example.test https://evil.example.test BODY_SECRET";
+    const originalError = console.error;
+    const lines: string[] = [];
+    console.error = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+    try {
+      const run = (fetchImpl: typeof fetch) => orchestratePolarSandboxCheckout({
+        product: "mac", session: { tenantId: "tenant_1", workosUserId: "user_1", email: "customer@example.test" },
+        requestUrl: "https://preview.example.test/x", fetchImpl, mintToken: () => "secret-bearer-token",
+      });
+      await run((async () => { throw new Error(secretFixture); }) as unknown as typeof fetch);
+      await run((async () => new Response(secretFixture, { status: 401 })) as unknown as typeof fetch);
+      await run((async () => new Response(secretFixture, { status: 403 })) as unknown as typeof fetch);
+      await run((async () => new Response(JSON.stringify({ detail: secretFixture }), { status: 422 })) as unknown as typeof fetch);
+      await run((async () => new Response("not-json " + secretFixture, { status: 200 })) as unknown as typeof fetch);
+      await run((async () => new Response(JSON.stringify({ url: "https://evil.example.test/" }), { status: 200 })) as unknown as typeof fetch);
+    } finally {
+      console.error = originalError;
+    }
+    const output = lines.join("\n");
+    expect(output).toContain('"surface":"mac_checkout"');
+    expect(output).toContain('"status":401');
+    expect(output).toContain('"status":403');
+    expect(output).toContain('"status":422');
+    expect(output).toContain('"status":null');
+    expect(output).not.toContain(secretFixture);
+    expect(output).not.toContain("customer@example.test");
+    expect(output).not.toContain("secret-bearer-token");
+    expect(output).not.toContain("evil.example.test");
+    expect(output).not.toContain("BODY_SECRET");
+  });
 });

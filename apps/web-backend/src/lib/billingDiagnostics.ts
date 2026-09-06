@@ -14,7 +14,7 @@ export type BillingFailureReason =
  * token, email, or URL.
  */
 export function logBillingFailure(input: {
-  surface: "builder_checkout" | "builder_portal";
+  surface: "builder_checkout" | "builder_portal" | "mac_checkout";
   status?: number | null;
   reason: BillingFailureReason;
 }): void {
@@ -25,4 +25,3 @@ export function logBillingFailure(input: {
   console.error(`[billing] ${JSON.stringify(record)}`);
   void captureServerEvent("billing_operational_failure", record);
 }
-

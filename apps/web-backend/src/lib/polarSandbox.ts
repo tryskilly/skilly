@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 import { isValidBillingUrl } from "@/domain/billing";
+import { logBillingFailure } from "@/lib/billingDiagnostics";
 
 export type PolarSandboxProduct = "builder-starter" | "mac";
 export function isAllowedPreviewHost(host: string | null | undefined): boolean {
@@ -17,11 +18,41 @@ export async function orchestratePolarSandboxCheckout(input: { product: PolarSan
   let path: string; let payload: Record<string, unknown>;
   if (input.product === "builder-starter") { path = "/api/web/checkout"; payload = { plan: "starter" }; if (input.cookie) headers.cookie = input.cookie; }
   else { if (!input.session.workosUserId || !input.session.email) return { status: 409, body: { error: "desktop identity unavailable" } }; headers.authorization = `Bearer ${input.mintToken({ id: input.session.workosUserId, email: input.session.email, firstName: null, lastName: null })}`; path = "/api/mac/checkout"; payload = { checkout_attempt_id: `sandbox-${crypto.randomUUID()}` }; }
-  const response = await fetchImpl(new URL(path, input.requestUrl), { method: "POST", headers, body: JSON.stringify(payload) });
-  const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+  const surface = input.product === "mac" ? "mac_checkout" : "builder_checkout";
+  let response: Response;
+  try {
+    response = await fetchImpl(new URL(path, input.requestUrl), { method: "POST", headers, body: JSON.stringify(payload) });
+  } catch {
+    logBillingFailure({ surface, reason: "provider_network_error" });
+    return { status: 502, body: { error: "checkout creation failed" } };
+  }
+  if (!response.ok) {
+    logBillingFailure({ surface, status: response.status, reason: "provider_non_2xx" });
+    return { status: 502, body: { error: "checkout creation failed" } };
+  }
+  let data: Record<string, unknown> | null;
+  try {
+    const parsed: unknown = await response.json();
+    data = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    logBillingFailure({ surface, status: response.status, reason: "provider_invalid_json" });
+    return { status: 502, body: { error: "checkout creation failed" } };
+  }
+  if (!data) {
+    logBillingFailure({ surface, status: response.status, reason: "provider_missing_url" });
+    return { status: 502, body: { error: "checkout creation failed" } };
+  }
   const url = typeof data?.url === "string" ? data.url : typeof data?.checkout_url === "string" ? data.checkout_url : null;
-  let allowed = false; try { const hostname = new URL(url ?? "").hostname; allowed = isValidBillingUrl(url) && (hostname === "sandbox.polar.sh" || hostname.endsWith(".sandbox.polar.sh")); } catch {}
-  return response.ok && allowed ? { status: 200, body: { url } } : { status: 502, body: { error: "checkout creation failed" } };
+  if (!url) {
+    logBillingFailure({ surface, status: response.status, reason: "provider_missing_url" });
+    return { status: 502, body: { error: "checkout creation failed" } };
+  }
+  let allowed = false; try { const hostname = new URL(url).hostname; allowed = isValidBillingUrl(url) && (hostname === "sandbox.polar.sh" || hostname.endsWith(".sandbox.polar.sh")); } catch {}
+  if (!allowed) {
+    logBillingFailure({ surface, status: response.status, reason: "provider_invalid_url" });
+    return { status: 502, body: { error: "checkout creation failed" } };
+  }
+  return { status: 200, body: { url } };
 }
 
 /** The harness is intentionally narrower than the general billing guard. */
