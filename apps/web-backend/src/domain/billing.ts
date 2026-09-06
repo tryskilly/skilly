@@ -135,6 +135,7 @@ export interface PolarWebhookEvent {
   data?: {
     id?: string;
     status?: string;
+    cancel_at_period_end?: boolean;
     created_at?: string;
     updated_at?: string;
     modified_at?: string;
@@ -182,14 +183,18 @@ export function interpretSubscriptionEvent(
   const capSeconds = Number.isFinite(planCapSeconds) && planCapSeconds > 0 ? Math.round(planCapSeconds) : activeCapSeconds;
 
   const providerStatus = typeof data?.status === "string" ? data.status : null;
+  const scheduledCancellation = providerStatus === "active" && data?.cancel_at_period_end === true;
   if (event.type === "subscription.created" || event.type === "subscription.active" ||
-      (event.type === "subscription.updated" && providerStatus !== "revoked" && providerStatus !== "past_due")) {
+      (event.type === "subscription.updated" && providerStatus !== "revoked" && providerStatus !== "past_due" && providerStatus !== "inactive" && providerStatus !== "canceled")) {
     return { tenantId, capSeconds, plan, polarCustomerId };
   }
   if (event.type === "subscription.canceled" || event.type === "subscription.uncanceled") {
+    if (event.type === "subscription.canceled" && !scheduledCancellation && (providerStatus === "canceled" || providerStatus === "inactive" || providerStatus === "revoked")) {
+      return { tenantId, capSeconds: 0, ...(plan ? { plan } : {}), ...(polarCustomerId ? { polarCustomerId } : {}) };
+    }
     return { tenantId, capSeconds, ...(plan ? { plan } : {}), ...(polarCustomerId ? { polarCustomerId } : {}) };
   }
-  if (event.type === "subscription.revoked" || event.type === "subscription.past_due" || providerStatus === "revoked" || providerStatus === "past_due") {
+  if (event.type === "subscription.revoked" || event.type === "subscription.past_due" || providerStatus === "revoked" || providerStatus === "past_due" || providerStatus === "inactive" || providerStatus === "canceled") {
     return { tenantId, capSeconds: 0, plan, polarCustomerId };
   }
   return null;
@@ -305,13 +310,14 @@ export function interpretPersonalSubscriptionEvent(event: unknown, env: BillingE
   const personalProducts = getPersonalProductIds(env);
   if (!productId || personalProducts.size === 0 || !personalProducts.has(productId)) return null;
   const providerStatus = typeof data?.status === "string" ? data.status : null;
-  const status = type === "subscription.revoked" ? "none" :
+  const scheduledCancellation = providerStatus === "active" && data?.cancel_at_period_end === true;
+  const status = type === "subscription.revoked" || providerStatus === "revoked" ? "none" :
     type === "subscription.past_due" || providerStatus === "past_due" ? "past_due" :
-    type === "subscription.canceled" ? "canceled" :
-    (type === "subscription.active" || type === "subscription.uncanceled" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
+    (type === "subscription.canceled" && !scheduledCancellation) || providerStatus === "canceled" || providerStatus === "inactive" ? "canceled" :
+    (scheduledCancellation || type === "subscription.active" || type === "subscription.uncanceled" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
   if (!status) return null;
   const stringValue = (value: unknown): string | null => typeof value === "string" ? value : null;
-  const eventAt = stringValue(data?.created_at) ?? stringValue(data?.updated_at) ?? stringValue(root.created_at) ?? stringValue(root.timestamp);
+  const eventAt = stringValue(data?.modified_at) ?? stringValue(data?.updated_at) ?? stringValue(data?.created_at) ?? stringValue(root.modified_at) ?? stringValue(root.updated_at) ?? stringValue(root.created_at) ?? stringValue(root.timestamp);
   return {
     userId: metadata.user_id,
     email: stringValue(metadata.email),

@@ -44,4 +44,20 @@ describe("Polar webhook dispatch", () => {
     expect(tenantUpdates).toEqual([["t1", 90000]]);
     expect(upserts).toHaveLength(1);
   });
+
+  test("removes access for a BYOK update whose provider status is revoked", async () => {
+    const revoked = JSON.stringify({
+      type: "subscription.updated",
+      data: {
+        status: "revoked",
+        product_id: "mac_prod",
+        metadata: { surface: "mac", plan: "byok", macUserId: "u3" },
+        modified_at: "2026-10-06T00:00:00Z",
+      },
+    });
+    const response = await POST(signed(revoked) as never);
+    expect(response.status).toBe(200);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]).toMatchObject({ userId: "u3", entitlementType: "byok", status: "canceled" });
+  });
 });
