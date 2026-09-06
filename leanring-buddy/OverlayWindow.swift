@@ -422,6 +422,11 @@ struct BlueCursorView: View {
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
                 // MARK: - Skilly — Accessibility
                 .accessibilityLabel("Skilly is thinking")
+                .accessibilityHidden(!OverlayAccessibilityState.exposesProcessingSpinner(
+                    isBuddyVisible: buddyIsVisibleOnThisScreen,
+                    voiceState: companionManager.voiceState,
+                    cursorOpacity: cursorOpacity
+                ))
 
         }
         .frame(width: screenFrame.width, height: screenFrame.height)
