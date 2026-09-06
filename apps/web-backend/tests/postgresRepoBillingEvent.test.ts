@@ -8,6 +8,7 @@ class FakeBillingPool {
   readonly events = new Set<string>();
   readonly tenants = new Map<string, { capSeconds: number; customerId: string | null }>();
   failNextUpdate = true;
+  failOnUntypedProviderEventAt = false;
   releaseCount = 0;
 
   async connect() {
@@ -38,6 +39,9 @@ class FakeBillingPool {
           return { rowCount: 1, rows: [] };
         }
         if (sql.startsWith("UPDATE tenants SET usage_cap_seconds")) {
+          if (pool.failOnUntypedProviderEventAt && /provider_event_at\s*=\s*\$4(?:[,\s]|$)/.test(sql)) {
+            throw new Error("42P08: could not determine data type of parameter $4");
+          }
           if (pool.failNextUpdate) {
             pool.failNextUpdate = false;
             throw new Error("simulated tenant update failure");
@@ -92,5 +96,22 @@ describe("PostgresRepo.applyTenantBillingEvent", () => {
     await expect(repo.applyTenantBillingEvent({ ...input, capSeconds: 999 })).resolves.toEqual({ replay: true, applied: false });
     expect(pool.tenants.get(input.tenantId)).toEqual(stateBeforeReplay);
     expect(pool.calls.slice(callsBeforeReplay)).toEqual(["BEGIN", expect.stringContaining("INSERT INTO polar_webhook_events"), "ROLLBACK"]);
+  });
+
+  test("binds provider event timestamp with an explicit PostgreSQL type", async () => {
+    const pool = new FakeBillingPool();
+    pool.failNextUpdate = false;
+    pool.failOnUntypedProviderEventAt = true;
+    const repo = new PostgresRepo(pool as never);
+
+    await expect(
+      repo.applyTenantBillingEvent({
+        eventId: "evt_typed_timestamp",
+        tenantId: "tenant_typed_timestamp",
+        capSeconds: 600,
+        providerEventAt: "2026-09-06T00:00:00.000Z",
+        providerState: "active",
+      }),
+    ).resolves.toEqual({ replay: false, applied: true });
   });
 });
