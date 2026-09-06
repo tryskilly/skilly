@@ -17,10 +17,12 @@ struct leanring_buddyApp: App {
 
     var body: some Scene {
         // The app lives entirely in the menu bar panel managed by the AppDelegate.
-        // This empty Settings scene satisfies SwiftUI's requirement for at least
-        // one scene but is never shown (LSUIElement=true removes the app menu).
+        // Keep the native macOS Settings entry useful as well as the gear popover.
         Settings {
-            EmptyView()
+            SettingsView(
+                settings: AppSettings.shared,
+                authManager: AuthManager.shared
+            )
         }
     }
 }

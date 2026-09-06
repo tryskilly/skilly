@@ -91,4 +91,27 @@ struct leanring_buddyTests {
         #expect(completedCount == OnboardingPermission.allCases.count)
     }
 
+    @Test func processingSpinnerIsHiddenWhenOverlayIsTransparent() {
+        #expect(!OverlayAccessibilityState.exposesProcessingSpinner(
+            isBuddyVisible: true,
+            voiceState: .processing,
+            cursorOpacity: 0
+        ))
+        #expect(OverlayAccessibilityState.exposesProcessingSpinner(
+            isBuddyVisible: true,
+            voiceState: .processing,
+            cursorOpacity: 1
+        ))
+        #expect(!OverlayAccessibilityState.exposesProcessingSpinner(
+            isBuddyVisible: false,
+            voiceState: .processing,
+            cursorOpacity: 1
+        ))
+    }
+
+    @Test func accountAccessibilityUsesOnlySignedInState() {
+        #expect(SettingsPresentationState.accountAccessibilityLabel(isSignedIn: true) == "Signed in")
+        #expect(SettingsPresentationState.accountAccessibilityLabel(isSignedIn: false) == "Signed out")
+    }
+
 }

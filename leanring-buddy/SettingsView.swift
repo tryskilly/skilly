@@ -215,25 +215,29 @@ struct SettingsView: View {
 
     private func userCard(user: SkillyUser) -> some View {
         HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(DS.Colors.accentSubtle)
-                    .frame(width: 34, height: 34)
-                Text(String(user.displayName.prefix(1)).uppercased())
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DS.Colors.accentText)
-            }
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(DS.Colors.accentSubtle)
+                        .frame(width: 34, height: 34)
+                    Text(String(user.displayName.prefix(1)).uppercased())
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(DS.Colors.accentText)
+                }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(user.displayName)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(1)
-                Text(user.email)
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(user.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(user.email)
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .lineLimit(1)
+                }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(SettingsPresentationState.accountAccessibilityLabel(isSignedIn: true))
 
             Spacer()
 
