@@ -87,13 +87,20 @@ async function authenticate(payload: Record<string, string>): Promise<DesktopAut
   };
 }
 
-export function mintDesktopSessionToken(user: DesktopAuthUser): string {
+export function mintDesktopSessionToken(user: DesktopAuthUser, ttlSeconds = DESKTOP_SESSION_TTL_SECONDS): string {
   const secret = process.env.SESSION_TOKEN_SECRET;
   if (!secret) throw new Error("SESSION_TOKEN_SECRET is not configured");
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > DESKTOP_SESSION_TTL_SECONDS) {
+    throw new Error("Invalid desktop session TTL");
+  }
   const issuedAt = Math.floor(Date.now() / 1000);
   const header = base64UrlEncodeJson({ alg: "HS256", typ: "JWT" });
-  const payload = base64UrlEncodeJson({ sub: user.id, email: user.email, iat: issuedAt, exp: issuedAt + DESKTOP_SESSION_TTL_SECONDS, iss: DESKTOP_SESSION_ISSUER, aud: DESKTOP_SESSION_AUDIENCE });
+  const payload = base64UrlEncodeJson({ sub: user.id, email: user.email, iat: issuedAt, exp: issuedAt + ttlSeconds, iss: DESKTOP_SESSION_ISSUER, aud: DESKTOP_SESSION_AUDIENCE });
   return `${header}.${payload}.${signToken(`${header}.${payload}`, secret)}`;
+}
+
+export function mintShortLivedDesktopSessionToken(user: DesktopAuthUser): string {
+  return mintDesktopSessionToken(user, 5 * 60);
 }
 
 export function exchangeDesktopCode(code: string): Promise<DesktopAuthResponse> {
