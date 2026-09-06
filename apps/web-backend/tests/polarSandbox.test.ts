@@ -64,8 +64,8 @@ describe("Polar sandbox harness gate", () => {
     const session = { tenantId: "tenant_1", workosUserId: "user_1", email: "user@example.test" };
     const b2b = await orchestratePolarSandboxCheckout({ product: "builder-starter", session, requestUrl: "https://preview.example.test/x", cookie: "skilly_dashboard_session=secret", fetchImpl, mintToken: () => "never" });
     expect(calls[0].url).toContain("/api/web/checkout"); expect(JSON.parse(String(calls[0].init.body))).toEqual({ plan: "starter" }); expect(b2b.body).toEqual({ url: "https://sandbox.polar.sh/checkout/c_1" });
-    const b2c = await orchestratePolarSandboxCheckout({ product: "mac", session, requestUrl: "https://preview.example.test/x", fetchImpl, mintToken: () => "bearer-secret" });
-    expect(calls[1].url).toContain("/api/mac/checkout"); expect(calls[1].init.headers).toMatchObject({ authorization: "Bearer bearer-secret" }); expect(JSON.stringify(b2c.body)).not.toContain("user@example.test"); expect(JSON.stringify(b2c.body)).not.toContain("bearer-secret");
+    const b2c = await orchestratePolarSandboxCheckout({ product: "mac", session, requestUrl: "https://preview.example.test/x", cookie: "skilly_dashboard_session=secret", fetchImpl, mintToken: () => "bearer-secret" });
+    expect(calls[1].url).toContain("/api/mac/checkout"); expect(calls[1].init.headers).toMatchObject({ authorization: "Bearer bearer-secret", cookie: "skilly_dashboard_session=secret" }); expect(JSON.stringify(b2c.body)).not.toContain("user@example.test"); expect(JSON.stringify(b2c.body)).not.toContain("bearer-secret"); expect(JSON.stringify(b2c.body)).not.toContain("skilly_dashboard_session=secret");
     const bad = await orchestratePolarSandboxCheckout({ product: "mac", session, requestUrl: "https://preview.example.test/x", fetchImpl: (async () => new Response(JSON.stringify({ url: "http://sandbox.polar.sh/checkout" }), { status: 200 })) as unknown as typeof fetch, mintToken: () => "x" });
     expect(bad.status).toBe(502);
   });
@@ -95,6 +95,7 @@ describe("Polar sandbox harness gate", () => {
     expect(output).toContain('"status":403');
     expect(output).toContain('"status":422');
     expect(output).toContain('"status":null');
+    expect(output).toContain('"reason":"internal_checkout_non_2xx"');
     expect(output).not.toContain(secretFixture);
     expect(output).not.toContain("customer@example.test");
     expect(output).not.toContain("secret-bearer-token");

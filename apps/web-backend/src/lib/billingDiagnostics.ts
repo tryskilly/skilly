@@ -2,6 +2,7 @@ import { captureServerEvent } from "./analytics";
 
 export type BillingFailureReason =
   | "billing_not_configured"
+  | "internal_checkout_non_2xx"
   | "provider_non_2xx"
   | "provider_network_error"
   | "provider_invalid_json"

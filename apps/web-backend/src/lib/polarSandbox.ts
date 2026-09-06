@@ -17,7 +17,7 @@ export async function orchestratePolarSandboxCheckout(input: { product: PolarSan
   const headers: Record<string, string> = { "content-type": "application/json" };
   let path: string; let payload: Record<string, unknown>;
   if (input.product === "builder-starter") { path = "/api/web/checkout"; payload = { plan: "starter" }; if (input.cookie) headers.cookie = input.cookie; }
-  else { if (!input.session.workosUserId || !input.session.email) return { status: 409, body: { error: "desktop identity unavailable" } }; headers.authorization = `Bearer ${input.mintToken({ id: input.session.workosUserId, email: input.session.email, firstName: null, lastName: null })}`; path = "/api/mac/checkout"; payload = { checkout_attempt_id: `sandbox-${crypto.randomUUID()}` }; }
+  else { if (!input.session.workosUserId || !input.session.email) return { status: 409, body: { error: "desktop identity unavailable" } }; headers.authorization = `Bearer ${input.mintToken({ id: input.session.workosUserId, email: input.session.email, firstName: null, lastName: null })}`; if (input.cookie) headers.cookie = input.cookie; path = "/api/mac/checkout"; payload = { checkout_attempt_id: `sandbox-${crypto.randomUUID()}` }; }
   const surface = input.product === "mac" ? "mac_checkout" : "builder_checkout";
   let response: Response;
   try {
@@ -27,7 +27,7 @@ export async function orchestratePolarSandboxCheckout(input: { product: PolarSan
     return { status: 502, body: { error: "checkout creation failed" } };
   }
   if (!response.ok) {
-    logBillingFailure({ surface, status: response.status, reason: "provider_non_2xx" });
+    logBillingFailure({ surface, status: response.status, reason: "internal_checkout_non_2xx" });
     return { status: 502, body: { error: "checkout creation failed" } };
   }
   let data: Record<string, unknown> | null;
