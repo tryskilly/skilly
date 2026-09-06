@@ -87,6 +87,20 @@ describe("interpretSubscriptionEvent", () => {
       ),
     ).toEqual({ tenantId: "t1", capSeconds: 90_000, plan: "studio" });
   });
+  test("scheduled cancellation preserves cap but provider-canceled/inactive removes it", () => {
+    expect(interpretSubscriptionEvent({
+      type: "subscription.canceled",
+      data: { status: "active", cancel_at_period_end: true, metadata: { tenantId: "t1" } },
+    }, 36_000)?.capSeconds).toBe(36_000);
+    expect(interpretSubscriptionEvent({
+      type: "subscription.canceled",
+      data: { status: "canceled", metadata: { tenantId: "t1" } },
+    }, 36_000)?.capSeconds).toBe(0);
+    expect(interpretSubscriptionEvent({
+      type: "subscription.updated",
+      data: { status: "inactive", metadata: { tenantId: "t1" } },
+    }, 36_000)?.capSeconds).toBe(0);
+  });
 
   test("returns null without a tenant id or for unhandled events", () => {
     expect(interpretSubscriptionEvent({ type: "subscription.active", data: {} }, 36_000)).toBeNull();
@@ -206,6 +220,37 @@ describe("personal subscription webhook status", () => {
     expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"), env)?.status).toBe("none");
     expect(interpretPersonalSubscriptionEvent(event("subscription.active", "active"), env)?.status).toBe("active");
     expect(interpretPersonalSubscriptionEvent(event("subscription.uncanceled", "active"), env)?.status).toBe("active");
+  });
+  test("scheduled cancellation stays active while provider status remains active", () => {
+    const scheduled = interpretPersonalSubscriptionEvent({
+      type: "subscription.canceled",
+      data: {
+        status: "active",
+        cancel_at_period_end: true,
+        product_id: "mac_prod",
+        metadata: { surface: "mac", user_id: "user_1", plan: "relay" },
+      },
+    }, env);
+    expect(scheduled?.status).toBe("active");
+  });
+  test("provider-canceled or revoked status removes access immediately", () => {
+    expect(interpretPersonalSubscriptionEvent(event("subscription.canceled", "canceled"), env)?.status).toBe("canceled");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.updated", "inactive"), env)?.status).toBe("canceled");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"), env)?.status).toBe("none");
+  });
+  test("prefers modification timestamps so later uncancel/update outranks creation", () => {
+    const update = interpretPersonalSubscriptionEvent({
+      type: "subscription.uncanceled",
+      data: {
+        ...event("subscription.uncanceled", "active").data,
+        created_at: "2026-10-01T00:00:00Z",
+        modified_at: "2026-10-06T00:00:00Z",
+        updated_at: "2026-10-05T00:00:00Z",
+      },
+    }, env);
+    expect(update?.status).toBe("active");
+    expect(update?.providerEventAt).toBe("2026-10-06T00:00:00Z");
+    expect(shouldApplyPersonalProviderEvent("2026-10-05T00:00:00Z", update?.providerEventAt)).toBe(true);
   });
   test("ignores unrelated products without personal metadata", () => {
     expect(interpretPersonalSubscriptionEvent({ type: "subscription.active", data: { product_id: "builder_prod", metadata: { tenantId: "tenant_1" } } }, env)).toBeNull();
