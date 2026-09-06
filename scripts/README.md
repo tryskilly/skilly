@@ -3,6 +3,13 @@
 ## `release.sh` — Ship a new version of Skilly
 
 Automates the full macOS app release pipeline: build -> sign -> DMG -> notarize -> Sparkle appcast -> GitHub Release.
+Before Sparkle signing or publication, the DMG container is signed with the
+Developer ID Application identity, stapled, checked with `xcrun stapler validate`,
+and assessed with Gatekeeper via `spctl -a -t open --context context:primary-signature -vv`.
+
+Set `DEVELOPER_IDENTITY` to the exact Developer ID Application certificate when
+more than one matching identity is installed; otherwise the script requires a
+single matching identity in the keychain and fails closed if it cannot resolve one.
 
 ### Quick start
 

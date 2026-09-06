@@ -117,6 +117,52 @@ EOF
     fi
 }
 
+resolve_developer_id_identity() {
+    if [[ -n "${DEVELOPER_IDENTITY:-}" ]]; then
+        printf '%s\n' "${DEVELOPER_IDENTITY}"
+        return 0
+    fi
+
+    local identities
+    identities=$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk -F '\"' '/Developer ID Application:/ { print $2 }')
+    if [[ "$(printf '%s\n' "${identities}" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 1 ]]; then
+        echo "❌ Set DEVELOPER_IDENTITY to the intended Developer ID Application certificate." >&2
+        return 1
+    fi
+    printf '%s\n' "${identities}"
+}
+
+verify_dmg_gate() {
+    local dmg_path="$1"
+    local identity
+
+    [[ -f "${dmg_path}" ]] || { echo "❌ DMG not found: ${dmg_path}" >&2; return 1; }
+    identity=$(resolve_developer_id_identity)
+    [[ -n "${identity}" ]] || { echo "❌ Developer ID identity is empty." >&2; return 1; }
+    if [[ ! "${identity}" =~ ^Developer\ ID\ Application: ]]; then
+        echo "❌ DEVELOPER_IDENTITY must name a Developer ID Application certificate." >&2
+        return 1
+    fi
+
+    echo "🔐 Signing DMG container with Developer ID..."
+    codesign --force --timestamp --sign "${identity}" "${dmg_path}"
+
+    echo "🔏 Notarizing DMG with Apple (this may take a few minutes)..."
+    xcrun notarytool submit "${dmg_path}" \
+        --keychain-profile "AC_PASSWORD" \
+        --wait
+
+    echo "📎 Stapling notarization ticket to DMG..."
+    xcrun stapler staple "${dmg_path}"
+
+    echo "🔎 Validating stapled ticket..."
+    xcrun stapler validate "${dmg_path}"
+
+    echo "🛡️ Validating Gatekeeper assessment..."
+    spctl -a -t open --context context:primary-signature -vv "${dmg_path}"
+}
+
 # Offline helper mode is intentionally small and side-effect free so build
 # numbering and tool-path checks can be regression-tested without credentials,
 # GitHub, Xcode, signing, notarization, or a release operation.
@@ -131,8 +177,11 @@ if [[ "${SKILLY_RELEASE_TEST_MODE:-0}" == "1" ]]; then
         validate-sparkle)
             validate_sparkle_bin "$2"
             ;;
+        dmg-gate)
+            verify_dmg_gate "$2"
+            ;;
         *)
-            echo "usage: SKILLY_RELEASE_TEST_MODE=1 $0 {floor|validate-build|validate-sparkle} ..." >&2
+            echo "usage: SKILLY_RELEASE_TEST_MODE=1 $0 {floor|validate-build|validate-sparkle|dmg-gate} ..." >&2
             exit 2
             ;;
     esac
@@ -350,21 +399,14 @@ fi
 
 echo "✅ DMG created: ${DMG_PATH}"
 
-# ── Step 5: Notarize the DMG ─────────────────────────────────────────────────
+# ── Step 5: Sign, notarize, staple, and validate the DMG ────────────────────
 # The .app inside the DMG is already signed with Developer ID, but the DMG
 # itself needs to be submitted to Apple for notarization so Gatekeeper
 # allows users to open it without the "Apple could not verify" warning.
 # Requires stored credentials: xcrun notarytool store-credentials "AC_PASSWORD"
 
-echo "🔏 Notarizing DMG with Apple (this may take a few minutes)..."
-xcrun notarytool submit "${DMG_PATH}" \
-    --keychain-profile "AC_PASSWORD" \
-    --wait
-
-echo "📎 Stapling notarization ticket to DMG..."
-xcrun stapler staple "${DMG_PATH}"
-
-echo "✅ DMG notarized and stapled"
+verify_dmg_gate "${DMG_PATH}"
+echo "✅ DMG signed, notarized, stapled, and independently validated"
 
 # ── Step 6: Sign DMG with Sparkle EdDSA key ─────────────────────────────────
 
