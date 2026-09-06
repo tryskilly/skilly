@@ -179,10 +179,10 @@ function interpretMacByokSubscriptionEvent(event: unknown): {
   let status: "active" | "canceled" | "past_due" | "none" | null = null;
   if (type === "subscription.past_due" || providerStatus === "past_due") {
     status = "past_due";
-  } else if (type === "subscription.created" || type === "subscription.active" || type === "subscription.updated") {
+  } else if ((type === "subscription.created" || type === "subscription.active" || type === "subscription.updated" || type === "subscription.uncanceled") && providerStatus !== "revoked" && providerStatus !== "canceled" && providerStatus !== "inactive") {
     status = "active";
-  } else if (type === "subscription.canceled" || type === "subscription.revoked") {
-    status = "canceled";
+  } else if (type === "subscription.canceled" || type === "subscription.revoked" || providerStatus === "revoked" || providerStatus === "canceled" || providerStatus === "inactive") {
+    status = providerStatus === "active" && data?.cancel_at_period_end === true ? "active" : "canceled";
   }
   if (!status) {
     return null;
@@ -195,7 +195,7 @@ function interpretMacByokSubscriptionEvent(event: unknown): {
     periodStart: stringOrNull(data?.current_period_start),
     periodEnd: stringOrNull(data?.current_period_end),
     polarCustomerId: stringOrNull(data?.customer_id) ?? stringOrNull(customer?.id),
-    providerEventAt: stringOrNull(data?.created_at) ?? stringOrNull(data?.updated_at) ?? stringOrNull(eventRecord.created_at) ?? stringOrNull(eventRecord.timestamp),
+    providerEventAt: stringOrNull(data?.modified_at) ?? stringOrNull(data?.updated_at) ?? stringOrNull(data?.created_at) ?? stringOrNull(eventRecord.modified_at) ?? stringOrNull(eventRecord.updated_at) ?? stringOrNull(eventRecord.created_at) ?? stringOrNull(eventRecord.timestamp),
     providerEventId: stringOrNull(data?.id) ?? stringOrNull(eventRecord.id),
   };
 }
