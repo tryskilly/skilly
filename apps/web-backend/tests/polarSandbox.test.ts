@@ -1,6 +1,6 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { NextRequest } from "next/server";
-import { orchestratePolarSandboxCheckout, validatePolarSandboxRequest } from "../src/lib/polarSandbox";
+import { isAllowedPreviewHost, orchestratePolarSandboxCheckout, validatePolarSandboxRequest } from "../src/lib/polarSandbox";
 import { mintShortLivedDesktopSessionToken } from "../src/lib/desktopAuth";
 import { verifyMacSessionToken } from "../src/lib/macSession";
 
@@ -33,6 +33,9 @@ afterEach(() => {
 describe("Polar sandbox harness gate", () => {
   test("allows only canonical preview host with complete sandbox markers", () => {
     Object.assign(process.env, base);
+    process.env.VERCEL_BRANCH_URL = "branch.example.test";
+    expect(isAllowedPreviewHost("branch.example.test")).toBe(true);
+    expect(isAllowedPreviewHost("stale.example.test")).toBe(false);
     expect(validatePolarSandboxRequest(request("starter-sandbox", "preview.example.test", "https://preview.example.test"), "starter-sandbox")).toMatchObject({ ok: true });
     expect(validatePolarSandboxRequest(request("starter-sandbox", "other.example.test"), "starter-sandbox").ok).toBe(false);
     expect(validatePolarSandboxRequest(request("starter-sandbox", "preview.example.test", "https://evil.example.test"), "starter-sandbox").ok).toBe(false);
