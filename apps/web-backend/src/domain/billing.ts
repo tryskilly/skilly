@@ -47,6 +47,12 @@ export function verifyWebhookSignature(input: WebhookVerifyInput): boolean {
   });
 }
 
+/** Standard Webhooks replay protection: reject timestamps beyond five minutes. */
+export function isWebhookTimestampFresh(timestamp: string, nowMs = Date.now(), toleranceSeconds = 300): boolean {
+  const seconds = Number(timestamp);
+  return Number.isFinite(seconds) && Math.abs(nowMs - seconds * 1000) <= toleranceSeconds * 1000;
+}
+
 function safeEqual(a: string, b: string): boolean {
   const bufferA = Buffer.from(a);
   const bufferB = Buffer.from(b);
@@ -127,6 +133,11 @@ export function resolveBuilderPlan(planId: string | null | undefined, env: Billi
 export interface PolarWebhookEvent {
   type?: string;
   data?: {
+    id?: string;
+    status?: string;
+    created_at?: string;
+    updated_at?: string;
+    modified_at?: string;
     metadata?: {
       tenantId?: string;
       plan?: string;
@@ -151,7 +162,7 @@ export interface PolarWebhookEvent {
 
 /**
  * Map a Polar subscription event to the tenant's new usage cap. Active/created
- * grants `activeCapSeconds`; canceled/revoked drops to 0 (no paid access).
+ * grants access, scheduled cancellation preserves it, and revoked/past-due removes it.
  * Returns null for events we don't act on or that lack a tenant id.
  */
 export function interpretSubscriptionEvent(
@@ -170,10 +181,15 @@ export function interpretSubscriptionEvent(
   const planCapSeconds = Number(metadata?.planCapSeconds);
   const capSeconds = Number.isFinite(planCapSeconds) && planCapSeconds > 0 ? Math.round(planCapSeconds) : activeCapSeconds;
 
-  if (event.type === "subscription.created" || event.type === "subscription.active" || event.type === "subscription.updated") {
+  const providerStatus = typeof data?.status === "string" ? data.status : null;
+  if (event.type === "subscription.created" || event.type === "subscription.active" ||
+      (event.type === "subscription.updated" && providerStatus !== "revoked" && providerStatus !== "past_due")) {
     return { tenantId, capSeconds, plan, polarCustomerId };
   }
-  if (event.type === "subscription.canceled" || event.type === "subscription.revoked") {
+  if (event.type === "subscription.canceled" || event.type === "subscription.uncanceled") {
+    return { tenantId, capSeconds, ...(plan ? { plan } : {}), ...(polarCustomerId ? { polarCustomerId } : {}) };
+  }
+  if (event.type === "subscription.revoked" || event.type === "subscription.past_due" || providerStatus === "revoked" || providerStatus === "past_due") {
     return { tenantId, capSeconds: 0, plan, polarCustomerId };
   }
   return null;
@@ -292,7 +308,7 @@ export function interpretPersonalSubscriptionEvent(event: unknown, env: BillingE
   const status = type === "subscription.revoked" ? "none" :
     type === "subscription.past_due" || providerStatus === "past_due" ? "past_due" :
     type === "subscription.canceled" ? "canceled" :
-    (type === "subscription.active" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
+    (type === "subscription.active" || type === "subscription.uncanceled" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
   if (!status) return null;
   const stringValue = (value: unknown): string | null => typeof value === "string" ? value : null;
   const eventAt = stringValue(data?.created_at) ?? stringValue(data?.updated_at) ?? stringValue(root.created_at) ?? stringValue(root.timestamp);

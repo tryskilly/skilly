@@ -304,6 +304,7 @@ export async function upsertMacEntitlement(input: {
   polarCustomerId?: string | null;
   providerEventAt?: string | null;
   providerEventId?: string | null;
+  providerEventState?: string | null;
 }): Promise<void> {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
@@ -317,9 +318,9 @@ export async function upsertMacEntitlement(input: {
     await pool.query(
       `INSERT INTO mac_entitlements (
          user_id, email, status, entitlement_type, period_start, period_end, plan, polar_customer_id,
-         provider_event_at, provider_event_id, updated_at
+         provider_event_at, provider_event_id, provider_event_state, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
        ON CONFLICT (user_id) DO UPDATE SET
          email = COALESCE(EXCLUDED.email, mac_entitlements.email),
          status = EXCLUDED.status,
@@ -330,9 +331,10 @@ export async function upsertMacEntitlement(input: {
          polar_customer_id = COALESCE(EXCLUDED.polar_customer_id, mac_entitlements.polar_customer_id),
          provider_event_at = EXCLUDED.provider_event_at,
          provider_event_id = EXCLUDED.provider_event_id,
+         provider_event_state = EXCLUDED.provider_event_state,
          updated_at = now()
        WHERE mac_entitlements.provider_event_at IS NULL
-          OR (EXCLUDED.provider_event_at IS NOT NULL AND EXCLUDED.provider_event_at >= mac_entitlements.provider_event_at)`,
+          OR (EXCLUDED.provider_event_at IS NOT NULL AND (EXCLUDED.provider_event_at > mac_entitlements.provider_event_at OR (EXCLUDED.provider_event_at = mac_entitlements.provider_event_at AND CASE WHEN EXCLUDED.provider_event_state IN ('revoked','past_due') THEN 2 WHEN EXCLUDED.provider_event_state = 'canceled' THEN 1 ELSE 0 END > CASE WHEN mac_entitlements.provider_event_state IN ('revoked','past_due') THEN 2 WHEN mac_entitlements.provider_event_state = 'canceled' THEN 1 ELSE 0 END)))`,
       [
         input.userId,
         input.email ?? null,
@@ -344,6 +346,7 @@ export async function upsertMacEntitlement(input: {
         input.polarCustomerId ?? null,
         providerEventAt,
         input.providerEventId ?? null,
+        input.status,
       ],
     );
   } finally {

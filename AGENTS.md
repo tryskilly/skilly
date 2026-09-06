@@ -315,7 +315,7 @@ Multi-tenant control plane + dashboard + billing + onboarding: **Next.js (App Ro
 
 | File | Purpose |
 |------|---------|
-| `src/domain/{keys,origin,appId,quota,openaiToken,skillValidation,billing}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), **app-id allowlist (incl. `com.acme.*`) for the mobile SDK**, usage quota, OpenAI mint, SKILL.md safety scan, Polar Standard-Webhooks verify + event→cap + customer-id extraction + checkout body. |
+| `src/domain/{keys,origin,appId,quota,openaiToken,skillValidation,billing,billingEnvironment}.ts` | Pure, unit-tested: pk_/sk_ format+hash, origin allowlist (incl. `*.domain`), **app-id allowlist (incl. `com.acme.*`) for the mobile SDK**, usage quota, OpenAI mint, SKILL.md safety scan, Polar Standard-Webhooks verification, ordered/idempotent entitlement transitions, checkout bodies, and fail-closed production/sandbox billing isolation. |
 | `src/db/*` | `WebBackendRepo` interface + Postgres (`pg`) + in-memory (seeded demo) impls; `getRepo()` picks by `DATABASE_URL`. Full ops: key CRUD, skill save, usage summary + `listUsageEvents` + v2 `listRecentSessions`/`getUsageMetrics`/`getTopPages`/`getTopDomains`, `setTenantUsageCap` + `setTenantPolarCustomerId`, tenant create/rename, membership upsert/list/delete, widget config get/save. |
 | `src/db/schema.ts` + `db/migrations/*` | Drizzle ORM schema (tenants incl. `polar_customer_id`, api_keys, tenant_skills, **usage_events incl. v2 page/domain/duration_seconds/result**, **dashboard_memberships**, **tenant_widget_configs**) + generated migrations (`bun run db:generate` / `bun run db:migrate`). |
 | `src/tenantService.ts` | Framework-free auth → quota → mint orchestration. |

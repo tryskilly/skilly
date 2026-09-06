@@ -21,7 +21,16 @@ export const tenants = pgTable("tenants", {
   usageCapSeconds: integer("usage_cap_seconds").notNull().default(0),
   /** Polar customer id, captured from the subscription webhook so we can open a customer-portal session. */
   polarCustomerId: text("polar_customer_id"),
+  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
+  providerEventId: text("provider_event_id"),
+  providerState: text("provider_state"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const polarWebhookEvents = pgTable("polar_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const dashboardMemberships = pgTable(

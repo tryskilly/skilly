@@ -200,6 +200,8 @@ export interface WebBackendRepo {
   setTenantUsageCap(tenantId: string, capSeconds: number): Promise<void>;
   /** Persist the Polar customer id captured from a subscription webhook. */
   setTenantPolarCustomerId(tenantId: string, polarCustomerId: string): Promise<void>;
+  /** Reserve and apply a Polar tenant event in one transaction. */
+  applyTenantBillingEvent(input: { eventId: string; tenantId: string; capSeconds: number; polarCustomerId?: string | null; providerEventAt?: string | null; providerState?: string | null }): Promise<{ replay: boolean; applied: boolean }>;
 
   // --- Web origin tenancy ---
   /** Replace the tenant's allowed web origins. Supports "*.domain" wildcards. */

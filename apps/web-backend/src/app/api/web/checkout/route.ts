@@ -8,6 +8,7 @@ import { captureServerEvent } from "@/lib/analytics";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
 import { publicUrl } from "@/lib/requestOrigin";
 import { logBillingFailure } from "@/lib/billingDiagnostics";
+import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,6 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const session = await requireDashboardSession();
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
-  const apiBase = process.env.POLAR_API_BASE ?? "https://api.polar.sh";
   const tenantId = session.tenantId;
   let rawPayload: unknown;
   try {
@@ -31,7 +31,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid plan" }, { status: 400 });
   }
   const plan = resolveBuilderPlan(payload.plan, process.env);
-  if (!accessToken || !plan?.productId) {
+  const billingEnv = validateBillingEnvironment({ surface: "builder", productId: plan?.productId, host: request.headers.get("host") });
+  if (!billingEnv.ok || !accessToken || !plan?.productId) {
     logBillingFailure({ surface: "builder_checkout", reason: "billing_not_configured" });
     await captureServerEvent("dashboard_checkout_failed", {
       tenant_id: tenantId,
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   let response: Response;
   try {
-    response = await fetch(`${apiBase}/v1/checkouts`, {
+    response = await fetch(`${billingEnv.apiBase}/v1/checkouts`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),

@@ -7,15 +7,18 @@ const tenantUpdates: unknown[] = [];
 mock.module("@/lib/macSession", () => ({ upsertMacEntitlement: async (value: unknown) => { upserts.push(value); } }));
 mock.module("@/lib/analytics", () => ({ captureServerEvent: async () => {} }));
 mock.module("@/lib/billingEmail", () => ({ sendPastDueEmail: async () => ({ sent: false, reason: "disabled" }) }));
-mock.module("@/db", () => ({ getRepo: () => ({ setTenantUsageCap: async (...args: unknown[]) => tenantUpdates.push(args), setTenantPolarCustomerId: async () => {} }) }));
+mock.module("@/db", () => ({ getRepo: () => ({ applyTenantBillingEvent: async (input: any) => { tenantUpdates.push([input.tenantId, input.capSeconds]); return { replay: false, applied: true }; }, setTenantUsageCap: async (...args: unknown[]) => tenantUpdates.push(args), setTenantPolarCustomerId: async () => {} }) }));
 
 const { POST } = await import("@/app/api/web/webhooks/polar/route");
 const secret = "test-webhook-secret";
 const originalEnv = { ...process.env };
 
 function signed(body: string): Request {
+  const parsed = JSON.parse(body) as Record<string, unknown>;
+  parsed.timestamp = new Date().toISOString();
+  body = JSON.stringify(parsed);
   const id = "evt_1";
-  const timestamp = "1700000000";
+  const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = createHmac("sha256", Buffer.from(secret)).update(`${id}.${timestamp}.${body}`).digest("base64");
   return new Request("https://studio.example/api/web/webhooks/polar", { method: "POST", body, headers: { "webhook-id": id, "webhook-timestamp": timestamp, "webhook-signature": `v1,${signature}` } });
 }
