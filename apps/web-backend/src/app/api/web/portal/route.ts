@@ -10,6 +10,7 @@ import { requireDashboardSession } from "@/lib/dashboardAuth";
 import { publicUrl } from "@/lib/requestOrigin";
 import { isValidBillingUrl } from "@/domain/billing";
 import { logBillingFailure } from "@/lib/billingDiagnostics";
+import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,10 +18,10 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const session = await requireDashboardSession();
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
-  const apiBase = process.env.POLAR_API_BASE ?? "https://api.polar.sh";
+  const billingEnv = validateBillingEnvironment({ surface: "portal", host: request.headers.get("host") });
   const tenantId = session.tenantId;
 
-  if (!accessToken) {
+  if (!billingEnv.ok || !accessToken) {
     await captureServerEvent("dashboard_portal_failed", {
       tenant_id: tenantId,
       account_email: session.email ?? undefined,
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // Polar's current Customer Session API is /v1/customer-sessions. It returns
     // customer_portal_url for the signed-in portal destination.
-    response = await fetch(`${apiBase}/v1/customer-sessions`, {
+    response = await fetch(`${billingEnv.apiBase}/v1/customer-sessions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ customer_id: polarCustomerId, return_url: returnUrl }),

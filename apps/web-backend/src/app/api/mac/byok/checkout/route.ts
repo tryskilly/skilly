@@ -6,6 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authenticateMacRequest } from "@/lib/macSession";
 import { publicUrl } from "@/lib/requestOrigin";
 import { captureServerEvent } from "@/lib/analytics";
+import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,8 +19,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
   const productId = process.env.POLAR_MAC_BYOK_PRODUCT_ID ?? process.env.POLAR_BYOK_PRODUCT_ID;
-  const apiBase = process.env.POLAR_API_BASE ?? "https://api.polar.sh";
-  if (!accessToken || !productId) {
+  const billingEnv = validateBillingEnvironment({ surface: "byok", productId, host: request.headers.get("host") });
+  if (!billingEnv.ok || !accessToken || !productId) {
     await captureServerEvent("mac_byok_checkout_failed", {
       workos_user_id: session.userId,
       reason: "billing_not_configured",
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     source_surface: "studio_backend",
   });
 
-  const response = await fetch(`${apiBase}/v1/checkouts`, {
+  const response = await fetch(`${billingEnv.apiBase}/v1/checkouts`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,

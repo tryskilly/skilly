@@ -3,6 +3,7 @@ import { buildPersonalCheckoutBody, hasCurrentPersonalEntitlement, isValidBillin
 import { getMacEntitlement, authenticateMacRequest } from "@/lib/macSession";
 import { captureServerEvent } from "@/lib/analytics";
 import { publicUrl } from "@/lib/requestOrigin";
+import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
   const productId = process.env.POLAR_MAC_PRODUCT_ID ?? process.env.POLAR_BETA_PRODUCT_ID;
-  if (!accessToken || !productId) return NextResponse.json({ error: "billing not configured" }, { status: 500 });
+  const billingEnv = validateBillingEnvironment({ surface: "personal", productId, host: request.headers.get("host") });
+  if (!billingEnv.ok || !accessToken) return NextResponse.json({ error: "billing not configured" }, { status: 500 });
+  const configuredProductId = productId!;
+  const configuredAccessToken = accessToken!;
   let payload: unknown;
   try { payload = await request.json(); } catch { return NextResponse.json({ error: "invalid request body" }, { status: 400 }); }
   const attemptValue = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>).checkout_attempt_id : undefined;
@@ -24,16 +28,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const attempt = parseCheckoutAttemptId(attemptValue);
   if (!attempt.valid) return NextResponse.json({ error: "invalid checkout_attempt_id" }, { status: 400 });
   const body = buildPersonalCheckoutBody({
-    productId,
+    productId: configuredProductId,
     userId: session.userId,
     email: session.email,
     surface: "mac",
     checkoutAttemptId: attempt.value,
     successUrl: publicUrl(request, "/dashboard/billing?surface=mac").toString(),
   });
-  const response = await fetch(`${process.env.POLAR_API_BASE ?? "https://api.polar.sh"}/v1/checkouts`, {
+  const response = await fetch(`${billingEnv.apiBase}/v1/checkouts`, {
     method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${configuredAccessToken}`, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!response.ok) {

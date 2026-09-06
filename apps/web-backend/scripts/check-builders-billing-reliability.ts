@@ -29,9 +29,12 @@ mock.module("@/db", () => ({ getRepo: () => repo }));
 mock.module("@/lib/analytics", () => ({ captureServerEvent: async () => undefined }));
 
 process.env.POLAR_ACCESS_TOKEN = "fixture-token";
+process.env.POLAR_MAC_PRODUCT_ID = "mac-product";
 process.env.POLAR_PRODUCT_ID = "starter-product";
+process.env.POLAR_BUILDER_STARTER_PRODUCT_ID = "starter-product";
 process.env.POLAR_BUILDER_STUDIO_PRODUCT_ID = "studio-product";
 process.env.POLAR_BUILDER_SCALE_PRODUCT_ID = "scale-product";
+process.env.POLAR_WEBHOOK_SECRET = "webhook-fixture";
 
 let responseBody: unknown = { url: "https://polar.sh/checkout/fixture" };
 let responseStatus = 200;
@@ -69,6 +72,23 @@ async function main(): Promise<void> {
   assert.equal(checkoutResponse.status, 200);
   assert.deepEqual(await checkoutResponse.json(), { url: "https://polar.sh/checkout/fixture" });
   assert.equal(calls[0]?.url, "https://api.polar.sh/v1/checkouts");
+
+  process.env.SKILLY_BILLING_MODE = "sandbox";
+  process.env.VERCEL_ENV = "preview";
+  process.env.POLAR_API_BASE = "https://sandbox-api.polar.sh";
+  process.env.SKILLY_DATABASE_ENV = "sandbox";
+  process.env.SKILLY_DATABASE_URL_MARKER = "builder-preview";
+  process.env.DATABASE_URL = "sandbox-db";
+  calls = [];
+  responseBody = { url: "https://polar.sh/checkout/sandbox" };
+  assert.equal((await checkout(request("checkout", JSON.stringify({ plan: "starter" })))).status, 200);
+  assert.equal(calls[0]?.url, "https://sandbox-api.polar.sh/v1/checkouts");
+  assert.equal((calls[0]?.body.products as string[])[0], "starter-product");
+  process.env.SKILLY_BILLING_MODE = "production";
+  delete process.env.VERCEL_ENV;
+  delete process.env.SKILLY_DATABASE_ENV;
+  delete process.env.SKILLY_DATABASE_URL_MARKER;
+  process.env.POLAR_API_BASE = "https://api.polar.sh";
 
   for (const body of ["null", "[]", "not-json"]) {
     calls = [];

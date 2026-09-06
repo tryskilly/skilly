@@ -11,6 +11,9 @@ mock.module("@/lib/extensionSession", () => ({ authenticateExtensionRequest: ses
 mock.module("@/lib/analytics", () => ({ captureServerEvent: async () => {} }));
 process.env.POLAR_ACCESS_TOKEN = "fixture-only";
 process.env.POLAR_MAC_PRODUCT_ID = "product_fixture";
+process.env.POLAR_BUILDER_STARTER_PRODUCT_ID = "starter_fixture";
+process.env.POLAR_WEBHOOK_SECRET = "webhook_fixture";
+process.env.SKILLY_BILLING_MODE = "production";
 
 let providerPayload: unknown = {};
 let calls: { url: string; body: Record<string, unknown> }[] = [];
@@ -76,4 +79,17 @@ for (const surface of ["mac", "extension"]) {
   authenticated = true;
   entitlement = null;
 }
+process.env.SKILLY_BILLING_MODE = "sandbox";
+process.env.VERCEL_ENV = "preview";
+process.env.POLAR_API_BASE = "https://sandbox-api.polar.sh";
+process.env.SKILLY_DATABASE_ENV = "sandbox";
+process.env.SKILLY_DATABASE_URL_MARKER = "personal-preview";
+process.env.DATABASE_URL = "sandbox-db";
+calls = [];
+providerPayload = { url: "https://polar.sh/checkout/sandbox" };
+const sandboxRequest = new NextRequest("https://studio.example/api/mac/checkout", { method: "POST", body: "{}" });
+assert.equal((await (await import("../src/app/api/mac/checkout/route")).POST(sandboxRequest)).status, 200);
+assert.equal(calls[0]?.url, "https://sandbox-api.polar.sh/v1/checkouts");
+assert.equal((calls[0]?.body.products as string[])[0], "product_fixture");
+checks++;
 console.log(`${checks} personal billing route contract scenarios passed; no external requests.`);

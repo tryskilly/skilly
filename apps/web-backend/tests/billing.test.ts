@@ -67,13 +67,13 @@ describe("verifyWebhookSignature", () => {
 });
 
 describe("interpretSubscriptionEvent", () => {
-  test("active grants the plan cap; canceled drops to 0", () => {
+  test("active grants the plan cap; canceled preserves access through period end", () => {
     expect(
       interpretSubscriptionEvent({ type: "subscription.active", data: { metadata: { tenantId: "t1" } } }, 36_000),
     ).toEqual({ tenantId: "t1", capSeconds: 36_000 });
     expect(
       interpretSubscriptionEvent({ type: "subscription.canceled", data: { metadata: { tenantId: "t1" } } }, 36_000),
-    ).toEqual({ tenantId: "t1", capSeconds: 0 });
+    ).toEqual({ tenantId: "t1", capSeconds: 36_000 });
   });
 
   test("active uses checkout metadata cap and plan when present", () => {
@@ -202,9 +202,10 @@ describe("personal subscription webhook status", () => {
     expect(update?.providerEventAt).toBe("2026-09-06T12:00:00Z");
     expect(update?.providerEventId).toBe("sub_evt_2");
   });
-  test("revoked removes access and active updates grant it", () => {
+  test("revoked removes access and active or uncanceled updates restore it", () => {
     expect(interpretPersonalSubscriptionEvent(event("subscription.revoked", "revoked"), env)?.status).toBe("none");
     expect(interpretPersonalSubscriptionEvent(event("subscription.active", "active"), env)?.status).toBe("active");
+    expect(interpretPersonalSubscriptionEvent(event("subscription.uncanceled", "active"), env)?.status).toBe("active");
   });
   test("ignores unrelated products without personal metadata", () => {
     expect(interpretPersonalSubscriptionEvent({ type: "subscription.active", data: { product_id: "builder_prod", metadata: { tenantId: "tenant_1" } } }, env)).toBeNull();

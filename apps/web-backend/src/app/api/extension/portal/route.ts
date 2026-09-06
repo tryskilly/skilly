@@ -4,6 +4,7 @@ import { getMacEntitlement } from "@/lib/macSession";
 import { captureServerEvent } from "@/lib/analytics";
 import { publicUrl } from "@/lib/requestOrigin";
 import { isValidBillingUrl } from "@/domain/billing";
+import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +14,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const accessToken = process.env.POLAR_ACCESS_TOKEN;
   const record = await getMacEntitlement(session.userId);
-  if (!accessToken) return NextResponse.json({ error: "billing not configured" }, { status: 500 });
+  const billingEnv = validateBillingEnvironment({ surface: "portal", host: request.headers.get("host") });
+  if (!billingEnv.ok || !accessToken) return NextResponse.json({ error: "billing not configured" }, { status: 500 });
   if (!record?.polar_customer_id) return NextResponse.json({ error: "no_subscription", fallback: "checkout" }, { status: 409 });
-  const response = await fetch(`${process.env.POLAR_API_BASE ?? "https://api.polar.sh"}/v1/customer-sessions`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ customer_id: record.polar_customer_id, return_url: publicUrl(request, "/dashboard/billing?surface=extension").toString() }) });
+  const response = await fetch(`${billingEnv.apiBase}/v1/customer-sessions`, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ customer_id: record.polar_customer_id, return_url: publicUrl(request, "/dashboard/billing?surface=extension").toString() }) });
   if (!response.ok) return NextResponse.json({ error: "portal session failed" }, { status: 502 });
   const portal = (await response.json()) as { customer_portal_url?: string; url?: string };
   const portalUrl = portal.customer_portal_url ?? portal.url;

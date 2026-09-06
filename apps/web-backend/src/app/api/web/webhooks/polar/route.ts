@@ -4,10 +4,11 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
-import { interpretPersonalSubscriptionEvent, interpretSubscriptionEvent, verifyWebhookSignature } from "@/domain/billing";
+import { interpretPersonalSubscriptionEvent, interpretSubscriptionEvent, verifyWebhookSignature, isWebhookTimestampFresh } from "@/domain/billing";
 import { captureServerEvent } from "@/lib/analytics";
 import { sendPastDueEmail } from "@/lib/billingEmail";
 import { upsertMacEntitlement } from "@/lib/macSession";
+import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,10 @@ const DEFAULT_PLAN_CAP_SECONDS = 24_000; // Starter fallback: 400 min/month
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = process.env.POLAR_WEBHOOK_SECRET;
+  const billingEnvironment = validateBillingEnvironment({ surface: "webhook", host: request.headers.get("host") });
+  if (!billingEnvironment.ok) {
+    return NextResponse.json({ error: billingEnvironment.error ?? "billing not configured" }, { status: 500 });
+  }
   if (!secret) {
     await captureServerEvent("polar_webhook_failed", {
       status: 500,
@@ -26,10 +31,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const rawBody = await request.text();
+  const webhookId = request.headers.get("webhook-id") ?? "";
+  const webhookTimestamp = request.headers.get("webhook-timestamp") ?? "";
+  if (!isWebhookTimestampFresh(webhookTimestamp)) {
+    return NextResponse.json({ error: "stale webhook" }, { status: 401 });
+  }
   const verified = verifyWebhookSignature({
     secret,
-    webhookId: request.headers.get("webhook-id") ?? "",
-    webhookTimestamp: request.headers.get("webhook-timestamp") ?? "",
+    webhookId,
+    webhookTimestamp,
     body: rawBody,
     signatureHeader: request.headers.get("webhook-signature") ?? "",
   });
@@ -54,14 +64,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
 
+  const eventRecord = event as Record<string, unknown>;
+  const eventData = eventRecord.data && typeof eventRecord.data === "object" ? eventRecord.data as Record<string, unknown> : null;
+  const providerEventAt = stringOrNull(eventData?.modified_at) ?? stringOrNull(eventData?.updated_at) ?? stringOrNull(eventRecord.timestamp) ?? stringOrNull(eventData?.created_at);
+  const repo = getRepo();
+
   const activeCapSeconds = Number(process.env.POLAR_PLAN_CAP_SECONDS ?? DEFAULT_PLAN_CAP_SECONDS);
   const parsedEvent = event as Parameters<typeof interpretSubscriptionEvent>[0];
   const update = interpretSubscriptionEvent(parsedEvent, activeCapSeconds);
   const macUpdate = interpretMacByokSubscriptionEvent(event);
   const personalUpdate = interpretPersonalSubscriptionEvent(event, process.env);
+  if ((update || macUpdate || personalUpdate) && !providerEventAt) {
+    return NextResponse.json({ error: "missing provider event timestamp" }, { status: 400 });
+  }
   if (parsedEvent.type === "subscription.past_due" && parsedEvent.data?.customer?.email) {
     const emailResult = await sendPastDueEmail({
-      eventId: request.headers.get("webhook-id") ?? `${parsedEvent.type}:${parsedEvent.data.customer_id ?? parsedEvent.data.customer.email}`,
+      eventId: webhookId || `${parsedEvent.type}:${parsedEvent.data.customer_id ?? parsedEvent.data.customer.email}`,
       email: parsedEvent.data.customer.email,
       customerName: parsedEvent.data.customer.name,
       amountCents: parsedEvent.data.amount,
@@ -73,12 +91,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   }
   if (update) {
-    const repo = getRepo();
-    await repo.setTenantUsageCap(update.tenantId, update.capSeconds);
-    // Persist the Polar customer id so we can open a customer-portal session later.
-    if (update.polarCustomerId) {
-      await repo.setTenantPolarCustomerId(update.tenantId, update.polarCustomerId);
-    }
+    const tenantResult = await repo.applyTenantBillingEvent({ eventId: webhookId, tenantId: update.tenantId, capSeconds: update.capSeconds, polarCustomerId: update.polarCustomerId, providerEventAt, providerState: parsedEvent.type?.replace("subscription.", "") });
+    if (tenantResult.replay) return NextResponse.json({ ok: true, applied: false, replay: true }, { status: 200 });
     await captureServerEvent("tenant_plan_cap_updated", {
       tenant_id: update.tenantId,
       cap_seconds: update.capSeconds,
@@ -97,8 +111,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       periodEnd: macUpdate.periodEnd,
       plan: "byok",
       polarCustomerId: macUpdate.polarCustomerId,
-      providerEventAt: macUpdate.providerEventAt ?? webhookTimestampIso(request.headers.get("webhook-timestamp")),
+      providerEventAt: macUpdate.providerEventAt ?? providerEventAt,
       providerEventId: macUpdate.providerEventId ?? request.headers.get("webhook-id"),
+      providerEventState: macUpdate.status,
     });
     await captureServerEvent("mac_byok_plan_updated", {
       workos_user_id: macUpdate.userId,
@@ -117,8 +132,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       periodEnd: personalUpdate.periodEnd,
       plan: personalUpdate.plan,
       polarCustomerId: personalUpdate.polarCustomerId,
-      providerEventAt: personalUpdate.providerEventAt ?? webhookTimestampIso(request.headers.get("webhook-timestamp")),
+      providerEventAt: personalUpdate.providerEventAt ?? providerEventAt,
       providerEventId: personalUpdate.providerEventId ?? request.headers.get("webhook-id"),
+      providerEventState: personalUpdate.status,
     });
     await captureServerEvent("mac_personal_plan_updated", {
       workos_user_id: personalUpdate.userId,
@@ -190,10 +206,4 @@ function recordOrNull(value: unknown): Record<string, unknown> | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
-}
-
-function webhookTimestampIso(value: string | null): string | null {
-  if (!value) return null;
-  const seconds = Number(value);
-  return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
 }

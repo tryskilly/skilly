@@ -88,6 +88,8 @@ export class MemoryRepo implements WebBackendRepo {
   private usage: Array<UsageEvent & UsageDimensions & { createdAt: Date; sequence: number }> = [];
   private widgetConfigs = new Map<string, WidgetConfig>();
   private handoffLocks = new Map<string, Promise<void>>();
+  private polarWebhookEvents = new Set<string>();
+  private tenantProviderState = new Map<string, { at: number | null; id: string | null; state: string | null }>();
 
   constructor(seed: MemorySeed = defaultSeed()) {
     for (const tenant of seed.tenants) {
@@ -524,6 +526,25 @@ export class MemoryRepo implements WebBackendRepo {
     if (tenant) {
       tenant.polarCustomerId = polarCustomerId;
     }
+  }
+
+  private applyTenantBillingUpdate(input: { tenantId: string; capSeconds: number; polarCustomerId?: string | null; providerEventAt?: string | null; providerEventId?: string | null; providerState?: string | null }): boolean {
+    const at = input.providerEventAt ? Date.parse(input.providerEventAt) : null;
+    const existing = this.tenantProviderState.get(input.tenantId);
+    const rank = (state: string | null | undefined) => state === "revoked" || state === "past_due" ? 2 : state === "canceled" ? 1 : 0;
+    if (existing?.at != null && (at == null || at < existing.at || (at === existing.at && rank(input.providerState) <= rank(existing.state)))) return false;
+    const tenant = this.tenants.get(input.tenantId);
+    if (!tenant) return false;
+    tenant.usageCapSeconds = input.capSeconds;
+    if (input.polarCustomerId) tenant.polarCustomerId = input.polarCustomerId;
+    this.tenantProviderState.set(input.tenantId, { at, id: input.providerEventId ?? null, state: input.providerState ?? null });
+    return true;
+  }
+
+  async applyTenantBillingEvent(input: { eventId: string; tenantId: string; capSeconds: number; polarCustomerId?: string | null; providerEventAt?: string | null; providerState?: string | null }): Promise<{ replay: boolean; applied: boolean }> {
+    if (this.polarWebhookEvents.has(input.eventId)) return { replay: true, applied: false };
+    this.polarWebhookEvents.add(input.eventId);
+    return { replay: false, applied: this.applyTenantBillingUpdate({ ...input, providerEventId: input.eventId }) };
   }
 
   async setTenantOrigins(tenantId: string, origins: string[]): Promise<void> {
