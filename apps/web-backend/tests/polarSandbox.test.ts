@@ -1,6 +1,6 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { NextRequest } from "next/server";
-import { isAllowedPreviewHost, orchestratePolarSandboxCheckout, validatePolarSandboxRequest } from "../src/lib/polarSandbox";
+import { isAllowedPreviewHost, orchestratePolarSandboxCheckout, orchestratePolarSandboxPortal, validatePolarSandboxRequest } from "../src/lib/polarSandbox";
 import { mintShortLivedDesktopSessionToken } from "../src/lib/desktopAuth";
 import { verifyMacSessionToken } from "../src/lib/macSession";
 
@@ -68,6 +68,43 @@ describe("Polar sandbox harness gate", () => {
     expect(calls[1].url).toContain("/api/mac/checkout"); expect(calls[1].init.headers).toMatchObject({ authorization: "Bearer bearer-secret", cookie: "skilly_dashboard_session=secret" }); expect(JSON.stringify(b2c.body)).not.toContain("user@example.test"); expect(JSON.stringify(b2c.body)).not.toContain("bearer-secret"); expect(JSON.stringify(b2c.body)).not.toContain("skilly_dashboard_session=secret");
     const bad = await orchestratePolarSandboxCheckout({ product: "mac", session, requestUrl: "https://preview.example.test/x", fetchImpl: (async () => new Response(JSON.stringify({ url: "http://sandbox.polar.sh/checkout" }), { status: 200 })) as unknown as typeof fetch, mintToken: () => "x" });
     expect(bad.status).toBe(502);
+  });
+
+  test("orchestrates a B2C Mac sandbox portal session with short-lived desktop auth", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init! });
+      return new Response(JSON.stringify({ portal_url: "https://sandbox.polar.sh/portal/p_1" }), { status: 200 });
+    }) as typeof fetch;
+    const result = await orchestratePolarSandboxPortal({
+      session: { tenantId: "tenant_1", workosUserId: "user_1", email: "user@example.test" },
+      requestUrl: "https://preview.example.test/dashboard/polar-sandbox",
+      cookie: "skilly_dashboard_session=secret",
+      fetchImpl,
+      mintToken: () => "short-lived-bearer",
+    });
+    expect(result).toEqual({ status: 200, body: { portal_url: "https://sandbox.polar.sh/portal/p_1" } });
+    expect(calls[0].url).toContain("/api/mac/portal");
+    expect(calls[0].init.method).toBe("GET");
+    expect(calls[0].init.headers).toMatchObject({ authorization: "Bearer short-lived-bearer", cookie: "skilly_dashboard_session=secret" });
+    expect(JSON.stringify(result.body)).not.toContain("user@example.test");
+    expect(JSON.stringify(result.body)).not.toContain("short-lived-bearer");
+    expect(JSON.stringify(result.body)).not.toContain("skilly_dashboard_session=secret");
+  });
+
+  test("fails closed for missing desktop identity or non-sandbox portal URLs", async () => {
+    const missing = await orchestratePolarSandboxPortal({
+      session: { tenantId: "tenant_1" }, requestUrl: "https://preview.example.test/x",
+      fetchImpl: (async () => new Response(JSON.stringify({ portal_url: "https://sandbox.polar.sh/portal/p_1" }))) as unknown as typeof fetch,
+      mintToken: () => "must-not-mint",
+    });
+    expect(missing).toEqual({ status: 409, body: { error: "desktop identity unavailable" } });
+    const invalid = await orchestratePolarSandboxPortal({
+      session: { tenantId: "tenant_1", workosUserId: "user_1", email: "user@example.test" }, requestUrl: "https://preview.example.test/x",
+      fetchImpl: (async () => new Response(JSON.stringify({ portal_url: "https://polar.sh/portal/p_1" }))) as unknown as typeof fetch,
+      mintToken: () => "secret",
+    });
+    expect(invalid).toEqual({ status: 502, body: { error: "portal session failed" } });
   });
 
   test("records fixed, surface-specific diagnostics without provider secrets", async () => {
