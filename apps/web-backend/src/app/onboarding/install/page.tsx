@@ -36,7 +36,7 @@ export default async function OnboardingInstallPage() {
             language="html"
             label="HTML"
             highlight={["data-skilly-key", "data-skilly-skill"]}
-            code={buildInstallSnippet({ publishableKey: displayKey, skillId: skillSelection.skillId, includeRuntimeUrls: false })}
+            code={buildInstallSnippet({ publishableKey: displayKey, skillId: skillSelection.skillId })}
           />
         </PanelBody>
       </Panel>

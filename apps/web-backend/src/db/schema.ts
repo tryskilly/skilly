@@ -66,11 +66,13 @@ export const apiKeys = pgTable(
     keyHash: text("key_hash").notNull(),
     keyPrefix: text("key_prefix").notNull(),
     keyLast4: text("key_last4").notNull(),
+    displayKey: text("display_key"),
     revoked: boolean("revoked").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("api_keys_key_type_check", sql`${table.keyType} IN ('publishable', 'secret')`),
+    check("api_keys_display_key_check", sql`${table.displayKey} IS NULL OR ${table.keyType} = 'publishable'`),
     unique("api_keys_key_hash_key").on(table.keyHash),
     index("api_keys_tenant_idx").on(table.tenantId),
   ],

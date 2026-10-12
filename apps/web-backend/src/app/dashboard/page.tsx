@@ -89,11 +89,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return (
       <div className="space-y-6">
         <HandoffDraftReview handoffPending={params.handoff === "1"} />
-        <PageHeader
-          eyebrow="For builders"
-          title="Let's get Skilly live."
-          description="Draft your guide, try it on your site, then put Skilly in front of your users."
-        />
+        <header className="mb-6 flex flex-wrap items-start justify-between gap-[18px]">
+          <div>
+            <p className="font-mono text-xs font-semibold uppercase tracking-wider text-accent-text">Get live</p>
+            <h1 className="mt-3 text-2xl font-bold leading-tight tracking-[-0.035em] text-fg">Let&apos;s get Skilly live.</h1>
+            <p className="mt-[7px] max-w-[690px] text-sm leading-relaxed text-fg-muted">Draft your guide, try it on your site, then put Skilly in front of your users.</p>
+          </div>
+        </header>
         <Panel>
           <PanelHeader
             title="Get live"

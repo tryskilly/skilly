@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getRepo } from "@/db";
 import { getBillingPlanOptions } from "@/domain/billing";
 import { getCurrentDashboardTenantId } from "@/lib/session";
+import { captureServerEvent } from "@/lib/analytics";
 import { getWorkspaceLiveness } from "@/lib/workspaceLiveness";
 import { addOriginAction, removeOriginAction } from "../actions";
 import { Button, ButtonLink, ConfirmRemoveButton, Field, Panel, PanelBody } from "../v2";
@@ -20,13 +21,15 @@ function originHost(origin: string | undefined): string {
 export default async function GoLivePage() {
   const repo = getRepo();
   const tenantId = await getCurrentDashboardTenantId();
-  const [keys, project, liveness, usage] = await Promise.all([
-    repo.listApiKeys(tenantId),
+  const [publishableKey, project, liveness, usage] = await Promise.all([
+    repo.ensurePublishableKey(tenantId),
     repo.ensureDefaultProject(tenantId),
     getWorkspaceLiveness(repo, tenantId),
     repo.getUsageSummary(tenantId),
   ]);
-  const publishableKey = keys.find((key) => key.keyType === "publishable" && !key.revoked);
+  if (publishableKey.created) {
+    await captureServerEvent("dashboard_publishable_key_auto_created", { tenant_id: tenantId });
+  }
   const config = project.widgetConfig;
 
   return (
@@ -72,7 +75,7 @@ export default async function GoLivePage() {
 
       <Panel>
         <PanelBody className="space-y-4 p-5 sm:p-6">
-          <GoLiveSnippet skillId={project.skillId} widgetConfig={config} hasPublishableKey={Boolean(publishableKey)} />
+          <GoLiveSnippet skillId={project.skillId} widgetConfig={config} publishableKey={publishableKey.rawKey} />
           <div className={`flex flex-wrap items-center justify-between gap-3 rounded-[10px] border p-3 ${liveness.isInstalled || liveness.isLive ? "border-success/25 bg-success-soft" : "border-line-soft bg-surface-sunken"}`}>
             <p className="flex min-w-0 items-center gap-2 text-sm text-fg">
               <span className={`h-2 w-2 shrink-0 rounded-full ${liveness.isInstalled || liveness.isLive ? "bg-success" : "bg-accent"}`} />

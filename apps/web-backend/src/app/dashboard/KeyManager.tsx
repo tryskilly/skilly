@@ -1,16 +1,11 @@
 "use client";
 
-import { useActionState, useRef } from "react";
+import { useActionState, useRef, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import type { ApiKeyInfo } from "@/db/repo";
 import { createKeyAction, revokeKeyAction, type CreateKeyState } from "./actions";
 import { Button, ConfirmModal, Select, StatusPill } from "./v2";
 
-/**
- * Key management (v2). Publishable + secret keys in one list with a one-time
- * reveal banner when a key is freshly created. Revoke is gated by a
- * confirmation modal (spec §11 #12). Preserves the createKeyAction/revokeKeyAction
- * contracts from v1.
- */
 export function KeyManager({ keys }: { keys: ApiKeyInfo[] }) {
   const [createState, createKey, creating] = useActionState<CreateKeyState, FormData>(createKeyAction, {});
 
@@ -25,8 +20,11 @@ export function KeyManager({ keys }: { keys: ApiKeyInfo[] }) {
         <ul className="mt-4 divide-y divide-line-soft">
           {keys.map((apiKey) => (
             <li key={apiKey.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-              <span className="flex items-center gap-2 font-mono text-[13px] text-fg-muted">
-                {apiKey.prefix}_…{apiKey.last4}
+              <span className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[13px] text-fg-muted">
+                <code className="break-all">{apiKey.keyType === "publishable" && apiKey.displayKey
+                  ? apiKey.displayKey
+                  : `${apiKey.keyType === "secret" ? "sk" : apiKey.prefix}_…${apiKey.last4}`}</code>
+                {apiKey.keyType === "publishable" && apiKey.displayKey && <CopyKeyButton displayKey={apiKey.displayKey} />}
                 <StatusPill tone={apiKey.keyType === "secret" ? "amber" : "neutral"} label={apiKey.keyType} />
                 {apiKey.revoked && <StatusPill tone="red" label="revoked" />}
               </span>
@@ -54,14 +52,35 @@ export function KeyManager({ keys }: { keys: ApiKeyInfo[] }) {
       </form>
 
       {createState.error && <p className="mt-3 text-sm text-danger">{createState.error}</p>}
-      {createState.rawKey && (
-        // One-time reveal banner (spec §5.13): shown once after creation.
+      {createState.rawKey?.startsWith("sk_") && (
         <div className="mt-4 rounded-[12px] border border-accent-line bg-accent-soft p-3">
-          <p className="text-xs font-bold text-accent-text">Copy this key now — it won&apos;t be shown again.</p>
+          <p className="text-xs font-bold text-accent-text">Copy this key now. It won&apos;t be shown again.</p>
           <code className="mt-1.5 block break-all font-mono text-[13px] text-accent-text">{createState.rawKey}</code>
         </div>
       )}
     </section>
+  );
+}
+
+function CopyKeyButton({ displayKey }: { displayKey: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyKey() {
+    try {
+      await navigator.clipboard.writeText(displayKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <button type="button" onClick={copyKey} aria-label="Copy publishable key"
+      className="inline-flex h-[30px] items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 font-sans text-xs font-bold text-fg transition hover:bg-surface-strong">
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
 

@@ -1,12 +1,20 @@
 import { mock } from "bun:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
+import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRepo, defaultSeed } from "../../src/db/memoryRepo";
 
 const tenantId = defaultSeed().tenants[0]!.id;
 let pathname = "/dashboard/go-live";
+let selectedFramework: "html" | "react" | "nextjs" = "html";
+const originalUseState = React.useState;
+mock.module("react", () => ({
+  ...React,
+  useState: (initialState: unknown) => originalUseState(initialState === "html" ? selectedFramework : initialState),
+}));
 const revalidatedPaths: string[] = [];
+const analyticsEvents: Array<{ event: string; properties: Record<string, unknown> }> = [];
 mock.module("next/cache", () => ({
   revalidatePath: (path: string) => { revalidatedPaths.push(path); },
 }));
@@ -15,7 +23,7 @@ mock.module("../../src/lib/dashboardAuth", () => ({
   setDashboardSession: async () => {},
 }));
 mock.module("../../src/lib/analytics", () => ({
-  captureServerEvent: async () => {},
+  captureServerEvent: async (event: string, properties: Record<string, unknown>) => { analyticsEvents.push({ event, properties }); },
 }));
 mock.module("../../src/lib/session", () => ({
   getCurrentDashboardTenantId: async () => tenantId,
@@ -37,13 +45,22 @@ const { default: UsagePage } = await import("../../src/app/dashboard/usage/page"
 const { AppShell } = await import("../../src/app/dashboard/v2/AppShell");
 const { addOriginAction, removeOriginAction, saveSkillAction } = await import("../../src/app/dashboard/actions");
 const { serializeStudioGuide } = await import("../../src/domain/studioGuide");
-const repo = new MemoryRepo();
+const repo = new MemoryRepo({ ...defaultSeed(), keys: [] });
 globalThis.__skillyRepo = repo;
 const project = await repo.ensureDefaultProject(tenantId);
 await repo.setProjectOrigins(project.id, ["https://app.acme.com"]);
 
 await repo.setTenantUsageCap(tenantId, 0);
 const waitingHtml = renderToStaticMarkup(await GoLivePage());
+const firstKeys = await repo.listApiKeys(tenantId);
+assert.equal(firstKeys.length, 1);
+const realPublishableKey = firstKeys[0]?.displayKey;
+assert(realPublishableKey);
+assert(waitingHtml.includes(realPublishableKey));
+assert.deepEqual(analyticsEvents, [{ event: "dashboard_publishable_key_auto_created", properties: { tenant_id: tenantId } }]);
+assert(renderToStaticMarkup(await GoLivePage()).includes(realPublishableKey));
+assert.equal((await repo.listApiKeys(tenantId)).length, 1);
+assert.equal(analyticsEvents.length, 1);
 const headings = ["Where Skilly can run", "Add one line to your site", "Pick a plan to turn Skilly on for visitors", "Customize the launcher"];
 for (let index = 0; index < headings.length; index++) {
   assert(waitingHtml.includes(headings[index]!));
@@ -55,8 +72,11 @@ assert(waitingHtml.includes("https://app.acme.com"));
 assert(waitingHtml.includes('href="/dashboard/origins"'));
 assert(waitingHtml.includes('data-analytics-event="dashboard_go_live_check_again_clicked"'));
 assert(waitingHtml.includes('data-analytics-event="dashboard_go_live_email_developer_clicked"'));
-assert(waitingHtml.includes("Replace pk_live_your_key with the key you saved"));
-assert(waitingHtml.includes("Create a new key"));
+assert(!waitingHtml.includes("pk_live_your_key"));
+assert(!waitingHtml.includes("Create a new key"));
+assert(!waitingHtml.includes("Create my key"));
+assert(waitingHtml.includes("Your publishable key is filled in. It&#x27;s safe in the browser; Skilly only runs on the sites above."));
+assert(waitingHtml.includes("Manage keys"));
 assert(waitingHtml.includes("Step 3 of 3 · Go live"));
 assert(waitingHtml.includes("Put Skilly in front of your users."));
 assert(waitingHtml.includes("Three things, all on this page."));
@@ -72,12 +92,29 @@ assert(waitingHtml.includes("Test mode only. Visitors can&#x27;t see Skilly."));
 assert(waitingHtml.includes("You&#x27;ll go live as soon as the script is detected and the plan is active."));
 assert(waitingHtml.includes('data-analytics-event="dashboard_checkout_clicked"'));
 assert(waitingHtml.includes('data-analytics-event="dashboard_widget_config_save_clicked"'));
-const developerHref = waitingHtml.match(/href="(mailto:[^"]+)"/)?.[1]?.replaceAll("&amp;", "&");
+const developerHref = waitingHtml.match(/href="(mailto:[^"]+)"/)?.[1]?.replaceAll("&amp;", "&").replaceAll("&#x27;", "'");
 assert(developerHref);
 const emailParameters = new URLSearchParams(developerHref.slice("mailto:?".length));
 assert.equal(emailParameters.get("subject"), "Add Skilly to our site");
-assert(emailParameters.get("body")?.includes('data-skilly-key="pk_live_your_key"'));
+assert(emailParameters.get("body")?.includes(`data-skilly-key="${realPublishableKey}"`));
+assert(!emailParameters.get("body")?.includes("Replace"));
 assert(emailParameters.get("body")?.includes(`data-skilly-skill="${project.skillId}"`));
+for (const framework of ["html", "react", "nextjs"] as const) {
+  selectedFramework = framework;
+  const frameworkHtml = renderToStaticMarkup(await GoLivePage());
+  assert(frameworkHtml.includes(realPublishableKey));
+  assert(!frameworkHtml.includes("pk_live_your_key"));
+  assert(frameworkHtml.includes(`aria-labelledby="install-tab-${framework}"`));
+  const frameworkEmailHref = frameworkHtml.match(/href="(mailto:[^"]+)"/)?.[1]?.replaceAll("&amp;", "&").replaceAll("&#x27;", "'");
+  assert(frameworkEmailHref);
+  const frameworkEmail = new URLSearchParams(frameworkEmailHref.slice("mailto:?".length)).get("body");
+  assert(frameworkEmail?.includes(realPublishableKey));
+  assert(!frameworkEmail?.includes("pk_live_your_key"));
+  if (framework === "react") assert(frameworkEmail?.includes("document.body.appendChild(script)"));
+  if (framework === "nextjs") assert(frameworkEmail?.includes('import Script from "next/script"'));
+}
+selectedFramework = "html";
+assert.equal(analyticsEvents.length, 1);
 assert.equal((waitingHtml.match(/bg-accent text-accent-fg border border-line shadow-card hover:bg-accent-hover/g) ?? []).length, 1);
 
 const addedOriginForm = new FormData();
@@ -99,6 +136,8 @@ assert.deepEqual(revalidatedPaths, ["/dashboard", "/dashboard/origins", "/dashbo
 
 function assertNextStepHome(html: string, buttonLabel: string, buttonHref: string, completedSteps: number) {
   assert(html.includes("Let&#x27;s get Skilly live."));
+  assert(html.includes('<p class="font-mono text-xs font-semibold uppercase tracking-wider text-accent-text">Get live</p>'));
+  assert(!html.includes("For builders"));
   const checklistHtml = html.match(/<section[^>]*>.*?<div[^>]*>Get live<\/div>.*?<\/section>/)?.[0];
   assert(checklistHtml);
   for (const label of ["Draft the guide", "Try it on your site", "Go live"]) assert(checklistHtml.includes(label));
@@ -139,9 +178,14 @@ assert(liveHomeHtml.includes('data-analytics-event="dashboard_widget_preview_cli
 
 for (const key of await repo.listApiKeys(tenantId)) await repo.revokeApiKey(tenantId, key.id);
 const noKeyHtml = renderToStaticMarkup(await GoLivePage());
-assert(noKeyHtml.includes("pk_live_your_key"));
+const replacementKey = (await repo.listApiKeys(tenantId)).find((key) => !key.revoked)?.displayKey;
+assert(replacementKey);
+assert.notEqual(replacementKey, realPublishableKey);
+assert(noKeyHtml.includes(replacementKey));
+assert(!noKeyHtml.includes("pk_live_your_key"));
+assert.equal(analyticsEvents.filter(({ event }) => event === "dashboard_publishable_key_auto_created").length, 2);
 assert(noKeyHtml.includes('href="/dashboard/keys"'));
-assert(noKeyHtml.includes("Create my key"));
+assert(!noKeyHtml.includes("Create my key"));
 const guideHtml = renderToStaticMarkup(await SetupPage());
 assert(guideHtml.includes("Step 1 of 3 · Your guide"));
 assert(guideHtml.includes("Here&#x27;s the guide Skilly follows."));

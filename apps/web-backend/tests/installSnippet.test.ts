@@ -5,12 +5,10 @@ const snippetInput = { publishableKey: "pk_live_example_full_key_8327", skillId:
 const widgetConfig = { accentColor: "var(--brand)", locale: "fr", launcherLabel: null };
 
 describe("install snippet", () => {
-  test("includes the supplied full key, skill, runtime URLs, and optional appearance", () => {
+  test("includes the supplied full key, skill, and optional appearance", () => {
     expect(buildInstallSnippet({ ...snippetInput, widgetConfig })).toBe(`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="pk_live_example_full_key_8327"
         data-skilly-skill="acme-product-guide"
-        data-skilly-backend-url="https://studio.tryskilly.app"
-        data-skilly-core-url="https://cdn.tryskilly.app/web/v1.0.0/skilly_core_web_sdk.js"
         data-skilly-accent="var(--brand)"
         data-skilly-locale="fr"
         defer></script>`);
@@ -35,8 +33,8 @@ describe("install snippet", () => {
     expect(snippet).toContain('data-skilly-skill="guide&lt;product&gt;"');
   });
 
-  test("preserves the short onboarding snippet when runtime URLs and appearance are omitted", () => {
-    expect(buildInstallSnippet({ ...snippetInput, includeRuntimeUrls: false })).toBe(`<script src="https://cdn.tryskilly.app/web/v1.js"
+  test("preserves the short onboarding snippet when appearance is omitted", () => {
+    expect(buildInstallSnippet(snippetInput)).toBe(`<script src="https://cdn.tryskilly.app/web/v1.js"
         data-skilly-key="pk_live_example_full_key_8327"
         data-skilly-skill="acme-product-guide"
         defer></script>`);

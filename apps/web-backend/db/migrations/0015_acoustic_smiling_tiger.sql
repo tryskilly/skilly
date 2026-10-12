@@ -1,0 +1,2 @@
+ALTER TABLE "api_keys" ADD COLUMN "display_key" text;--> statement-breakpoint
+ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_display_key_check" CHECK ("api_keys"."display_key" IS NULL OR "api_keys"."key_type" = 'publishable');

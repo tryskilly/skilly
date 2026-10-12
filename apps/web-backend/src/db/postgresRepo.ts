@@ -749,9 +749,10 @@ export class PostgresRepo implements WebBackendRepo {
       key_type: KeyType;
       key_prefix: string;
       key_last4: string;
+      display_key: string | null;
       revoked: boolean;
     }>(
-      `SELECT id, key_type, key_prefix, key_last4, revoked
+      `SELECT id, key_type, key_prefix, key_last4, display_key, revoked
          FROM api_keys WHERE tenant_id = $1 ORDER BY created_at DESC`,
       [tenantId],
     );
@@ -760,6 +761,7 @@ export class PostgresRepo implements WebBackendRepo {
       keyType: row.key_type,
       prefix: row.key_prefix,
       last4: row.key_last4,
+      displayKey: row.key_type === "publishable" ? row.display_key : null,
       revoked: row.revoked,
     }));
   }
@@ -767,13 +769,27 @@ export class PostgresRepo implements WebBackendRepo {
   async createApiKey(tenantId: string, keyType: KeyType): Promise<{ rawKey: string; info: ApiKeyInfo }> {
     const rawKey = generateKey(keyType);
     const display = keyDisplay(rawKey);
+    const displayKey = keyType === "publishable" ? rawKey : null;
     const result = await this.pool.query<{ id: string }>(
-      `INSERT INTO api_keys (tenant_id, key_type, key_hash, key_prefix, key_last4)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [tenantId, keyType, hashKey(rawKey), display.prefix, display.last4],
+      `INSERT INTO api_keys (tenant_id, key_type, key_hash, key_prefix, key_last4, display_key)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [tenantId, keyType, hashKey(rawKey), display.prefix, display.last4, displayKey],
     );
     const id = result.rows[0]!.id;
-    return { rawKey, info: { id, keyType, prefix: display.prefix, last4: display.last4, revoked: false } };
+    return { rawKey, info: { id, keyType, prefix: display.prefix, last4: display.last4, displayKey, revoked: false } };
+  }
+
+  async ensurePublishableKey(tenantId: string): Promise<{ rawKey: string; created: boolean }> {
+    const result = await this.pool.query<{ display_key: string }>(
+      `SELECT display_key FROM api_keys
+         WHERE tenant_id = $1 AND key_type = 'publishable' AND NOT revoked AND display_key IS NOT NULL
+         ORDER BY created_at DESC LIMIT 1`,
+      [tenantId],
+    );
+    const existingKey = result.rows[0];
+    if (existingKey) return { rawKey: existingKey.display_key, created: false };
+    const { rawKey } = await this.createApiKey(tenantId, "publishable");
+    return { rawKey, created: true };
   }
 
   async revokeApiKey(tenantId: string, keyId: string): Promise<void> {

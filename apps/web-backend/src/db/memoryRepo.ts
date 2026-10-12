@@ -30,12 +30,13 @@ interface SeededKey {
   tenantId: string;
   prefix: string;
   last4: string;
+  displayKey: string | null;
   revoked: boolean;
 }
 
 export interface MemorySeed {
   tenants: Tenant[];
-  keys: Array<{ rawKey: string; keyType: KeyType; tenantId: string; revoked?: boolean }>;
+  keys: Array<{ rawKey: string; keyType: KeyType; tenantId: string; revoked?: boolean; displayKey?: string | null }>;
   skills: TenantSkill[];
   memberships?: DashboardMembership[];
 }
@@ -109,6 +110,7 @@ export class MemoryRepo implements WebBackendRepo {
         tenantId: key.tenantId,
         prefix: display.prefix,
         last4: display.last4,
+        displayKey: key.keyType === "publishable" ? (key.displayKey === undefined ? key.rawKey : key.displayKey) : null,
         revoked: key.revoked ?? false,
       });
     }
@@ -506,6 +508,7 @@ export class MemoryRepo implements WebBackendRepo {
         keyType: record.keyType,
         prefix: record.prefix,
         last4: record.last4,
+        displayKey: record.displayKey,
         revoked: record.revoked,
       }));
   }
@@ -521,13 +524,25 @@ export class MemoryRepo implements WebBackendRepo {
       tenantId,
       prefix: display.prefix,
       last4: display.last4,
+      displayKey: keyType === "publishable" ? rawKey : null,
       revoked: false,
     };
     this.keys.set(keyHash, record);
     return {
       rawKey,
-      info: { id: record.id, keyType, prefix: record.prefix, last4: record.last4, revoked: false },
+      info: { id: record.id, keyType, prefix: record.prefix, last4: record.last4, displayKey: record.displayKey, revoked: false },
     };
+  }
+
+  async ensurePublishableKey(tenantId: string): Promise<{ rawKey: string; created: boolean }> {
+    const existingKey = [...this.keys.values()].reverse().find((record) =>
+      record.tenantId === tenantId && record.keyType === "publishable" && !record.revoked && record.displayKey !== null,
+    );
+    if (existingKey && existingKey.displayKey !== null) {
+      return { rawKey: existingKey.displayKey, created: false };
+    }
+    const { rawKey } = await this.createApiKey(tenantId, "publishable");
+    return { rawKey, created: true };
   }
 
   async revokeApiKey(tenantId: string, keyId: string): Promise<void> {

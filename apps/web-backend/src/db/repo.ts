@@ -85,12 +85,13 @@ export interface UsageMetrics {
   totalActions: number;
 }
 
-/** Display-safe key metadata for the dashboard (never includes the raw key). */
+/** Dashboard key metadata. Only publishable keys can include their raw display value. */
 export interface ApiKeyInfo {
   id: string;
   keyType: KeyType;
   prefix: string;
   last4: string;
+  displayKey: string | null;
   revoked: boolean;
 }
 
@@ -209,8 +210,10 @@ export interface WebBackendRepo {
     workosUserId: string,
   ): Promise<{ removed: boolean; reason?: "last_super_admin" | "not_found" }>;
   listApiKeys(tenantId: string): Promise<ApiKeyInfo[]>;
-  /** Create a key; returns the raw value ONCE (caller shows it, never stored raw). */
+  /** Create a key. Publishable values remain displayable; secret values are returned only once. */
   createApiKey(tenantId: string, keyType: KeyType): Promise<{ rawKey: string; info: ApiKeyInfo }>;
+  /** Reuse the newest active displayable publishable key, creating one when needed. */
+  ensurePublishableKey(tenantId: string): Promise<{ rawKey: string; created: boolean }>;
   revokeApiKey(tenantId: string, keyId: string): Promise<void>;
   saveTenantSkill(tenantId: string, skillId: string, content: string): Promise<void>;
   getUsageSummary(tenantId: string): Promise<UsageSummary>;
