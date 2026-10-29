@@ -225,6 +225,7 @@ final class SkillStore: Sendable {
         "after-effects-basics",
         "davinci-resolve-basics",
         "premiere-pro-basics",
+        "houdini-essentials",
     ]
 
     /// Seeds bundled skills into ~/.skilly/skills/ on first launch.
