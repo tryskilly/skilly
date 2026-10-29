@@ -331,7 +331,7 @@ Multi-tenant control plane + dashboard + billing + onboarding: **Next.js (App Ro
 
 ### Skill Files
 
-The repo ships 5 bundled skills under `skills/`, also copied into the app bundle under `Resources/skills/` so new users get them without downloading anything.
+The repo ships 6 bundled skills under `skills/`, also copied into the app bundle under `Resources/skills/` so new users get them without downloading anything.
 
 | File | Purpose |
 |------|---------|
@@ -340,6 +340,7 @@ The repo ships 5 bundled skills under `skills/`, also copied into the app bundle
 | `skills/premiere-pro-basics/SKILL.md` | Adobe Premiere Pro basics — rewritten from official docs. Timeline editing, transitions, export. |
 | `skills/davinci-resolve-basics/SKILL.md` | DaVinci Resolve basics — rewritten from official docs. Cut/Edit/Color/Fairlight/Deliver pages. |
 | `skills/figma-basics/SKILL.md` | Figma basics — rewritten from official docs. Frames, components, auto-layout, prototyping. |
+| `skills/houdini-essentials/SKILL.md` | SideFX Houdini essentials — VFX simulations and Karma rendering. 9 curriculum stages, UI vocabulary. `pointing_mode: always`. |
 
 ## Build & Run
 

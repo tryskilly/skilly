@@ -50,7 +50,7 @@ Self-serve control plane at [tryskilly.app](https://tryskilly.app). Manage API k
 - **Screen-aware tutoring** — sees your screen (macOS) or DOM (web) and references specific UI elements by name
 - **Cursor pointing** — blue cursor animates to elements via bezier arc on any connected monitor (macOS) or anywhere on the page (web)
 - **Teaching skills** — `SKILL.md` files with curriculum stages, completion signals, and UI vocabulary; domain expertise layered into the system prompt
-- **5 bundled skills** — Blender, After Effects, Premiere Pro, DaVinci Resolve, Figma
+- **6 bundled skills** — Blender, After Effects, Premiere Pro, DaVinci Resolve, Figma, Houdini
 - **Live Tutor mode** — always-on listening with server-side VAD (no hotkey needed)
 - **Multi-monitor** — captures and points across all connected displays (macOS)
 - **Bring Your Own Key** — bypass billing by supplying your own OpenAI API key
@@ -192,6 +192,7 @@ skills/                     # Bundled teaching skills
   premiere-pro-basics/        # Adobe Premiere Pro
   davinci-resolve-basics/     # DaVinci Resolve
   figma-basics/               # Figma
+  houdini-essentials/         # SideFX Houdini
 scripts/                    # Build + release automation
   build-web-cdn.sh            # Builds @skilly/web → sdk/web-cdn-public/
   release.sh                  # macOS DMG + notarization + GitHub Release
@@ -200,7 +201,7 @@ docs/                       # Architecture docs, PRDs, analytics tracking plan
 
 ## Installing skills
 
-Skills are `SKILL.md` files that give Skilly domain expertise. The 5 bundled skills are seeded automatically on first launch. To install a custom skill, drop its directory in `~/.skilly/skills/`:
+Skills are `SKILL.md` files that give Skilly domain expertise. The 6 bundled skills are seeded automatically on first launch. To install a custom skill, drop its directory in `~/.skilly/skills/`:
 
 ```bash
 mkdir -p ~/.skilly/skills

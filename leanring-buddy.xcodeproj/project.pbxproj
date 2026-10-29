@@ -42,6 +42,7 @@
 				"skills/blender-fundamentals/SKILL.md",
 				"skills/davinci-resolve-basics/SKILL.md",
 				"skills/figma-basics/SKILL.md",
+				"skills/houdini-essentials/SKILL.md",
 				"skills/premiere-pro-basics/SKILL.md",
 			);
 			target = 28F22CBE2F56440300A0FC59 /* leanring-buddy */;
