@@ -94,6 +94,7 @@ Allowed:
 | `skilly_checkout_url_created` | Mac app | Polar returned a checkout URL | `checkout_attempt_id`, `checkout_id`, product/plan context |
 | `skilly_checkout_url_opened` | Mac app | Browser open was attempted | `checkout_attempt_id`, `checkout_id`, `did_open`, product/plan context |
 | `skilly_checkout_failed` | Mac app | Checkout failed before Polar completion | `checkout_attempt_id`, `checkout_id`, `reason`, `http_status`, product/plan context |
+| `checkout_failed` | Mac app, Studio, Worker | Checkout could not be completed. Fired beside the surface-specific checkout events. | `reason` (`missing_auth_state`, `auth_state_mismatch`, `auth_state_expired`, `session_expired`, `polar_metadata_rejected`, `polar_validation_error`, `polar_checkout_expired`, `polar_checkout_failed`), `status` or `http_status`, `source_surface` |
 | `skilly_checkout_expired` | Worker webhook | Polar checkout expired without payment | `checkout_attempt_id`, `checkout_id`, product/plan context |
 | `skilly_checkout_provider_status` | Worker webhook | Polar checkout reached confirmed, succeeded, or failed | `checkout_attempt_id`, `checkout_id`, `reason`, product/plan context |
 | `skilly_subscription_activated` | Mac app | Subscription active | `user_id` |

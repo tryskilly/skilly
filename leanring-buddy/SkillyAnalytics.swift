@@ -463,6 +463,7 @@ enum SkillyAnalytics {
             properties["checkout_id"] = checkoutId
         }
         PostHogSDK.shared.capture("skilly_checkout_failed", properties: properties)
+        PostHogSDK.shared.capture("checkout_failed", properties: properties)
     }
 
     static func trackSubscriptionActivated(userId: String) {

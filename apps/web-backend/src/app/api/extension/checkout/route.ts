@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { buildPersonalCheckoutBody, hasCurrentPersonalEntitlement, isValidBillingUrl, parseCheckoutAttemptId } from "@/domain/billing";
+import { CheckoutPayloadError, buildPersonalCheckoutBody, checkoutFailureReason, hasCurrentPersonalEntitlement, isValidBillingUrl, parseCheckoutAttemptId } from "@/domain/billing";
+import { captureCheckoutFailed } from "@/lib/billingDiagnostics";
 import { authenticateExtensionRequest } from "@/lib/extensionSession";
 import { getMacEntitlement } from "@/lib/macSession";
 import { publicUrl } from "@/lib/requestOrigin";
@@ -24,9 +25,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return NextResponse.json({ error: "invalid request body" }, { status: 400 });
   const attempt = parseCheckoutAttemptId(attemptValue);
   if (!attempt.valid) return NextResponse.json({ error: "invalid checkout_attempt_id" }, { status: 400 });
-  const body = buildPersonalCheckoutBody({ productId: configuredProductId, userId: session.userId, email: session.email, surface: "extension", checkoutAttemptId: attempt.value, successUrl: publicUrl(request, "/dashboard/billing?surface=extension").toString() });
+  let body: Record<string, unknown>;
+  try {
+    body = buildPersonalCheckoutBody({ productId: configuredProductId, userId: session.userId, email: session.email, surface: "extension", checkoutAttemptId: attempt.value, successUrl: publicUrl(request, "/dashboard/billing?surface=extension").toString() });
+  } catch (error) {
+    if (error instanceof CheckoutPayloadError) {
+      await captureCheckoutFailed({ reason: error.reason, sourceSurface: "extension_backend", distinctId: session.userId, plan: "beta_19" });
+      return NextResponse.json({ error: "checkout creation failed", reason: error.reason }, { status: 400 });
+    }
+    throw error;
+  }
   const response = await fetch(`${billingEnv.apiBase}/v1/checkouts`, { method: "POST", headers: { authorization: `Bearer ${configuredAccessToken}`, "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!response.ok) return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+  if (!response.ok) {
+    const providerBody = await response.text();
+    const reason = checkoutFailureReason(response.status, providerBody);
+    await captureCheckoutFailed({ reason, status: response.status, sourceSurface: "extension_backend", distinctId: session.userId, plan: "beta_19" });
+    return NextResponse.json({ error: "checkout creation failed", reason }, { status: 502 });
+  }
   const checkout = (await response.json()) as { url?: string; checkout_url?: string };
   const checkoutUrl = checkout.checkout_url ?? checkout.url;
   if (!isValidBillingUrl(checkoutUrl)) return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });

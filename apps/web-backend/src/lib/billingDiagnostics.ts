@@ -31,6 +31,22 @@ export function logBillingFailure(input: {
  * Records a checkout attempt for the staff follow-up list. Tracking must never stop a customer
  * from paying, so a failure here is logged and swallowed.
  */
+/** Cross-surface checkout failure. `reason` is a short code, never a provider body or email. */
+export async function captureCheckoutFailed(input: {
+  reason: string;
+  status?: number;
+  sourceSurface: string;
+  distinctId?: string;
+  plan?: string;
+}): Promise<void> {
+  await captureServerEvent("checkout_failed", {
+    reason: input.reason,
+    status: input.status,
+    source_surface: input.sourceSurface,
+    plan: input.plan,
+  }, input.distinctId);
+}
+
 export async function recordCheckoutStartedWithoutBlockingPayment(recordCheckoutStarted: () => Promise<void>): Promise<void> {
   try {
     await recordCheckoutStarted();

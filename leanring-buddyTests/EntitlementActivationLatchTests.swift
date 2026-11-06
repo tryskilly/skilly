@@ -27,21 +27,57 @@ private func destroy(suite name: String) {
 @Suite("Entitlement checkout and activation")
 struct EntitlementActivationLatchTests {
 
-    @Test("blocks a second checkout while one is already starting")
-    func blocksConcurrentCheckout() {
+    @Test("a fresh checkout lock offers a retry instead of stopping silently")
+    func freshLockOffersRetry() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
         let decision = EntitlementManager.checkoutStartDecision(
             status: .trial(remainingSeconds: 0),
-            isCheckoutInProgress: true
+            isCheckoutInProgress: true,
+            checkoutLockStartedAt: now.addingTimeInterval(-5),
+            now: now
         )
 
-        #expect(decision == .ignoreAlreadyInProgress)
+        #expect(decision == .offerRetryWhileInFlight)
+    }
+
+    @Test("a stale checkout lock lets the user start again")
+    func staleLockAllowsCheckout() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let decision = EntitlementManager.checkoutStartDecision(
+            status: .none,
+            isCheckoutInProgress: true,
+            checkoutLockStartedAt: now.addingTimeInterval(-(EntitlementManager.checkoutLockStaleInterval + 1)),
+            now: now
+        )
+
+        #expect(decision == .createCheckout)
+    }
+
+    @Test("a checkout lock with no start time does not trap the next click")
+    func missingLockTimestampAllowsCheckout() {
+        let decision = EntitlementManager.checkoutStartDecision(
+            status: .trial(remainingSeconds: 30),
+            isCheckoutInProgress: true,
+            checkoutLockStartedAt: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        #expect(decision == .createCheckout)
+    }
+
+    @Test("an older checkout attempt cannot clear a newer one")
+    func supersededAttemptDoesNotOwnTheLock() {
+        #expect(EntitlementManager.checkoutAttemptStillOwnsLock(attemptGeneration: 1, currentGeneration: 2) == false)
+        #expect(EntitlementManager.checkoutAttemptStillOwnsLock(attemptGeneration: 2, currentGeneration: 2) == true)
     }
 
     @Test("routes active subscribers to subscription management")
     func routesActiveSubscriberToPortal() {
         let decision = EntitlementManager.checkoutStartDecision(
             status: .active(periodEnd: Date().addingTimeInterval(3_600)),
-            isCheckoutInProgress: false
+            isCheckoutInProgress: false,
+            checkoutLockStartedAt: nil,
+            now: Date()
         )
 
         #expect(decision == .openCustomerPortal)
@@ -59,7 +95,9 @@ struct EntitlementActivationLatchTests {
         for eligibleStatus in eligibleStatuses {
             let decision = EntitlementManager.checkoutStartDecision(
                 status: eligibleStatus,
-                isCheckoutInProgress: false
+                isCheckoutInProgress: false,
+                checkoutLockStartedAt: nil,
+                now: Date()
             )
             #expect(decision == .createCheckout)
         }
