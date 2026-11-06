@@ -486,6 +486,35 @@ enum SkillyAnalytics {
         ])
     }
 
+    // MARK: - Skilly — First spoken answer funnel.
+    // No transcript text. `reason` is a stable code such as openai_quota_hosted.
+    static func trackFirstQuestionAsked(source: String, skillId: String?) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var properties: [String: Any] = ["source": source]
+        if let skillId {
+            properties["skill_id"] = skillId
+        }
+        PostHogSDK.shared.capture("first_question_asked", properties: properties)
+    }
+
+    static func trackFirstAnswerSucceeded(skillId: String?) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var properties: [String: Any] = ["spoken": true]
+        if let skillId {
+            properties["skill_id"] = skillId
+        }
+        PostHogSDK.shared.capture("first_answer_succeeded", properties: properties)
+    }
+
+    static func trackFirstAnswerFailed(reason: String, skillId: String?) {
+        guard AppSettings.shared.analyticsEnabled else { return }
+        var properties: [String: Any] = ["reason": reason]
+        if let skillId {
+            properties["skill_id"] = skillId
+        }
+        PostHogSDK.shared.capture("first_answer_failed", properties: properties)
+    }
+
     static func trackPaywallShown(userId: String, reason: String) {
         guard AppSettings.shared.analyticsEnabled else { return }
         PostHogSDK.shared.capture("skilly_paywall_shown", properties: [

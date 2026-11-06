@@ -15,7 +15,7 @@ enum BlockReason: Sendable {
     var displayMessage: String {
         switch self {
         case .trialExhausted:
-            return "Your free trial has ended. Subscribe to continue."
+            return "Your 15-minute trial has ended. Subscribe to continue."
         case .capReached:
             return "You've reached your monthly usage limit."
         case .subscriptionInactive:
@@ -54,6 +54,9 @@ struct EntitlementRecord: Codable {
     let period_start: String?
     let period_end: String?
     let plan: String?
+    /// "relay" for the hosted plan, "byok" for the $5/mo key plan. Nil on
+    /// older responses that predate the field.
+    let entitlement_type: String?
     // MARK: - Skilly — Studio's trial counter; nil when Studio hasn't settled it yet.
     let trial_seconds_used: Int?
 
@@ -110,8 +113,24 @@ final class EntitlementManager: ObservableObject {
     static let shared = EntitlementManager()
 
     @Published private(set) var status: EntitlementStatus = .none
+    /// Raw `entitlement_type` from Studio. Empty until the first successful refresh.
+    @Published private(set) var entitlementType: String?
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var isCheckoutInProgress: Bool = false
+
+    /// Shape used by first-session key selection. Trial time is a separate clock.
+    var billingEntitlementKind: BillingEntitlementKind {
+        switch status {
+        case .trial:
+            return .trial
+        case .active, .canceled:
+            return entitlementType == "byok" ? .byokActive : .hostedActive
+        case .expired:
+            return .expired
+        case .none:
+            return .unset
+        }
+    }
 
     private var backendBaseURL: String {
         AppSettings.shared.studioBackendBaseURL
@@ -128,6 +147,7 @@ final class EntitlementManager: ObservableObject {
         guard AuthManager.shared.isAuthenticated,
               let userId = AuthManager.shared.currentUser?.id else {
             status = .none
+            entitlementType = nil
             return
         }
 
@@ -228,6 +248,7 @@ final class EntitlementManager: ObservableObject {
     // MARK: - Apply Record
 
     private func applyEntitlementRecord(_ record: EntitlementRecord) {
+        entitlementType = record.entitlement_type
         status = record.parsedStatus
 
         switch record.parsedStatus {
@@ -265,17 +286,26 @@ final class EntitlementManager: ObservableObject {
     /// Returns (allowed, reason). Call before starting any billable turn.
     func canStartTurn() -> (allowed: Bool, reason: BlockReason?) {
         // MARK: - Skilly — BYOK platform fee gate, disabled by default during rollout.
-        if AppSettings.shared.hasOwnAPIKey && AppSettings.shared.requireBYOKSubscription {
-            switch status {
-            case .active:
-                return (true, nil)
-            case .canceled(let accessUntil) where accessUntil > Date():
-                return (true, nil)
-            case .expired:
-                return (false, .expired)
-            default:
+        // A saved key must not block the hosted trial. The gate only applies
+        // once trial time is gone and the policy refused the saved key.
+        let trialTimeIsExhausted = FirstSessionPolicy.trialTimeIsExhausted(
+            secondsUsed: TrialTracker.shared.totalSecondsUsed,
+            isAdmin: AdminAllowlist.isCurrentUserAdmin
+        )
+        let credentialPath = FirstSessionPolicy.selectCredential(
+            RealtimeCredentialInput(
+                hasUserOpenAIKey: AppSettings.shared.hasOwnAPIKey,
+                trialTimeIsExhausted: trialTimeIsExhausted,
+                entitlementKind: billingEntitlementKind,
+                requireBYOKSubscription: AppSettings.shared.requireBYOKSubscription,
+                userKeyQuotaFailed: false
+            )
+        )
+        if credentialPath == .hostedTrial && trialTimeIsExhausted {
+            if AppSettings.shared.hasOwnAPIKey && AppSettings.shared.requireBYOKSubscription {
                 return (false, .subscriptionInactive)
             }
+            return (false, .trialExhausted)
         }
 
         // Do not start another hosted turn when local reports cannot be
@@ -693,7 +723,7 @@ final class EntitlementManager: ObservableObject {
 
     // MARK: - Trial Begin
 
-    /// Called when user clicks "Start Free Trial" from the subscription required modal.
+    /// Called when the user starts the 15-minute trial from the subscription modal.
     func beginFreeTrial() {
         TrialTracker.shared.beginTrialIfNeeded()
         status = .trial(remainingSeconds: TrialTracker.shared.remainingSeconds)

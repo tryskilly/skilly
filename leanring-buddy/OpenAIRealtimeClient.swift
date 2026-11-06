@@ -87,7 +87,9 @@ enum OpenAIRealtimeEvent {
     case speechStarted           // Server VAD detected user started speaking
     case speechStopped           // Server VAD detected user stopped speaking
     case sessionExpired          // Expected OpenAI 60-minute session lifecycle boundary
-    case error(String)
+    /// `code` is the provider or relay code (`credit_balance_exhausted`, …).
+    /// Empty when the socket died without one.
+    case error(message: String, code: String)
 }
 
 // MARK: - Client
@@ -140,6 +142,11 @@ final class OpenAIRealtimeClient: ObservableObject {
     }
 
     private var cachedToken: OpenAITokenResponse?
+    /// Path the cached secret was minted for. A trial fallback must not reuse
+    /// a personal-key secret, and a personal key must not reuse a hosted one.
+    private var cachedCredentialPath: RealtimeCredentialPath?
+    /// Set by CompanionManager before every connect. Trial time uses hosted.
+    var requestedCredentialPath: RealtimeCredentialPath = .hostedTrial
     /// Studio-issued correlation id for the currently connected hosted session.
     private(set) var currentBackendSessionId: String?
     /// Voice the live session was configured with. OpenAI rejects voice
@@ -148,22 +155,25 @@ final class OpenAIRealtimeClient: ObservableObject {
     private(set) var sessionVoiceName: String?
 
     private func fetchToken(attemptedRefresh: Bool = false) async throws -> OpenAITokenResponse {
-        if let cached = cachedToken {
+        if let cached = cachedToken, cachedCredentialPath == requestedCredentialPath {
             let nowInSeconds = Int(Date().timeIntervalSince1970)
             if cached.expiresAt > (nowInSeconds + 10) {
                 return cached
             }
         }
 
-        // MARK: - Skilly — BYOK branch
-        // When the user has supplied their own OpenAI API key in Settings,
-        // bypass the Worker relay entirely and mint an ephemeral Realtime
-        // session directly against api.openai.com. The user is billed by
-        // OpenAI for the session; no Skilly server involvement.
-        if AppSettings.shared.hasOwnAPIKey {
-            let tokenResponse = try await fetchTokenBYOK(apiKey: AppSettings.shared.openAIAPIKey)
+        // MARK: - Skilly — Personal key only when the first-session policy
+        // chose it. A saved key used to win over the 15-minute hosted trial,
+        // so a key with no credit failed the first answer for new users.
+        if requestedCredentialPath == .userKey {
+            let apiKey = AppSettings.shared.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !apiKey.isEmpty else {
+                throw OpenAIRealtimeError.connectionFailed("No OpenAI API key is saved in Settings.")
+            }
+            let tokenResponse = try await fetchTokenBYOK(apiKey: apiKey)
             currentBackendSessionId = nil
             cachedToken = tokenResponse
+            cachedCredentialPath = .userKey
             return tokenResponse
         }
 
@@ -230,6 +240,16 @@ final class OpenAIRealtimeClient: ObservableObject {
             if let code = Self.accessBlockCode(from: data) {
                 throw OpenAIRealtimeError.accessBlocked(code)
             }
+            if FirstSessionPolicy.isQuotaFailure(errorCode: Self.errorCode(from: data) ?? "", errorMessage: body) {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "openai_token_fetch",
+                    httpStatus: statusCode,
+                    errorCode: "openai_quota_hosted",
+                    errorMessage: body,
+                    surface: "user_ptt"
+                )
+                throw OpenAIRealtimeError.quotaExhausted(usingUserKey: false)
+            }
             SkillyAnalytics.trackSilentFailure(
                 subsystem: "openai_token_fetch",
                 httpStatus: statusCode,
@@ -243,7 +263,15 @@ final class OpenAIRealtimeClient: ObservableObject {
         let tokenResponse = try JSONDecoder().decode(OpenAITokenResponse.self, from: data)
         applyServerAccessSnapshot(tokenResponse)
         cachedToken = tokenResponse
+        cachedCredentialPath = requestedCredentialPath
         return tokenResponse
+    }
+
+    private static func errorCode(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let code = object["code"] as? String { return code }
+        if let error = object["error"] as? [String: Any], let code = error["code"] as? String { return code }
+        return nil
     }
 
     private static func accessBlockCode(from data: Data) -> String? {
@@ -339,10 +367,21 @@ final class OpenAIRealtimeClient: ObservableObject {
 
         guard statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "unknown"
+            let providerCode = Self.errorCode(from: data) ?? ""
+            if FirstSessionPolicy.isQuotaFailure(errorCode: providerCode, errorMessage: body) {
+                SkillyAnalytics.trackSilentFailure(
+                    subsystem: "openai_token_byok",
+                    httpStatus: statusCode,
+                    errorCode: "openai_quota_user_key",
+                    errorMessage: body,
+                    surface: "user_ptt"
+                )
+                throw OpenAIRealtimeError.quotaExhausted(usingUserKey: true)
+            }
             SkillyAnalytics.trackSilentFailure(
                 subsystem: "openai_token_byok",
                 httpStatus: statusCode,
-                errorCode: "non_200_from_openai",
+                errorCode: providerCode.isEmpty ? "non_200_from_openai" : providerCode,
                 errorMessage: body,
                 surface: "user_ptt"
             )
@@ -601,6 +640,7 @@ final class OpenAIRealtimeClient: ObservableObject {
         isModelSpeaking = false
         currentModel = "unknown"
         cachedToken = nil
+        cachedCredentialPath = nil
         currentBackendSessionId = nil
         sessionVoiceName = nil
         // MARK: - Skilly — Debug logging (stripped in release)
@@ -823,7 +863,7 @@ final class OpenAIRealtimeClient: ObservableObject {
                     }
 
                     if self.isConnected {
-                        self.eventPublisher.send(.error(error.localizedDescription))
+                        self.eventPublisher.send(.error(message: error.localizedDescription, code: ""))
                     }
                     self.isConnected = false
                 }
@@ -960,7 +1000,21 @@ final class OpenAIRealtimeClient: ObservableObject {
                         errorMessage: errorMessage,
                         surface: "user_ptt"
                     )
-                    eventPublisher.send(.error(errorMessage))
+                    // An error before session.created must fail connect() itself.
+                    // Otherwise the caller waits out the 10s timeout and the
+                    // user hears nothing.
+                    if let continuation = sessionCreatedContinuation {
+                        sessionCreatedContinuation = nil
+                        if FirstSessionPolicy.isQuotaFailure(errorCode: errorCode, errorMessage: errorMessage) {
+                            continuation.resume(throwing: OpenAIRealtimeError.quotaExhausted(
+                                usingUserKey: requestedCredentialPath == .userKey
+                            ))
+                        } else {
+                            continuation.resume(throwing: OpenAIRealtimeError.connectionFailed(errorMessage))
+                        }
+                    } else {
+                        eventPublisher.send(.error(message: errorMessage, code: errorCode))
+                    }
                 }
             }
 
@@ -1000,6 +1054,9 @@ final class OpenAIRealtimeClient: ObservableObject {
     enum OpenAIRealtimeError: Error, LocalizedError {
         case connectionFailed(String)
         case encodingFailed
+        /// OpenAI refused the mint or the live session because the key behind
+        /// it has no credit. `usingUserKey` is false for the hosted trial.
+        case quotaExhausted(usingUserKey: Bool)
         /// The Worker rejected `/openai/token` with 401, or no session token was
         /// available locally. The user's session is no longer valid — CompanionManager
         /// should respond by signing out and re-opening the panel so the sign-in flow
@@ -1014,10 +1071,14 @@ final class OpenAIRealtimeClient: ObservableObject {
             switch self {
             case .connectionFailed(let detail): return "OpenAI Realtime connection failed: \(detail)"
             case .encodingFailed: return "Failed to encode event"
+            case .quotaExhausted(let usingUserKey):
+                return usingUserKey
+                    ? "Your OpenAI key has no credit."
+                    : "Skilly's hosted tutor has no OpenAI credit right now."
             case .authExpired: return "Your Skilly session has expired. Please sign in again."
             case .accessBlocked(let code):
                 switch code {
-                case "trial_exhausted": return "Your free trial has ended. Subscribe to continue."
+                case "trial_exhausted": return "Your 15-minute trial has ended. Subscribe to continue."
                 case "cap_reached": return "You've reached your monthly usage limit."
                 case "subscription_inactive": return "No active subscription found."
                 case "client_migration_required", "update_required": return "Please update Skilly before starting a hosted session."

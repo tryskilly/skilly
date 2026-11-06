@@ -61,6 +61,7 @@ Singletons created at startup (all `@StateObject` or `@EnvironmentObject` inject
 |------|---------|
 | `EntitlementManager.swift` | Syncs entitlement from Worker KV `/entitlement`. Status: `none/trial/active/canceled/expired`. Kicks off Polar checkout and customer portal. |
 | `TrialTracker.swift` | One-shot 15-min lifetime trial per WorkOS user ID. UserDefaults-backed, never resets. 80% warning at 12 min. |
+| `FirstSessionPolicy.swift` | Pure first-answer policy: hosted trial vs saved key, quota recovery, paywall timing, and bundled-app starter questions. |
 | `UsageTracker.swift` | 3h/month cap for paid subscribers. Period boundaries from `EntitlementManager`. 80% warning at 2h 24m. |
 | `PlanStrip.swift` | Always-visible compact status strip at panel top. Observes all three trackers. |
 | `PlanCard.swift` | Detailed plan card in Settings → Account. Progress bar, reset date, "Manage subscription" button. |

@@ -39,7 +39,7 @@ struct PlanCard: View {
         }
         switch effectiveStatus {
         case .trial:
-            return trialTracker.isExhausted ? "Trial ended" : "Free trial"
+            return trialTracker.isExhausted ? "Trial ended" : trialTimeLeftLabel
         case .active:
             return usageTracker.isOverCap ? "Out of time" : "Active"
         case .canceled:
@@ -47,7 +47,7 @@ struct PlanCard: View {
         case .expired:
             return "Expired"
         case .none:
-            return "Free trial"
+            return trialTimeLeftLabel
         }
     }
 
@@ -70,6 +70,15 @@ struct PlanCard: View {
         case .none:
             return Color(hex: "#60A5FA")
         }
+    }
+
+    /// Menu-bar and Settings copy names the 15-minute trial. It does not call Skilly free.
+    private var trialTimeLeftLabel: String {
+        let remainingSeconds = Int(max(0, trialTracker.remainingSeconds))
+        if remainingSeconds >= 60 {
+            return "Trial: \(remainingSeconds / 60)m left"
+        }
+        return "Trial: \(remainingSeconds)s left"
     }
 
     /// Returns the time consumed/total as a display string (e.g. "43m of 3h")

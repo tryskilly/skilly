@@ -3,8 +3,8 @@
 // locally during the desktop release transition.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { mintRealtimeToken, TokenMintError } from "@/domain/openaiToken";
-import { authenticateMacRequest, authorizeHostedAccess, selectMacOpenAIAPIKey, selectMacRealtimeModel } from "@/lib/macSession";
+import { hostedOpenAIKeyCandidates, mintHostedRealtimeToken, TokenMintError } from "@/domain/openaiToken";
+import { authenticateMacRequest, authorizeHostedAccess, selectMacRealtimeModel } from "@/lib/macSession";
 import { normalizeLegacyTrialSeconds } from "@/domain/personalAccess";
 import { requiresMacUpdate } from "@/domain/macMinimumBuild";
 import { captureServerEvent } from "@/lib/analytics";
@@ -42,14 +42,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: access.code, code: access.code }, { status: access.status });
   }
 
-  const apiKey = selectMacOpenAIAPIKey();
-  if (!apiKey) {
+  const apiKeys = hostedOpenAIKeyCandidates(process.env);
+  if (apiKeys.length === 0) {
     return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
   }
 
   try {
     const model = selectMacRealtimeModel(new URL(request.url).searchParams.get("model"));
-    const token = await mintRealtimeToken({ apiKey, model });
+    const token = await mintHostedRealtimeToken({ apiKeys, model });
     await captureServerEvent("mac_realtime_token_minted", {
       workos_user_id: session.userId,
       source_surface: "studio_backend",
@@ -65,11 +65,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       periodEnd: access.periodEnd,
     });
   } catch (error) {
+    const quotaExhausted = error instanceof TokenMintError && error.quotaExhausted;
     await captureServerEvent("mac_realtime_token_failed", {
       workos_user_id: session.userId,
       status: error instanceof TokenMintError ? error.upstreamStatus : undefined,
       source_surface: "studio_backend",
+      reason: quotaExhausted ? "openai_quota_exhausted" : "mint_failed",
     });
+    if (quotaExhausted) {
+      return NextResponse.json(
+        { error: "OpenAI has no credits remaining", code: "openai_quota_exhausted" },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({ error: "failed to mint realtime token" }, { status: 502 });
   }
 }
