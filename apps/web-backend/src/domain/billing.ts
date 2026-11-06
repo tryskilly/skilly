@@ -274,9 +274,13 @@ export function checkoutFailureReason(status: number, bodyText = ""): string {
   return "polar_non_2xx";
 }
 
-/** Marketing page that identifies the payer and opens skilly://checkout-success. */
+/**
+ * Marketing page that identifies the payer and opens skilly://checkout-success.
+ * tryskilly.app 308-redirects `/checkout-success` to `/checkout-success/`, so the
+ * slash has to be in the URL Polar stores. Otherwise checkout depends on that hop.
+ */
 export function macCheckoutSuccessUrl(userId: string): string {
-  const url = new URL("https://tryskilly.app/checkout-success");
+  const url = new URL("https://tryskilly.app/checkout-success/");
   url.searchParams.set("uid", userId);
   return url.toString();
 }

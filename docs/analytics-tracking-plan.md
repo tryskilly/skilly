@@ -13,7 +13,7 @@ Current implementation status:
 - Cloudflare Worker: PostHog silent-failure events implemented for backend drift and checkout failures.
 - Web dashboard/backend: env-gated PostHog + GA4 scaffolding and server-side dashboard/API events.
 - Web SDK: `Skilly.identify()` exists as the public API; tenant/end-user analytics should be wired through this surface.
-- Marketing site: implemented in `/Users/engmsaleh/Repos/skilly-web` as an Astro/Netlify site. It uses the same PostHog project as the Mac app, GA4 for acquisition/conversion reporting, and the Worker checkout redirect `tryskilly.app/checkout-success?uid=<WorkOS user id>` to identify checkout success with the same WorkOS user ID.
+- Marketing site: implemented in `/Users/engmsaleh/Repos/skilly-web` as an Astro/Netlify site. It uses the same PostHog project as the Mac app, GA4 for acquisition/conversion reporting, and the Worker checkout redirect `tryskilly.app/checkout-success/?uid=<WorkOS user id>` to identify checkout success with the same WorkOS user ID.
 
 ## Identity Model
 
@@ -127,7 +127,7 @@ Current rules:
 - Preserve UTMs in PostHog super-properties.
 - Send lead email to PostHog only when the user explicitly submits it.
 - Mirror key conversion events to GA4 through `window.skillyTrack()`, with PII stripped before calling `gtag`.
-- On `/checkout-success?uid=...`, call `posthog.identify(uid)` before firing `web_checkout_completed`, then remove `uid` from the URL.
+- On `/checkout-success/?uid=...`, call `posthog.identify(uid)` before firing `web_checkout_completed`, then remove `uid` from the URL.
 - Keep privacy/FAQ/trust copy aligned with first-party analytics storage and lead attribution.
 
 ## Environment Variables

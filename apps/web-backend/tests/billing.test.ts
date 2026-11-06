@@ -7,6 +7,7 @@ import {
   checkoutFailureReason,
   interpretCheckoutFailure,
   CheckoutPayloadError,
+  macCheckoutSuccessUrl,
   getBuilderPlans,
   interpretSubscriptionEvent,
   resolveBuilderPlan,
@@ -164,6 +165,10 @@ describe("personal billing helpers", () => {
     expect(polarMetadata({ checkout_attempt_id: "", plan: "  ", seats: 1 })).toEqual({ seats: 1 });
     expect(checkoutFailureReason(422, "{\"type\":\"string_too_short\"}")).toBe("polar_metadata_rejected");
     expect(() => buildPersonalCheckoutBody({ productId: " ", userId: "user_1", email: "u@example.com", surface: "mac", successUrl: "https://x/billing" })).toThrow(CheckoutPayloadError);
+  });
+
+  test("keeps the trailing slash tryskilly.app requires on the success page", () => {
+    expect(macCheckoutSuccessUrl("user_1")).toBe("https://tryskilly.app/checkout-success/?uid=user_1");
   });
 
   test("recognizes only a current active entitlement", () => {

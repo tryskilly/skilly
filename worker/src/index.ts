@@ -918,7 +918,7 @@ async function handleCheckoutCreate(
         // checkout-success.astro can call posthog.identify() with the same
         // distinct_id the macOS app uses. This stitches the web checkout
         // moment to the same PostHog person as the app events.
-        success_url: `https://tryskilly.app/checkout-success?uid=${encodeURIComponent(authenticatedSession.userId)}`,
+        success_url: `https://tryskilly.app/checkout-success/?uid=${encodeURIComponent(authenticatedSession.userId)}`,
       }),
     });
 
