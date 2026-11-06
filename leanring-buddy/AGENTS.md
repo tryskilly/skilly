@@ -51,7 +51,8 @@ Singletons created at startup (all `@StateObject` or `@EnvironmentObject` inject
 
 | File | Purpose |
 |------|---------|
-| `AuthManager.swift` | WorkOS AuthKit OAuth flow. Browser sign-in → `skilly://auth/callback` deep link → code exchange → Keychain storage (`ThisDeviceOnly`, access/refresh/session tokens). Refresh token support. |
+| `AuthManager.swift` | WorkOS AuthKit OAuth flow. Browser sign-in → `skilly://auth/callback` deep link → code exchange → Keychain storage (`ThisDeviceOnly`, access/refresh/session tokens). Refresh token support. Checkout reuses an unexpired OAuth handoff and resumes after sign-in. |
+| `CheckoutAuthHandoff.swift` | Pure rules for that handoff: reuse, mismatch, expiry, and whether a failed callback keeps the queued checkout. |
 | `SkillyAnalytics.swift` | PostHog analytics. Privacy-first: no transcripts, only character counts + element labels. Gated by `analyticsEnabled`. |
 | `AdminAllowlist.swift` | Hardcoded WorkOS user IDs (from Info.plist `SkillyAdminWorkOSUserIds`) that bypass trial and monthly cap. |
 
@@ -59,7 +60,7 @@ Singletons created at startup (all `@StateObject` or `@EnvironmentObject` inject
 
 | File | Purpose |
 |------|---------|
-| `EntitlementManager.swift` | Syncs entitlement from Worker KV `/entitlement`. Status: `none/trial/active/canceled/expired`. Kicks off Polar checkout and customer portal. |
+| `EntitlementManager.swift` | Syncs entitlement from Studio `/api/mac/entitlement`. Status: `none/trial/active/canceled/expired`. Kicks off Polar checkout and the customer portal. A fresh in-flight checkout offers a retry; a stale lock does not block Subscribe. |
 | `TrialTracker.swift` | One-shot 15-min lifetime trial per WorkOS user ID. UserDefaults-backed, never resets. 80% warning at 12 min. |
 | `UsageTracker.swift` | 3h/month cap for paid subscribers. Period boundaries from `EntitlementManager`. 80% warning at 2h 24m. |
 | `PlanStrip.swift` | Always-visible compact status strip at panel top. Observes all three trackers. |

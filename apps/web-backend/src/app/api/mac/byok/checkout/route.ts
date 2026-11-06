@@ -3,9 +3,9 @@
 // can pay a platform fee without consuming Skilly's shared OpenAI budget.
 
 import { NextResponse, type NextRequest } from "next/server";
+import { CheckoutPayloadError, buildByokCheckoutBody, checkoutFailureReason, macCheckoutSuccessUrl } from "@/domain/billing";
 import { authenticateMacRequest, recordMacCheckoutStarted } from "@/lib/macSession";
-import { recordCheckoutStartedWithoutBlockingPayment } from "@/lib/billingDiagnostics";
-import { publicUrl } from "@/lib/requestOrigin";
+import { captureCheckoutFailed, recordCheckoutStartedWithoutBlockingPayment } from "@/lib/billingDiagnostics";
 import { captureServerEvent } from "@/lib/analytics";
 import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       reason: "billing_not_configured",
       source_surface: "studio_backend",
     });
+    await captureCheckoutFailed({ reason: "billing_not_configured", sourceSurface: "studio_backend", distinctId: session.userId, plan: "byok" });
     return NextResponse.json({ error: "billing not configured" }, { status: 500 });
   }
 
@@ -35,31 +36,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     source_surface: "studio_backend",
   });
 
+  let body: Record<string, unknown>;
+  try {
+    body = buildByokCheckoutBody({
+      productId,
+      userId: session.userId,
+      email: session.email,
+      successUrl: macCheckoutSuccessUrl(session.userId),
+    });
+  } catch (error) {
+    if (error instanceof CheckoutPayloadError) {
+      await captureCheckoutFailed({ reason: error.reason, sourceSurface: "studio_backend", distinctId: session.userId, plan: "byok" });
+      return NextResponse.json({ error: "checkout creation failed", reason: error.reason }, { status: 400 });
+    }
+    throw error;
+  }
   const response = await fetch(`${billingEnv.apiBase}/v1/checkouts`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      products: [productId],
-      success_url: publicUrl(request, "/dashboard/billing?surface=mac-byok").toString(),
-      metadata: {
-        surface: "mac",
-        plan: "byok",
-        macUserId: session.userId,
-        email: session.email,
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
+    const providerBody = await response.text();
+    const reason = checkoutFailureReason(response.status, providerBody);
     await captureServerEvent("mac_byok_checkout_failed", {
       workos_user_id: session.userId,
       status: response.status,
+      reason,
       source_surface: "studio_backend",
     });
-    return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+    await captureCheckoutFailed({ reason, status: response.status, sourceSurface: "studio_backend", distinctId: session.userId, plan: "byok" });
+    return NextResponse.json({ error: "checkout creation failed", reason }, { status: 502 });
   }
 
   const checkout = (await response.json()) as { url?: string; checkout_url?: string };

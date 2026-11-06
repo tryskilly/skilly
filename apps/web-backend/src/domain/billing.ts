@@ -221,15 +221,89 @@ export interface CheckoutInput {
 
 /** Build the Polar checkout request body (products[] form, with tenant metadata). */
 export function buildCheckoutBody(input: CheckoutInput): Record<string, unknown> {
+  const productId = input.productId.trim();
+  const tenantId = input.tenantId.trim();
+  if (!productId || !tenantId) throw new CheckoutPayloadError();
   return {
-    products: [input.productId],
+    products: [productId],
     success_url: input.successUrl,
-    metadata: {
-      tenantId: input.tenantId,
-      ...(input.plan ? { plan: input.plan } : {}),
-      ...(input.planCapSeconds ? { planCapSeconds: input.planCapSeconds } : {}),
-    },
+    metadata: polarMetadata({
+      tenantId,
+      plan: input.plan,
+      planCapSeconds: input.planCapSeconds,
+    }),
   };
+}
+
+export type PolarMetadataValue = string | number | boolean;
+
+/**
+ * Polar metadata strings must be 1–500 characters. An empty string is a 422
+ * (`string_too_short`), which is what checkout creation returned on 2026-09-01.
+ * Numbers and booleans are allowed; blank strings are omitted.
+ */
+export function polarMetadata(
+  entries: Record<string, PolarMetadataValue | null | undefined>,
+): Record<string, PolarMetadataValue> {
+  const metadata: Record<string, PolarMetadataValue> = {};
+  for (const [rawKey, rawValue] of Object.entries(entries)) {
+    const key = rawKey.trim();
+    if (key.length < 1 || key.length > 40) continue;
+    if (typeof rawValue === "string") {
+      const value = rawValue.trim();
+      if (value.length < 1 || value.length > 500) continue;
+      metadata[key] = value;
+      continue;
+    }
+    if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+      metadata[key] = rawValue;
+      continue;
+    }
+    if (typeof rawValue === "boolean") metadata[key] = rawValue;
+  }
+  return metadata;
+}
+
+export function checkoutFailureReason(status: number, bodyText = ""): string {
+  if (status === 422) {
+    if (bodyText.includes("string_too_short") || bodyText.includes("string_too_long")) return "polar_metadata_rejected";
+    return "polar_validation_error";
+  }
+  if (status === 401 || status === 403) return "polar_auth_rejected";
+  if (status === 404) return "polar_product_not_found";
+  return "polar_non_2xx";
+}
+
+/**
+ * Marketing page that identifies the payer and opens skilly://checkout-success.
+ * tryskilly.app 308-redirects `/checkout-success` to `/checkout-success/`, so the
+ * slash has to be in the URL Polar stores. Otherwise checkout depends on that hop.
+ */
+export function macCheckoutSuccessUrl(userId: string): string {
+  const url = new URL("https://tryskilly.app/checkout-success/");
+  url.searchParams.set("uid", userId);
+  return url.toString();
+}
+
+export class CheckoutPayloadError extends Error {
+  readonly reason = "missing_customer_identity" as const;
+  constructor() {
+    super("missing_customer_identity");
+    this.name = "CheckoutPayloadError";
+  }
+}
+
+function customerEmailForPolar(email: string): string | undefined {
+  const trimmed = email.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+/** Stable whole-second ISO timestamp. The Mac app's period parser accepts this form. */
+export function provisionalPaidPeriodEnd(eventAt: string | null | undefined): string {
+  const parsed = eventAt ? Date.parse(eventAt) : Number.NaN;
+  const start = Number.isFinite(parsed) ? parsed : Date.now();
+  return new Date(start + 32 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 export interface PersonalCheckoutInput {
@@ -243,16 +317,50 @@ export interface PersonalCheckoutInput {
 
 /** Build the single-user Polar payload used by native clients. */
 export function buildPersonalCheckoutBody(input: PersonalCheckoutInput): Record<string, unknown> {
+  const userId = input.userId.trim();
+  const productId = input.productId.trim();
+  if (!userId || !productId) throw new CheckoutPayloadError();
   const checkoutAttemptId = input.checkoutAttemptId?.trim() || randomUUID();
+  const email = customerEmailForPolar(input.email);
+  const metadata = polarMetadata({
+    surface: input.surface,
+    user_id: userId,
+    email,
+    checkout_attempt_id: checkoutAttemptId,
+    product_line: "people",
+    plan: "beta_19",
+  });
   return {
-    products: [input.productId],
+    products: [productId],
+    ...(email ? { customer_email: email } : {}),
     success_url: input.successUrl,
-    metadata: {
-      surface: input.surface,
-      user_id: input.userId,
-      email: input.email,
-      checkout_attempt_id: checkoutAttemptId,
-    },
+    metadata,
+  };
+}
+
+export interface ByokCheckoutInput {
+  productId: string;
+  userId: string;
+  email: string;
+  successUrl: string;
+}
+
+/** Platform-fee checkout for Mac users who bring their own OpenAI key. */
+export function buildByokCheckoutBody(input: ByokCheckoutInput): Record<string, unknown> {
+  const userId = input.userId.trim();
+  const productId = input.productId.trim();
+  if (!userId || !productId) throw new CheckoutPayloadError();
+  const email = customerEmailForPolar(input.email);
+  return {
+    products: [productId],
+    ...(email ? { customer_email: email } : {}),
+    success_url: input.successUrl,
+    metadata: polarMetadata({
+      surface: "mac",
+      plan: "byok",
+      macUserId: userId,
+      email,
+    }),
   };
 }
 
@@ -287,6 +395,8 @@ export interface PersonalSubscriptionUpdate {
   polarCustomerId?: string | null;
   providerEventAt?: string | null;
   providerEventId?: string | null;
+  /** Checkout success must not replace a subscription period that already arrived. */
+  preserveExistingPeriod?: boolean;
 }
 
 /** Guard personal entitlement writes against out-of-order provider delivery. */
@@ -319,10 +429,15 @@ export function interpretPersonalSubscriptionEvent(event: unknown, env: BillingE
   const surfaceAllowed = surface === undefined || surface === "mac" || surface === "extension";
   if (!type || !surfaceAllowed || metadata?.plan === "byok" || typeof metadata?.user_id !== "string") return null;
   const personalProducts = getPersonalProductIds(env);
-  if (!productId || personalProducts.size === 0 || !personalProducts.has(productId)) return null;
+  // Trust metadata we set ourselves. A mismatched POLAR_MAC_PRODUCT_ID used to
+  // drop the webhook, so the customer paid and the Mac app never left trial.
+  const markedPersonal = surface === "mac" || surface === "extension" || metadata.product_line === "people" || metadata.plan === "beta_19" || metadata.plan === "relay";
+  const productMatches = Boolean(productId && personalProducts.size > 0 && personalProducts.has(productId));
+  if (!markedPersonal && !productMatches) return null;
   const providerStatus = typeof data?.status === "string" ? data.status : null;
   const scheduledCancellation = providerStatus === "active" && data?.cancel_at_period_end === true;
-  const status = type === "subscription.revoked" || providerStatus === "revoked" ? "none" :
+  const status = type === "checkout.updated" && providerStatus === "succeeded" ? "active" :
+    type === "subscription.revoked" || providerStatus === "revoked" ? "none" :
     type === "subscription.past_due" || providerStatus === "past_due" ? "past_due" :
     (type === "subscription.canceled" && !scheduledCancellation) || providerStatus === "canceled" || providerStatus === "inactive" ? "canceled" :
     (scheduledCancellation || type === "subscription.active" || type === "subscription.uncanceled" || type === "subscription.updated" || (type === "subscription.created" && providerStatus === "active")) && (!providerStatus || providerStatus === "active") ? "active" : null;
@@ -335,9 +450,33 @@ export function interpretPersonalSubscriptionEvent(event: unknown, env: BillingE
     status,
     plan: typeof metadata.plan === "string" ? metadata.plan : "relay",
     periodStart: stringValue(data?.current_period_start),
-    periodEnd: stringValue(data?.current_period_end),
+    periodEnd: stringValue(data?.current_period_end) ?? (status === "active" ? provisionalPaidPeriodEnd(eventAt) : null),
     polarCustomerId: stringValue(data?.customer_id) ?? stringValue(customer?.id),
     providerEventAt: eventAt,
     providerEventId: stringValue(data?.id) ?? stringValue(root.id),
+    preserveExistingPeriod: type === "checkout.updated",
   };
+}
+
+export interface CheckoutFailureNotice {
+  userId: string;
+  reason: "polar_checkout_expired" | "polar_checkout_failed" | "missing_user_id";
+}
+
+/** Checkout sessions that ended without a paid subscription. No entitlement write. */
+export function interpretCheckoutFailure(event: unknown): CheckoutFailureNotice | null {
+  if (!event || typeof event !== "object") return null;
+  const root = event as Record<string, unknown>;
+  const type = typeof root.type === "string" ? root.type : null;
+  if (type !== "checkout.expired" && type !== "checkout.updated") return null;
+  const data = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : null;
+  const customer = data?.customer && typeof data.customer === "object" ? data.customer as Record<string, unknown> : null;
+  const rawMetadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : customer?.metadata;
+  const metadata = rawMetadata && typeof rawMetadata === "object" ? rawMetadata as Record<string, unknown> : null;
+  const providerStatus = typeof data?.status === "string" ? data.status : null;
+  const failed = type === "checkout.expired" || providerStatus === "expired" || providerStatus === "failed";
+  if (!failed) return null;
+  const userId = typeof metadata?.user_id === "string" ? metadata.user_id : null;
+  if (!userId) return { userId: "", reason: "missing_user_id" };
+  return { userId, reason: providerStatus === "failed" ? "polar_checkout_failed" : "polar_checkout_expired" };
 }

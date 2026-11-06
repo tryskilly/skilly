@@ -755,6 +755,41 @@ interface CheckoutPayload {
   checkout_attempt_id?: string;
 }
 
+type PolarMetadataValue = string | number | boolean;
+
+/** Drop blank strings. Polar rejects them with 422 string_too_short. */
+export function polarCheckoutMetadata(
+  entries: Record<string, PolarMetadataValue | null | undefined>,
+): Record<string, PolarMetadataValue> {
+  const metadata: Record<string, PolarMetadataValue> = {};
+  for (const [rawKey, rawValue] of Object.entries(entries)) {
+    const key = rawKey.trim();
+    if (key.length < 1 || key.length > 40) continue;
+    if (typeof rawValue === "string") {
+      const value = rawValue.trim();
+      if (value.length < 1 || value.length > 500) continue;
+      metadata[key] = value;
+      continue;
+    }
+    if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+      metadata[key] = rawValue;
+      continue;
+    }
+    if (typeof rawValue === "boolean") metadata[key] = rawValue;
+  }
+  return metadata;
+}
+
+export function checkoutFailureReason(status: number, bodyText = ""): string {
+  if (status === 422) {
+    if (bodyText.includes("string_too_short") || bodyText.includes("string_too_long")) return "polar_metadata_rejected";
+    return "polar_validation_error";
+  }
+  if (status === 401 || status === 403) return "polar_auth_rejected";
+  if (status === 404) return "polar_product_not_found";
+  return "polar_non_2xx";
+}
+
 interface EntitlementData {
   user_id: string;
   status: "active" | "canceled" | "none";
@@ -869,19 +904,21 @@ async function handleCheckoutCreate(
         // (first post-fix new user, 17:55 UTC) clicked checkout twice and
         // got nothing back because of this. Same shape of silent upstream
         // API drift that hit OpenAI Realtime in v1.8.
+        // Empty metadata strings are a later 422 (`string_too_short`). The
+        // helper drops them, and a missing attempt id is replaced above.
         products: [env.POLAR_BETA_PRODUCT_ID],
         customer_email: authenticatedSession.email,
-        metadata: {
+        metadata: polarCheckoutMetadata({
           user_id: authenticatedSession.userId,
           checkout_attempt_id,
           product_line: "people",
           plan: "beta_19",
-        },
+        }),
         // MARK: - Skilly — Pass the WorkOS user ID to the marketing site so
         // checkout-success.astro can call posthog.identify() with the same
         // distinct_id the macOS app uses. This stitches the web checkout
         // moment to the same PostHog person as the app events.
-        success_url: `https://tryskilly.app/checkout-success?uid=${encodeURIComponent(authenticatedSession.userId)}`,
+        success_url: `https://tryskilly.app/checkout-success/?uid=${encodeURIComponent(authenticatedSession.userId)}`,
       }),
     });
 
@@ -892,15 +929,24 @@ async function handleCheckoutCreate(
       // Fire PostHog event server-side so the next Polar API drift surfaces
       // in PostHog within minutes instead of weeks. Worker-source events are
       // tagged source="worker" to distinguish from app-source failures.
+      const reason = checkoutFailureReason(polarResponse.status, errorText);
+      await trackCheckoutLifecycleFromWorker(env, {
+        event: "checkout_failed",
+        userId: authenticatedSession.userId,
+        checkoutAttemptId: checkout_attempt_id,
+        reason,
+        sourceSurface: "worker_checkout_create",
+        httpStatus: polarResponse.status,
+      });
       await trackSilentFailureFromWorker(env, {
         subsystem: "polar_checkout",
         httpStatus: polarResponse.status,
-        errorCode: polarResponse.status === 401 ? "polar_token_expired" : "polar_non_2xx",
+        errorCode: reason,
         errorMessage: errorText,
         surface: "worker_checkout_create",
         userId: authenticatedSession.userId,
       });
-      return new Response(JSON.stringify({ error: "Failed to create checkout", polar_status: polarResponse.status, polar_body: errorText.slice(0, 500) }), {
+      return new Response(JSON.stringify({ error: "Failed to create checkout", reason, polar_status: polarResponse.status, polar_body: errorText.slice(0, 500) }), {
         status: 502,
         headers: { "content-type": "application/json" },
       });
@@ -1005,6 +1051,15 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
       productId: event.data.product_id,
       sourceSurface: "polar_webhook",
     });
+    await trackCheckoutLifecycleFromWorker(env, {
+      event: "checkout_failed",
+      userId,
+      checkoutAttemptId: event.data.metadata?.checkout_attempt_id,
+      checkoutId: event.data.id,
+      reason: "polar_checkout_expired",
+      productId: event.data.product_id,
+      sourceSurface: "polar_webhook",
+    });
     return new Response("ok", { status: 200 });
   }
 
@@ -1020,6 +1075,17 @@ async function handlePolarWebhook(request: Request, env: Env): Promise<Response>
         productId: event.data.product_id,
         sourceSurface: "polar_webhook",
       });
+      if (event.data.status === "failed") {
+        await trackCheckoutLifecycleFromWorker(env, {
+          event: "checkout_failed",
+          userId,
+          checkoutAttemptId: event.data.metadata?.checkout_attempt_id,
+          checkoutId: event.data.id,
+          reason: "polar_checkout_failed",
+          productId: event.data.product_id,
+          sourceSurface: "polar_webhook",
+        });
+      }
     }
     return new Response("ok", { status: 200 });
   }
@@ -1281,12 +1347,13 @@ interface SilentFailurePayload {
 }
 
 interface CheckoutLifecyclePayload {
-  event: "skilly_checkout_blocked" | "skilly_checkout_expired" | "skilly_checkout_provider_status";
+  event: "skilly_checkout_blocked" | "skilly_checkout_expired" | "skilly_checkout_provider_status" | "checkout_failed";
   userId: string;
   checkoutAttemptId?: string;
   checkoutId?: string;
   reason: string;
   productId?: string;
+  httpStatus?: number;
   sourceSurface: "worker_checkout_create" | "polar_webhook";
 }
 
@@ -1303,6 +1370,7 @@ async function trackCheckoutLifecycleFromWorker(_env: Env, payload: CheckoutLife
           checkout_attempt_id: payload.checkoutAttemptId ?? "",
           checkout_id: payload.checkoutId ?? "",
           reason: payload.reason,
+          http_status: payload.httpStatus ?? 0,
           polar_product_id: payload.productId ?? "",
           product_line: "people",
           product_name: "Skilly Pro",

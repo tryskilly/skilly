@@ -3,6 +3,11 @@ import { createHmac } from "node:crypto";
 import {
   buildCheckoutBody,
   buildPersonalCheckoutBody,
+  polarMetadata,
+  checkoutFailureReason,
+  interpretCheckoutFailure,
+  CheckoutPayloadError,
+  macCheckoutSuccessUrl,
   getBuilderPlans,
   interpretSubscriptionEvent,
   resolveBuilderPlan,
@@ -145,9 +150,25 @@ describe("buildCheckoutBody + cap update", () => {
 describe("personal billing helpers", () => {
   test("uses the authenticated user and preserves a supplied attempt id", () => {
     expect(buildPersonalCheckoutBody({ productId: "mac_prod", userId: "user_1", email: "u@example.com", surface: "mac", checkoutAttemptId: "attempt_1", successUrl: "https://x/billing" })).toEqual({
-      products: ["mac_prod"], success_url: "https://x/billing",
-      metadata: { surface: "mac", user_id: "user_1", email: "u@example.com", checkout_attempt_id: "attempt_1" },
+      products: ["mac_prod"], customer_email: "u@example.com", success_url: "https://x/billing",
+      metadata: { surface: "mac", user_id: "user_1", email: "u@example.com", checkout_attempt_id: "attempt_1", product_line: "people", plan: "beta_19" },
     });
+  });
+
+  test("never sends the empty metadata string that Polar rejects with 422", () => {
+    const body = buildPersonalCheckoutBody({ productId: "mac_prod", userId: "user_1", email: " ", surface: "mac", checkoutAttemptId: "   ", successUrl: "https://x/billing" });
+    const metadata = body.metadata as Record<string, string>;
+    expect(metadata.email).toBeUndefined();
+    expect(body.customer_email).toBeUndefined();
+    expect(metadata.checkout_attempt_id.length).toBeGreaterThan(0);
+    expect(Object.values(metadata).every((value) => value.trim().length >= 1 && value.length <= 500)).toBe(true);
+    expect(polarMetadata({ checkout_attempt_id: "", plan: "  ", seats: 1 })).toEqual({ seats: 1 });
+    expect(checkoutFailureReason(422, "{\"type\":\"string_too_short\"}")).toBe("polar_metadata_rejected");
+    expect(() => buildPersonalCheckoutBody({ productId: " ", userId: "user_1", email: "u@example.com", surface: "mac", successUrl: "https://x/billing" })).toThrow(CheckoutPayloadError);
+  });
+
+  test("keeps the trailing slash tryskilly.app requires on the success page", () => {
+    expect(macCheckoutSuccessUrl("user_1")).toBe("https://tryskilly.app/checkout-success/?uid=user_1");
   });
 
   test("recognizes only a current active entitlement", () => {
@@ -254,6 +275,39 @@ describe("personal subscription webhook status", () => {
   });
   test("ignores unrelated products without personal metadata", () => {
     expect(interpretPersonalSubscriptionEvent({ type: "subscription.active", data: { product_id: "builder_prod", metadata: { tenantId: "tenant_1" } } }, env)).toBeNull();
+  });
+  test("a succeeded Mac checkout activates even when the product id is not the configured one", () => {
+    const update = interpretPersonalSubscriptionEvent({
+      type: "checkout.updated",
+      data: {
+        id: "chk_1",
+        status: "succeeded",
+        product_id: "some_other_product",
+        metadata: { surface: "mac", user_id: "user_1", email: "u@example.com" },
+        modified_at: "2026-10-06T00:00:00Z",
+      },
+    }, env);
+    expect(update?.status).toBe("active");
+    expect(update?.userId).toBe("user_1");
+    expect(update?.preserveExistingPeriod).toBe(true);
+    expect(update?.periodEnd).toBe("2026-11-07T00:00:00Z");
+  });
+  test("clicking pay is not yet an active subscription", () => {
+    expect(interpretPersonalSubscriptionEvent({
+      type: "checkout.updated",
+      data: { status: "confirmed", product_id: "mac_prod", metadata: { surface: "mac", user_id: "user_1" } },
+    }, env)).toBeNull();
+  });
+  test("an expired checkout is a failure and does not grant access", () => {
+    expect(interpretCheckoutFailure({
+      type: "checkout.expired",
+      data: { metadata: { user_id: "user_1" } },
+    })).toEqual({ userId: "user_1", reason: "polar_checkout_expired" });
+    expect(interpretPersonalSubscriptionEvent({
+      type: "checkout.expired",
+      data: { metadata: { surface: "mac", user_id: "user_1" } },
+    }, env)).toBeNull();
+    expect(interpretCheckoutFailure({ type: "checkout.expired", data: {} })?.reason).toBe("missing_user_id");
   });
 });
 

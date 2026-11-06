@@ -42,7 +42,7 @@ enum EntitlementStatus: Sendable {
 
 enum CheckoutStartDecision: Equatable, Sendable {
     case createCheckout
-    case ignoreAlreadyInProgress
+    case offerRetryWhileInFlight
     case openCustomerPortal
 }
 
@@ -71,6 +71,9 @@ struct EntitlementRecord: Codable {
     /// an active subscription parse to nil -> read as .none -> the paying user was
     /// locked out. The worker now normalises to milliseconds, but we truncate here
     /// too so no upstream date-precision change can ever gate access again.
+    /// Stable end used when Polar marks a subscription active but omits dates.
+    static let undatedPaidAccessEnd = ISO8601DateFormatter().date(from: "2099-01-01T00:00:00Z")!
+
     static func parseISO8601(_ string: String) -> Date? {
         if let date = iso8601Formatter.date(from: string) ?? ISO8601DateFormatter().date(from: string) {
             return date
@@ -89,7 +92,14 @@ struct EntitlementRecord: Codable {
             if let endStr = period_end, let end = Self.parseISO8601(endStr) {
                 return .active(periodEnd: end)
             }
-            return .none
+            // A paid row with no parseable end used to become `.none`, so the
+            // customer had paid and the app still showed the trial paywall.
+            // Prefer the period start when we have one. Otherwise use a fixed
+            // end so every refresh does not slide the usage window forward.
+            if let startStr = period_start, let start = Self.parseISO8601(startStr) {
+                return .active(periodEnd: start.addingTimeInterval(32 * 24 * 60 * 60))
+            }
+            return .active(periodEnd: Self.undatedPaidAccessEnd)
         case "canceled":
             if let endStr = period_end, let end = Self.parseISO8601(endStr) {
                 return .canceled(accessUntil: end)
@@ -112,6 +122,13 @@ final class EntitlementManager: ObservableObject {
     @Published private(set) var status: EntitlementStatus = .none
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var isCheckoutInProgress: Bool = false
+    private var checkoutLockStartedAt: Date?
+    private var checkoutGeneration = 0
+
+    /// A checkout that is still inside this window shows a retry instead of
+    /// starting a second Polar session. Older locks are stale and must not
+    /// swallow the next Subscribe click.
+    static let checkoutLockStaleInterval: TimeInterval = 20
 
     private var backendBaseURL: String {
         AppSettings.shared.studioBackendBaseURL
@@ -214,15 +231,27 @@ final class EntitlementManager: ObservableObject {
 
     static func checkoutStartDecision(
         status: EntitlementStatus,
-        isCheckoutInProgress: Bool
+        isCheckoutInProgress: Bool,
+        checkoutLockStartedAt: Date?,
+        now: Date
     ) -> CheckoutStartDecision {
         if isCheckoutInProgress {
-            return .ignoreAlreadyInProgress
+            guard let checkoutLockStartedAt else {
+                return .createCheckout
+            }
+            if now.timeIntervalSince(checkoutLockStartedAt) >= checkoutLockStaleInterval {
+                return .createCheckout
+            }
+            return .offerRetryWhileInFlight
         }
         if case .active = status {
             return .openCustomerPortal
         }
         return .createCheckout
+    }
+
+    static func checkoutAttemptStillOwnsLock(attemptGeneration: Int, currentGeneration: Int) -> Bool {
+        attemptGeneration == currentGeneration
     }
 
     // MARK: - Apply Record
@@ -233,10 +262,11 @@ final class EntitlementManager: ObservableObject {
         switch record.parsedStatus {
         case .active(let periodEnd):
             let periodStart: Date
-            if let startStr = record.period_start {
-                periodStart = ISO8601DateFormatter().date(from: startStr) ?? Date()
+            if let startStr = record.period_start, let parsedStart = EntitlementRecord.parseISO8601(startStr) {
+                periodStart = parsedStart
             } else {
-                periodStart = Date()
+                // Date() here would be newer on every poll and reset the cap.
+                periodStart = periodEnd.addingTimeInterval(-32 * 24 * 60 * 60)
             }
             UsageTracker.shared.refreshFromEntitlement(periodStart: periodStart, periodEnd: periodEnd)
 
@@ -418,16 +448,20 @@ final class EntitlementManager: ObservableObject {
     /// Opens Polar checkout in the default browser. Every failure path either
     /// recovers (sign-in, one token refresh) or tells the user — callers
     /// dismiss their paywall right after this returns.
-    func startCheckout(attemptedRefresh: Bool = false) async {
+    func startCheckout(attemptedRefresh: Bool = false, replaceInFlightCheckout: Bool = false) async {
         let preflightDecision = Self.checkoutStartDecision(
             status: status,
-            isCheckoutInProgress: isCheckoutInProgress
+            isCheckoutInProgress: isCheckoutInProgress,
+            checkoutLockStartedAt: checkoutLockStartedAt,
+            now: Date()
         )
-        if preflightDecision == .ignoreAlreadyInProgress {
+        if preflightDecision == .offerRetryWhileInFlight && !replaceInFlightCheckout {
             SkillyAnalytics.trackCheckoutBlocked(
                 reason: "checkout_in_progress",
                 entitlementStatus: Self.analyticsValue(for: status)
             )
+            guard confirmReplaceInFlightCheckout() else { return }
+            await startCheckout(attemptedRefresh: attemptedRefresh, replaceInFlightCheckout: true)
             return
         }
 
@@ -438,27 +472,44 @@ final class EntitlementManager: ObservableObject {
             // This guard used to silently no-op. Joseph Gibbs (first post-fix
             // new user, 2026-05-30) hit checkout 2× in 4 sec and we had no
             // telemetry on why. Every silent bail now fires skilly_silent_failure.
+            SkillyAnalytics.trackCheckoutFailed(
+                checkoutAttemptId: UUID().uuidString,
+                entitlementStatus: Self.analyticsValue(for: status),
+                reason: "missing_auth_state"
+            )
             SkillyAnalytics.trackSilentFailure(
                 subsystem: "checkout_start",
                 errorCode: "missing_auth_state",
                 errorMessage: "isAuthenticated=\(AuthManager.shared.isAuthenticated) hasUserId=\(AuthManager.shared.currentUser?.id != nil) hasEmail=\(AuthManager.shared.currentUser?.email != nil)",
                 surface: "user_checkout_click"
             )
+            AuthManager.shared.noteCheckoutRequested()
             AuthManager.shared.startSignIn()
             return
         }
 
+        checkoutGeneration += 1
+        let generation = checkoutGeneration
         isCheckoutInProgress = true
-        defer { isCheckoutInProgress = false }
+        checkoutLockStartedAt = Date()
+        defer {
+            if Self.checkoutAttemptStillOwnsLock(attemptGeneration: generation, currentGeneration: checkoutGeneration) {
+                isCheckoutInProgress = false
+                checkoutLockStartedAt = nil
+            }
+        }
 
         // Entitlement can change through a webhook while the app remains open.
         // Refresh immediately before purchase creation so a stale trial screen
         // cannot sell a second subscription to an already-paying customer.
         await refresh()
 
+        guard Self.checkoutAttemptStillOwnsLock(attemptGeneration: generation, currentGeneration: checkoutGeneration) else { return }
         let refreshedDecision = Self.checkoutStartDecision(
             status: status,
-            isCheckoutInProgress: false
+            isCheckoutInProgress: false,
+            checkoutLockStartedAt: nil,
+            now: Date()
         )
         if refreshedDecision == .openCustomerPortal {
             SkillyAnalytics.trackCheckoutBlocked(
@@ -479,6 +530,11 @@ final class EntitlementManager: ObservableObject {
 
         do {
             guard let url = URL(string: "\(backendBaseURL)/api/mac/checkout") else {
+                SkillyAnalytics.trackCheckoutFailed(
+                    checkoutAttemptId: checkoutAttemptId,
+                    entitlementStatus: entitlementStatus,
+                    reason: "invalid_backend_url"
+                )
                 SkillyAnalytics.trackSilentFailure(subsystem: "checkout_start", errorCode: "invalid_backend_url", errorMessage: backendBaseURL, surface: "user_checkout_click")
                 showCheckoutFailureAlert()
                 return
@@ -487,7 +543,13 @@ final class EntitlementManager: ObservableObject {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             guard AuthManager.shared.applyWorkerSessionAuthorization(to: &request) else {
+                SkillyAnalytics.trackCheckoutFailed(
+                    checkoutAttemptId: checkoutAttemptId,
+                    entitlementStatus: entitlementStatus,
+                    reason: "no_session_token"
+                )
                 SkillyAnalytics.trackSilentFailure(subsystem: "checkout_start", errorCode: "no_session_token", errorMessage: "applyWorkerSessionAuthorization returned false — Keychain session token missing", surface: "user_checkout_click")
+                AuthManager.shared.noteCheckoutRequested()
                 AuthManager.shared.startSignIn()
                 return
             }
@@ -505,6 +567,7 @@ final class EntitlementManager: ObservableObject {
             )
 
             let (data, urlResponse) = try await URLSession.shared.data(for: request)
+            guard Self.checkoutAttemptStillOwnsLock(attemptGeneration: generation, currentGeneration: checkoutGeneration) else { return }
             let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? -1
 
             // MARK: - Skilly — v1.10: detect non-200 from Worker before trying to decode
@@ -520,29 +583,48 @@ final class EntitlementManager: ObservableObject {
                     await startCustomerPortal()
                     return
                 }
+                struct CheckoutFailureBody: Decodable { let reason: String? }
+                let serverReason = (try? JSONDecoder().decode(CheckoutFailureBody.self, from: data))?.reason
+                let failureReason = (serverReason?.isEmpty == false ? serverReason : nil) ?? "backend_non_200"
+                // A stale session can be refreshed once. Report it as a failure
+                // only when that refresh cannot put the user back into checkout.
+                if statusCode == 401 {
+                    SkillyAnalytics.trackSilentFailure(
+                        subsystem: "polar_checkout",
+                        httpStatus: statusCode,
+                        errorCode: "backend_session_stale",
+                        errorMessage: body,
+                        surface: "user_checkout_click"
+                    )
+                    guard Self.checkoutAttemptStillOwnsLock(attemptGeneration: generation, currentGeneration: checkoutGeneration) else { return }
+                    if !attemptedRefresh, (try? await AuthManager.shared.refreshAccessToken()) != nil {
+                        guard Self.checkoutAttemptStillOwnsLock(attemptGeneration: generation, currentGeneration: checkoutGeneration) else { return }
+                        await startCheckout(attemptedRefresh: true, replaceInFlightCheckout: true)
+                    } else {
+                        SkillyAnalytics.trackCheckoutFailed(
+                            checkoutAttemptId: checkoutAttemptId,
+                            entitlementStatus: entitlementStatus,
+                            reason: "session_expired",
+                            httpStatus: statusCode
+                        )
+                        AuthManager.shared.noteCheckoutRequested()
+                        AuthManager.shared.startSignIn()
+                    }
+                    return
+                }
                 SkillyAnalytics.trackCheckoutFailed(
                     checkoutAttemptId: checkoutAttemptId,
                     entitlementStatus: entitlementStatus,
-                    reason: statusCode == 401 ? "backend_session_stale" : "backend_non_200",
+                    reason: failureReason,
                     httpStatus: statusCode
                 )
                 SkillyAnalytics.trackSilentFailure(
                     subsystem: "polar_checkout",
                     httpStatus: statusCode,
-                    errorCode: statusCode == 401 ? "backend_session_stale" : "non_200_from_backend",
+                    errorCode: failureReason,
                     errorMessage: body,
                     surface: "user_checkout_click"
                 )
-                // Same one-refresh recovery as the voice token fetch.
-                if statusCode == 401 {
-                    if !attemptedRefresh, (try? await AuthManager.shared.refreshAccessToken()) != nil {
-                        isCheckoutInProgress = false
-                        await startCheckout(attemptedRefresh: true)
-                    } else {
-                        AuthManager.shared.startSignIn()
-                    }
-                    return
-                }
                 showCheckoutFailureAlert()
                 return
             }
@@ -552,6 +634,7 @@ final class EntitlementManager: ObservableObject {
                 let checkout_id: String?
             }
             let decoded = try JSONDecoder().decode(CheckoutResponse.self, from: data)
+            guard Self.checkoutAttemptStillOwnsLock(attemptGeneration: generation, currentGeneration: checkoutGeneration) else { return }
 
             if let checkoutURL = URL(string: decoded.checkout_url) {
                 SkillyAnalytics.trackCheckoutURLCreated(
@@ -592,6 +675,7 @@ final class EntitlementManager: ObservableObject {
                 showCheckoutFailureAlert()
             }
         } catch {
+            guard Self.checkoutAttemptStillOwnsLock(attemptGeneration: generation, currentGeneration: checkoutGeneration) else { return }
             SkillyAnalytics.trackCheckoutFailed(
                 checkoutAttemptId: checkoutAttemptId,
                 entitlementStatus: entitlementStatus,
@@ -608,6 +692,17 @@ final class EntitlementManager: ObservableObject {
             )
             showCheckoutFailureAlert()
         }
+    }
+
+    private func confirmReplaceInFlightCheckout() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Checkout is already opening"
+        alert.informativeText = "If the payment page didn't appear, start a fresh checkout. You can keep waiting if the browser is still loading."
+        alert.addButton(withTitle: "Start a new checkout")
+        alert.addButton(withTitle: "Keep waiting")
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func showCheckoutFailureAlert() {

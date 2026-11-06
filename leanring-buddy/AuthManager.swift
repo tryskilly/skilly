@@ -49,7 +49,8 @@ final class AuthManager: ObservableObject {
     private static let keychainRefreshTokenKey = "refreshToken"
     private static let keychainWorkerSessionTokenKey = "workerSessionToken"
     private static let keychainUserKey = "currentUser"
-    private static let oauthStateLifetimeSeconds: TimeInterval = 10 * 60
+    private static let pendingCheckoutAfterSignInKey = "pendingCheckoutAfterSignIn"
+    private static let pendingOAuthAuthorizeURLKey = "pendingOAuthAuthorizeURL"
 
     // Persisted to UserDefaults so the state survives an app restart
     // during the auth flow (e.g., if the release script rebuilds the app
@@ -66,6 +67,47 @@ final class AuthManager: ObservableObject {
         set {
             UserDefaults.standard.set(newValue?.timeIntervalSince1970 ?? 0, forKey: "pendingOAuthStateCreatedAt")
         }
+    }
+    private var pendingOAuthAuthorizeURL: String? {
+        get { UserDefaults.standard.string(forKey: Self.pendingOAuthAuthorizeURLKey) }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: Self.pendingOAuthAuthorizeURLKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.pendingOAuthAuthorizeURLKey)
+            }
+        }
+    }
+    private var checkoutResumeRequested: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.pendingCheckoutAfterSignInKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.pendingCheckoutAfterSignInKey) }
+    }
+
+    private var storedOAuthHandoff: CheckoutAuthHandoff? {
+        guard let pendingOAuthState, let pendingOAuthStateCreatedAt else { return nil }
+        return CheckoutAuthHandoff(
+            state: pendingOAuthState,
+            createdAt: pendingOAuthStateCreatedAt,
+            authorizeURL: pendingOAuthAuthorizeURL
+        )
+    }
+
+    private func storeOAuthHandoff(_ handoff: CheckoutAuthHandoff?) {
+        pendingOAuthState = handoff?.state
+        pendingOAuthStateCreatedAt = handoff?.createdAt
+        pendingOAuthAuthorizeURL = handoff?.authorizeURL
+    }
+
+    /// Remember that Subscribe was clicked before a session existed, so a
+    /// successful deep link continues into Polar instead of stopping at sign-in.
+    func noteCheckoutRequested() {
+        checkoutResumeRequested = true
+    }
+
+    func consumeCheckoutRequest() -> Bool {
+        let requested = checkoutResumeRequested
+        checkoutResumeRequested = false
+        return requested
     }
 
     var isSignedIn: Bool {
@@ -89,11 +131,20 @@ final class AuthManager: ObservableObject {
         authError = nil
 
         Task {
-            do {
-                let oauthState = Self.generateOAuthState()
-                pendingOAuthState = oauthState
-                pendingOAuthStateCreatedAt = Date()
+            let now = Date()
+            if CheckoutAuthHandoffPolicy.beginDecision(existing: storedOAuthHandoff, now: now) == .reuseExisting,
+               let handoff = storedOAuthHandoff {
+                // Re-open the same authorize URL. Minting a new state here is
+                // what made the in-flight browser tab fail callback validation.
+                if let authorizeURL = handoff.authorizeURL, let url = URL(string: authorizeURL) {
+                    NSWorkspace.shared.open(url)
+                }
+                return
+            }
 
+            let oauthState = Self.generateOAuthState()
+            storeOAuthHandoff(CheckoutAuthHandoff(state: oauthState, createdAt: now, authorizeURL: nil))
+            do {
                 // Get the auth URL from the Studio backend.
                 var components = URLComponents(string: "\(backendBaseURL)/api/mac/auth/url")!
                 components.queryItems = [
@@ -105,15 +156,19 @@ final class AuthManager: ObservableObject {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 let response = try JSONDecoder().decode(AuthURLResponse.self, from: data)
 
-                // Open in browser
+                // A newer click may have replaced this handoff while the URL
+                // request was in flight. Only the current state may open.
+                guard storedOAuthHandoff?.state == oauthState else { return }
+                storeOAuthHandoff(CheckoutAuthHandoff(state: oauthState, createdAt: now, authorizeURL: response.url))
                 if let authURL = URL(string: response.url) {
                     NSWorkspace.shared.open(authURL)
                 }
             } catch {
+                if storedOAuthHandoff?.state == oauthState {
+                    storeOAuthHandoff(nil)
+                }
                 isAuthenticating = false
                 authError = "Failed to start sign in: \(error.localizedDescription)"
-                pendingOAuthState = nil
-                pendingOAuthStateCreatedAt = nil
                 // MARK: - Skilly — Debug logging (stripped in release)
                 #if DEBUG
                 print("⚠️ Skilly Auth: Failed to get auth URL: \(error)")
@@ -128,11 +183,25 @@ final class AuthManager: ObservableObject {
         #if DEBUG
         print("🔑 Skilly Auth: callback state=\(state ?? "nil"), pending=\(pendingOAuthState ?? "nil")")
         #endif
-        guard validateOAuthState(state) else {
+        let callbackDecision = CheckoutAuthHandoffPolicy.callbackDecision(
+            pending: storedOAuthHandoff,
+            callbackState: state,
+            now: Date()
+        )
+        guard callbackDecision == .accept else {
             isAuthenticating = false
-            authError = "Sign in failed: invalid OAuth state"
+            authError = CheckoutAuthHandoffPolicy.userFacingMessage(for: callbackDecision)
+            storeOAuthHandoff(nil)
+            if checkoutResumeRequested,
+               let reason = CheckoutAuthHandoffPolicy.checkoutFailureReason(for: callbackDecision) {
+                SkillyAnalytics.trackCheckoutFailed(
+                    checkoutAttemptId: UUID().uuidString,
+                    entitlementStatus: "unknown",
+                    reason: reason
+                )
+            }
             #if DEBUG
-            print("⚠️ Skilly Auth: OAuth state mismatch — callback=\(state ?? "nil") pending=\(pendingOAuthState ?? "nil") age=\(pendingOAuthStateCreatedAt.map { Date().timeIntervalSince($0) } ?? -1)s")
+            print("⚠️ Skilly Auth: OAuth state \(callbackDecision) — callback=\(state ?? "nil") pending=\(pendingOAuthState ?? "nil")")
             #endif
             return
         }
@@ -176,8 +245,8 @@ final class AuthManager: ObservableObject {
                 isAuthenticated = true
                 isAuthenticating = false
                 authError = nil
-                pendingOAuthState = nil
-                pendingOAuthStateCreatedAt = nil
+                storeOAuthHandoff(nil)
+                let shouldResumeCheckout = consumeCheckoutRequest()
 
                 // MARK: - Skilly — Identify the user in PostHog exactly once per
                 // authenticated session, right after the token exchange succeeds.
@@ -198,12 +267,14 @@ final class AuthManager: ObservableObject {
                 #if DEBUG
                 print("🎯 Skilly Auth: Signed in as \(authResponse.user.email)")
                 #endif
+                if shouldResumeCheckout {
+                    await EntitlementManager.shared.startCheckout()
+                }
 
             } catch {
                 isAuthenticating = false
                 authError = "Sign in failed: \(error.localizedDescription)"
-                pendingOAuthState = nil
-                pendingOAuthStateCreatedAt = nil
+                storeOAuthHandoff(nil)
                 // MARK: - Skilly — Debug logging (stripped in release)
                 #if DEBUG
                 print("⚠️ Skilly Auth: Token exchange failed: \(error)")
@@ -221,8 +292,8 @@ final class AuthManager: ObservableObject {
         deleteFromKeychain(key: Self.keychainUserKey)
         currentUser = nil
         isAuthenticated = false
-        pendingOAuthState = nil
-        pendingOAuthStateCreatedAt = nil
+        storeOAuthHandoff(nil)
+        checkoutResumeRequested = false
         // MARK: - Skilly — Clear PostHog identity so the next user who signs in
         // on this machine doesn't inherit the previous distinct_id.
         SkillyAnalytics.reset()
@@ -334,21 +405,6 @@ final class AuthManager: ObservableObject {
         #else
         return randomState
         #endif
-    }
-
-    private func validateOAuthState(_ callbackState: String?) -> Bool {
-        guard let pendingOAuthState,
-              let pendingOAuthStateCreatedAt,
-              let callbackState else {
-            return false
-        }
-
-        let stateAgeInSeconds = Date().timeIntervalSince(pendingOAuthStateCreatedAt)
-        guard stateAgeInSeconds <= Self.oauthStateLifetimeSeconds else {
-            return false
-        }
-
-        return callbackState == pendingOAuthState
     }
 
     // MARK: - Keychain Helpers

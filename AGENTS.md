@@ -106,14 +106,15 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `AuthManager.swift` | ~410 | WorkOS AuthKit flow: browser sign-in via `/auth/url`, OAuth `state` generation/validation (persisted to UserDefaults to survive restarts), deep link callback `skilly://auth/callback`, code exchange via `/auth/token`, Keychain storage with `ThisDeviceOnly` accessibility (access/refresh/session tokens), refresh token support, sign-out. |
+| `AuthManager.swift` | ~500 | WorkOS AuthKit flow: browser sign-in via `/auth/url`, OAuth `state` generation/validation (persisted to UserDefaults to survive restarts), deep link callback `skilly://auth/callback`, code exchange via `/auth/token`, Keychain storage with `ThisDeviceOnly` accessibility (access/refresh/session tokens), refresh token support, sign-out. Reuses an unexpired checkout handoff instead of rotating `state`, then resumes Polar checkout after sign-in. |
 | `SkillyAnalytics.swift` | ~225 | PostHog analytics. Privacy-first: no transcript/response text captured, only character counts and element labels. Gated by `analyticsEnabled` setting. Events for push-to-talk, skill activation, curriculum advancement, entitlement state, paywall impressions. |
 
 ### Billing & Entitlements
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `EntitlementManager.swift` | ~310 | Central entitlement singleton. Defines `EntitlementStatus` (`none`/`trial`/`active`/`canceled`/`expired`) and `BlockReason`. Syncs records from Worker `/entitlement` KV, starts checkout via `/checkout/create`, opens customer portal via `/portal`. Publishes `status` to SwiftUI observers. |
+| `CheckoutAuthHandoff.swift` | ~80 | Pure sign-in handoff rules for checkout: reuse an unexpired OAuth state, reject a mismatched or expired callback, and keep the queued checkout until sign-in succeeds. |
+| `EntitlementManager.swift` | ~800 | Central entitlement singleton. Defines `EntitlementStatus` (`none`/`trial`/`active`/`canceled`/`expired`) and `BlockReason`. Syncs records from Studio `/api/mac/entitlement`, starts checkout via `/api/mac/checkout`, opens the customer portal via `/api/mac/portal`. A fresh checkout lock offers a retry; a stale lock does not block the next click. Publishes `status` to SwiftUI observers. |
 | `TrialTracker.swift` | ~195 | One-shot 15-minute lifetime free trial per WorkOS user. Keyed by user ID, UserDefaults-backed. Never resets once exhausted. 80% warning threshold at 12 min. |
 | `UsageTracker.swift` | ~140 | 3-hour monthly cap for paid subscribers. Period boundaries sourced from `EntitlementManager` (not rolling windows). 80% warning threshold at 2h 24m. Keyed by user ID. |
 | `PlanStrip.swift` | ~310 | Compact plan-state strip always visible at panel top. Observes all three trackers. Styled contextually: subtle in healthy states (TRIAL, ACTIVE), visually weighted in alert states (LOW, EMPTY, ENDED). |
@@ -144,7 +145,7 @@ Legacy secrets (unused by current pipeline): `ANTHROPIC_API_KEY`, `ASSEMBLYAI_AP
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `worker/src/index.ts` | ~900 | Worker proxy. Routes: `/openai/token` (active, authenticated, ephemeral secret mint), `/auth/url`, `/auth/callback`, `/auth/token` (active), `/checkout/create`, `/entitlement`, `/portal`, `/webhooks/polar` (Polar billing, Standard Webhooks signatures, KV-backed entitlements), `/chat`, `/tts`, `/transcribe-token` (legacy, authenticated). All API keys stored as secrets. |
+| `worker/src/index.ts` | ~1400 | Worker proxy. Routes: `/openai/token` (active, authenticated, ephemeral secret mint), `/auth/url`, `/auth/callback`, `/auth/token` (active), `/checkout/create`, `/entitlement`, `/portal`, `/webhooks/polar` (Polar billing, Standard Webhooks signatures, KV-backed entitlements), `/chat`, `/tts`, `/transcribe-token` (legacy, authenticated). Checkout metadata drops blank strings so Polar does not 422. All API keys stored as secrets. |
 
 ### Rust Core Scaffold (`core/`) — landed on `develop` (Slice 1)
 
