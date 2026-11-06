@@ -23,6 +23,9 @@ extension Notification.Name {
     // opens the panel so the re-sign-in UI is immediately visible instead of
     // leaving the user wondering why push-to-talk went silent.
     static let skillyAuthExpired = Notification.Name("skillyAuthExpired")
+    /// A turn failed in a way the user can recover from (no credit, connection).
+    /// Opens the panel so the explanation is on screen instead of a silent stop.
+    static let skillyRecoverableSessionFailure = Notification.Name("skillyRecoverableSessionFailure")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -40,6 +43,7 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
     // MARK: - Skilly — Observer for auth-expired event (stale Worker session token)
     private var authExpiredObserver: NSObjectProtocol?
+    private var recoverableSessionFailureObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
     // MARK: - Skilly
@@ -47,7 +51,8 @@ final class MenuBarPanelManager: NSObject {
     private let authManager: AuthManager?
     private let checkForUpdates: () -> Void
     private let panelWidth: CGFloat = 300
-    private let panelHeight: CGFloat = 380
+    // Tall enough for the first-question suggestions under the skill list.
+    private let panelHeight: CGFloat = 460
 
     init(
         companionManager: CompanionManager,
@@ -87,6 +92,16 @@ final class MenuBarPanelManager: NSObject {
                 self?.showPanel()
             }
         }
+
+        recoverableSessionFailureObserver = NotificationCenter.default.addObserver(
+            forName: .skillyRecoverableSessionFailure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.showPanel()
+            }
+        }
     }
 
     deinit {
@@ -97,6 +112,9 @@ final class MenuBarPanelManager: NSObject {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = authExpiredObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = recoverableSessionFailureObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }

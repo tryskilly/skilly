@@ -119,7 +119,9 @@ final class TrialTracker: ObservableObject {
         guard let userId, hasStarted, hasRecordedFirstTurn == false else { return }
         hasRecordedFirstTurn = true
         SkillyAnalytics.trackTrialFirstTurn(userId: userId)
-        NotificationCenter.default.post(name: .trialFirstTurnCompleted, object: nil)
+        // The upgrade card is posted by CompanionManager only after a spoken
+        // answer. Posting here used to fire it on any first response.done,
+        // including turns that never produced audio.
     }
 
     /// Call on each session end. Pass session duration in seconds.

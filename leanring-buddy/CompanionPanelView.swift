@@ -61,6 +61,12 @@ struct CompanionPanelView: View {
                     .padding(.top, 16)
                     .padding(.horizontal, 16)
 
+                if let skillManager, !companionManager.hasAskedFirstQuestion {
+                    guidedFirstQuestions(skillManager: skillManager)
+                        .padding(.top, 12)
+                        .padding(.horizontal, 16)
+                }
+
                 Spacer().frame(height: 16)
 
                 onboardingStartButton
@@ -69,13 +75,23 @@ struct CompanionPanelView: View {
             } else if let skillManager {
                 // Main content — single unified view, no navigation
                 VStack(alignment: .leading, spacing: 10) {
+                    if let notice = companionManager.recoverableSessionNotice {
+                        recoverableSessionNoticeBanner(notice)
+                    }
                     if showFirstTurnUpgrade {
                         firstTurnUpgradeCard
                     }
                     if showCheckoutRetry {
                         checkoutRetryCard
                     }
-                    PanelBodyView(skillManager: skillManager)
+                    ScrollView {
+                        PanelBodyView(skillManager: skillManager)
+                    }
+                    .frame(maxHeight: 220)
+                    if !companionManager.hasAskedFirstQuestion {
+                        guidedFirstQuestions(skillManager: skillManager)
+                            .padding(.horizontal, 12)
+                    }
                 }
 
                 Divider()
@@ -109,8 +125,16 @@ struct CompanionPanelView: View {
         .background(panelBackground)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: .trialFirstTurnCompleted)) { _ in
+            let trialTimeIsExhausted = FirstSessionPolicy.trialTimeIsExhausted(
+                secondsUsed: TrialTracker.shared.totalSecondsUsed,
+                isAdmin: AdminAllowlist.isCurrentUserAdmin
+            )
             guard !AdminAllowlist.isCurrentUserAdmin,
-                  case .trial = EntitlementManager.shared.status,
+                  FirstSessionPolicy.shouldShowUpgradePrompt(
+                    hasSuccessfulSpokenAnswer: companionManager.hasSuccessfulSpokenAnswer,
+                    trialTimeIsExhausted: trialTimeIsExhausted,
+                    isTrialLike: true
+                  ),
                   let userId = AuthManager.shared.currentUser?.id else { return }
             showFirstTurnUpgrade = true
             SkillyAnalytics.trackTrialUpgradePromptShown(userId: userId)
@@ -155,6 +179,37 @@ struct CompanionPanelView: View {
         .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium))
         .padding(.horizontal, 12)
+    }
+
+    private func recoverableSessionNoticeBanner(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Dismiss") {
+                companionManager.dismissRecoverableSessionNotice()
+            }
+            .font(.system(size: 11, weight: .medium))
+            .buttonStyle(.plain)
+            .foregroundColor(DS.Colors.textTertiary)
+            .pointerCursor()
+        }
+        .padding(12)
+        .background(DS.Colors.warning.opacity(0.12))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.warning.opacity(0.4), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium))
+        .padding(.horizontal, 12)
+    }
+
+    @ViewBuilder
+    private func guidedFirstQuestions(skillManager: SkillManager) -> some View {
+        GuidedFirstQuestionCard(skillManager: skillManager) { question in
+            if !companionManager.hasCompletedOnboarding {
+                companionManager.triggerOnboarding(shouldPresentGuidedPrompt: false)
+            }
+            Task { await companionManager.submitTextPrompt(question, source: .suggested) }
+        }
     }
 
     private var firstTurnUpgradeCard: some View {
@@ -972,7 +1027,18 @@ struct CompanionPanelView: View {
             }
 
         case .none, .expired:
-            trialExhaustedStrip
+            // A missing entitlement is a new trial, not a used-up one.
+            // The subscribe row waits until the 15 minutes are actually gone.
+            if FirstSessionPolicy.shouldShowTrialEndedPaywall(
+                trialTimeIsExhausted: FirstSessionPolicy.trialTimeIsExhausted(
+                    secondsUsed: TrialTracker.shared.totalSecondsUsed,
+                    isAdmin: AdminAllowlist.isCurrentUserAdmin
+                )
+            ) {
+                trialExhaustedStrip
+            } else {
+                trialActiveStrip
+            }
         }
     }
 
@@ -1079,4 +1145,43 @@ struct CompanionPanelView: View {
         }
     }
 
+}
+
+/// Suggested first questions for the app currently in front of the user.
+private struct GuidedFirstQuestionCard: View {
+    @ObservedObject var skillManager: SkillManager
+    var onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let guidedQuestions = FirstSessionPolicy.guidedQuestions(
+                forFrontmostBundleId: skillManager.frontmostAppBundleId
+            ) {
+                Text("Try a first question in \(guidedQuestions.appName)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                ForEach(guidedQuestions.questions, id: \.self) { question in
+                    Button(action: { onSelect(question) }) {
+                        Text(question)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.05))
+                            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel(question)
+                    .accessibilityHint("Asks Skilly this question about \(guidedQuestions.appName)")
+                }
+            } else {
+                Text("Open \(FirstSessionPolicy.supportedAppNames.joined(separator: ", ")) and I'll suggest a first question.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
 }
