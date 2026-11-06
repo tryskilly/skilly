@@ -54,7 +54,7 @@ Self-serve control plane at [tryskilly.app](https://tryskilly.app). Manage API k
 - **Live Tutor mode** — always-on listening with server-side VAD (no hotkey needed)
 - **Multi-monitor** — captures and points across all connected displays (macOS)
 - **Bring Your Own Key** — bypass billing by supplying your own OpenAI API key
-- **15-minute free trial** — no card required, then $19/month for 3 hours of tutoring
+- **15-minute trial** — no card required, then $19/month for 3 hours of tutoring
 
 ## Quick start with Claude Code
 

@@ -1078,7 +1078,7 @@ final class OpenAIRealtimeClient: ObservableObject {
             case .authExpired: return "Your Skilly session has expired. Please sign in again."
             case .accessBlocked(let code):
                 switch code {
-                case "trial_exhausted": return "Your free trial has ended. Subscribe to continue."
+                case "trial_exhausted": return "Your 15-minute trial has ended. Subscribe to continue."
                 case "cap_reached": return "You've reached your monthly usage limit."
                 case "subscription_inactive": return "No active subscription found."
                 case "client_migration_required", "update_required": return "Please update Skilly before starting a hosted session."

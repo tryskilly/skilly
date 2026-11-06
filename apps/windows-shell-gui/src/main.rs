@@ -873,7 +873,7 @@ impl RuntimeStore {
         if !decision.allowed {
             return Err(match decision.reason {
                 Some(skilly_core_domain::BlockReason::TrialExhausted) => {
-                    "Your 15-minute free trial has ended. Subscribe to continue."
+                    "Your 15-minute trial has ended. Subscribe to continue."
                 }
                 Some(skilly_core_domain::BlockReason::CapReached) => {
                     "Your 3-hour usage allowance for this billing period has been reached."
@@ -1303,8 +1303,9 @@ fn build_app_state(runtime_store: &RuntimeStore) -> app_state::AppState {
     if runtime.account_email.is_some() && runtime.usage_label.is_none() {
         let used = runtime_store.trial_seconds_used.load(Ordering::Relaxed);
         let remaining = TRIAL_SECONDS.saturating_sub(used);
-        runtime.plan_label = Some("Free trial".to_owned());
-        runtime.usage_label = Some(format!("{} min remaining", remaining.div_ceil(60)));
+        let remainingMinutes = remaining.div_ceil(60);
+        runtime.plan_label = Some(format!("Trial: {remainingMinutes}m left"));
+        runtime.usage_label = Some(format!("{remainingMinutes} min remaining"));
     }
     let mut skill_items = Vec::new();
     if let Ok(store) = skill_store() {

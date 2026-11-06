@@ -15,7 +15,7 @@ enum BlockReason: Sendable {
     var displayMessage: String {
         switch self {
         case .trialExhausted:
-            return "Your free trial has ended. Subscribe to continue."
+            return "Your 15-minute trial has ended. Subscribe to continue."
         case .capReached:
             return "You've reached your monthly usage limit."
         case .subscriptionInactive:
@@ -723,7 +723,7 @@ final class EntitlementManager: ObservableObject {
 
     // MARK: - Trial Begin
 
-    /// Called when user clicks "Start Free Trial" from the subscription required modal.
+    /// Called when the user starts the 15-minute trial from the subscription modal.
     func beginFreeTrial() {
         TrialTracker.shared.beginTrialIfNeeded()
         status = .trial(remainingSeconds: TrialTracker.shared.remainingSeconds)

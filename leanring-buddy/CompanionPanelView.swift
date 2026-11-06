@@ -1045,7 +1045,7 @@ struct CompanionPanelView: View {
     private var trialActiveStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Trial: \(formatTime(Int(TrialTracker.shared.remainingSeconds))) remaining")
+                Text(trialTimeLeftLabel)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
@@ -1133,6 +1133,14 @@ struct CompanionPanelView: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .frame(height: 32)
+    }
+
+    private var trialTimeLeftLabel: String {
+        let remainingSeconds = Int(max(0, TrialTracker.shared.remainingSeconds))
+        if remainingSeconds >= 60 {
+            return "Trial: \(remainingSeconds / 60)m left"
+        }
+        return "Trial: \(remainingSeconds)s left"
     }
 
     private func formatTime(_ seconds: Int) -> String {

@@ -133,7 +133,7 @@ struct PlanStrip: View {
         compactStrip(
             label: "TRIAL",
             labelColor: Color(hex: "#60A5FA"),  // Blue 400 — trial signal
-            detail: "\(formatRemaining(remainingSeconds)) left",
+            detail: trialTimeLeftDetail(remainingSeconds),
             progress: progress,
             progressColor: Color(hex: "#60A5FA")
         )
@@ -326,6 +326,15 @@ struct PlanStrip: View {
     }
 
     // MARK: - Formatting
+
+    /// "Trial: 15m left" while time remains. The panel does not call this free.
+    private func trialTimeLeftDetail(_ seconds: TimeInterval) -> String {
+        let remainingSeconds = Int(max(0, seconds))
+        if remainingSeconds >= 60 {
+            return "Trial: \(remainingSeconds / 60)m left"
+        }
+        return "Trial: \(remainingSeconds)s left"
+    }
 
     private func formatRemaining(_ seconds: TimeInterval) -> String {
         let totalSeconds = Int(max(0, seconds))

@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import PostHog
 
-/// Tracks the 15-minute lifetime free trial per WorkOS user.
+/// Tracks the 15-minute lifetime trial per WorkOS user.
 /// Keys are suffixed with the WorkOS user ID from AuthManager.shared.currentUser?.id.
 /// One-shot: once exhausted, stays exhausted — never resets.
 @MainActor

@@ -152,7 +152,7 @@ export function AppShell({
   const remainingMinutes = Math.max(0, capMinutes - usedMinutes);
   const workspaceUsageLabel = usageCapSeconds > 0
     ? `Paid · ${remainingMinutes} min left`
-    : `Free · test mode · ${usedMinutes} min used`;
+    : `Test mode · ${usedMinutes} min used`;
   const goLiveSteps = [
     { label: "Draft the guide", done: hasSkill, href: "/dashboard/setup" },
     { label: "Try it on your site", done: hasPreviewed, href: "/dashboard/widget" },

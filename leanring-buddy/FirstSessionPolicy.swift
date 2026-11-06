@@ -121,7 +121,7 @@ enum FirstSessionPolicy {
         switch failedPath {
         case .userKey where trialStillAvailable:
             return QuotaRecovery(
-                userMessage: "Your OpenAI key has no credit. Add credit, or stay on the free trial — switching you to Skilly's hosted tutor.",
+                userMessage: "Your OpenAI key has no credit. Add credit, or stay on the 15-minute trial — switching you to Skilly's hosted tutor.",
                 shouldFallBackToHostedTrial: true,
                 analyticsReason: "openai_quota_user_key"
             )

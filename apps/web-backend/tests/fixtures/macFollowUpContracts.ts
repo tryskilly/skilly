@@ -147,7 +147,7 @@ const tenantId = (await memoryRepo.createTenant({ name: "Customer workspace" }))
 await memoryRepo.recordTenantCheckoutStarted(tenantId);
 const beforeHtml = renderToStaticMarkup(await FollowUpPage());
 assert.ok(beforeHtml.includes("Extend trial +15 min"));
-assert.ok(beforeHtml.includes("Give 30 free minutes"));
+assert.ok(beforeHtml.includes("Give 30 minutes"));
 assert.ok(beforeHtml.includes(`href="/dashboard/admin/tenants/${tenantId}"`));
 assert.ok(beforeHtml.includes("Manage"));
 assert.ok(beforeHtml.includes("0 trial minutes remaining"));

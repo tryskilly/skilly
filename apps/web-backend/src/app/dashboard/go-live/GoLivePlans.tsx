@@ -39,12 +39,12 @@ export function GoLivePlans({ capSeconds, plans, children }: {
                 <StepBadge step={3} />
                 <h2 className="text-base font-bold text-fg">Pick a plan to turn Skilly on for visitors</h2>
               </div>
-              <p className="text-sm text-fg-muted">Free covers your own testing. A plan sets how many minutes your visitors can talk to Skilly each month.</p>
+              <p className="text-sm text-fg-muted">Test mode covers your own testing. A plan sets how many minutes your visitors can talk to Skilly each month.</p>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" role="radiogroup" aria-label="Choose your plan">
                 <button type="button" role="radio" aria-checked={selectedPlanId === "free"} disabled={busy}
                   onClick={() => setSelectedPlanId("free")}
                   className={`rounded-[12px] border p-4 text-left transition ${selectedPlanId === "free" ? "border-accent-line bg-accent-soft ring-1 ring-accent" : "border-line bg-surface-sunken hover:bg-surface-strong"}`}>
-                  <span className="flex items-center justify-between gap-2"><span className="text-sm font-bold text-fg">Free</span><StatusPill label="Current" /></span>
+                  <span className="flex items-center justify-between gap-2"><span className="text-sm font-bold text-fg">Test mode</span><StatusPill label="Current" /></span>
                   <span className="mt-3 block text-3xl font-bold tracking-tight text-fg">$0</span>
                   <span className="mt-3 block text-xs leading-5 text-fg-muted">Test mode only. Visitors can&apos;t see Skilly.</span>
                 </button>
@@ -70,9 +70,9 @@ export function GoLivePlans({ capSeconds, plans, children }: {
         {!hasPaidPlan && (
           <div className="flex flex-col items-end gap-2">
             <Button type="button" variant={selectedPlan ? "primary" : "secondary"} disabled={busy || !selectedPlan}
-              className="h-12 px-5" analyticsEvent="dashboard_checkout_clicked" analyticsLabel={selectedPlan ? `Go live with ${selectedPlan.name}` : "Stay on Free"}
+              className="h-12 px-5" analyticsEvent="dashboard_checkout_clicked" analyticsLabel={selectedPlan ? `Go live with ${selectedPlan.name}` : "Stay in test mode"}
               onClick={() => { if (selectedPlan) void startCheckout(selectedPlan.id); }}>
-              {busy ? "Opening…" : selectedPlan ? `Go live with ${selectedPlan.name} · $${selectedPlan.priceMonthly}/mo` : "Stay on Free"}
+              {busy ? "Opening…" : selectedPlan ? `Go live with ${selectedPlan.name} · $${selectedPlan.priceMonthly}/mo` : "Stay in test mode"}
             </Button>
             {error && <p role="alert" className="text-sm text-danger">{error}</p>}
           </div>

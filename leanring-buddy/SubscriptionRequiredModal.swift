@@ -23,7 +23,7 @@ struct SubscriptionRequiredModal: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(DS.Colors.textPrimary)
 
-            Text("An active subscription is needed to use Skilly. Start your free trial or subscribe today.")
+            Text("An active subscription is needed to use Skilly. Start the 15-minute trial or subscribe today.")
                 .font(.system(size: 13))
                 .foregroundColor(DS.Colors.textSecondary)
                 .lineSpacing(2)
@@ -35,7 +35,7 @@ struct SubscriptionRequiredModal: View {
                 EntitlementManager.shared.beginFreeTrial()
                 isPresented = false
             }) {
-                Text("Start Free Trial")
+                Text("Start 15-minute trial")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
