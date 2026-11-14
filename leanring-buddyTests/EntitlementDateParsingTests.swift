@@ -35,6 +35,17 @@ struct EntitlementDateParsingTests {
         #expect(EntitlementRecord.parseISO8601("2026-08-23T12:06:03.691165123Z") != nil)     // nanos
     }
 
+    @Test("active without a period end stays paid")
+    func activeWithoutPeriodEnd() throws {
+        let json = #"{"status":"active"}"#
+        let record = try JSONDecoder().decode(EntitlementRecord.self, from: Data(json.utf8))
+        guard case .active(let periodEnd) = record.parsedStatus else {
+            Issue.record("active entitlement with no period_end parsed as \(record.parsedStatus)")
+            return
+        }
+        #expect(periodEnd == EntitlementRecord.undatedPaidAccessEnd)
+    }
+
     @Test("garbage still returns nil (no false active)")
     func garbageIsNil() {
         #expect(EntitlementRecord.parseISO8601("not-a-date") == nil)

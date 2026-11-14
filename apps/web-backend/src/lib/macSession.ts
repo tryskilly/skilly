@@ -411,6 +411,7 @@ export async function upsertMacEntitlement(input: {
   providerEventAt?: string | null;
   providerEventId?: string | null;
   providerEventState?: string | null;
+  preserveExistingPeriod?: boolean;
 }): Promise<void> {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
@@ -431,8 +432,8 @@ export async function upsertMacEntitlement(input: {
          email = COALESCE(EXCLUDED.email, mac_entitlements.email),
          status = EXCLUDED.status,
          entitlement_type = EXCLUDED.entitlement_type,
-         period_start = EXCLUDED.period_start,
-         period_end = EXCLUDED.period_end,
+         period_start = COALESCE(CASE WHEN $12::boolean AND mac_entitlements.period_start IS NOT NULL THEN mac_entitlements.period_start ELSE NULL END, EXCLUDED.period_start, mac_entitlements.period_start),
+         period_end = COALESCE(CASE WHEN $12::boolean AND mac_entitlements.period_end IS NOT NULL THEN mac_entitlements.period_end ELSE NULL END, EXCLUDED.period_end, mac_entitlements.period_end),
          plan = EXCLUDED.plan,
          polar_customer_id = COALESCE(EXCLUDED.polar_customer_id, mac_entitlements.polar_customer_id),
          provider_event_at = EXCLUDED.provider_event_at,
@@ -453,6 +454,7 @@ export async function upsertMacEntitlement(input: {
         providerEventAt,
         input.providerEventId ?? null,
         input.status,
+        input.preserveExistingPeriod === true,
       ],
     );
   } finally {

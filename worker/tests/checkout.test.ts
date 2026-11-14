@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import worker from "../src/index";
+import worker, { polarCheckoutMetadata } from "../src/index";
 
 const testSecret = "local-checkout-test-secret";
 const testUser = "user_checkout_fixture";
@@ -82,6 +82,36 @@ describe("authenticated checkout route", () => {
       expect(result.status).toBe(400);
     }
     expect(requests).toBe(0);
+  });
+
+  test("never sends an empty metadata string", () => {
+    const metadata = polarCheckoutMetadata({ user_id: "user_checkout_fixture", checkout_attempt_id: "   ", plan: "" });
+    expect(metadata).toEqual({ user_id: "user_checkout_fixture" });
+    expect(Object.values(metadata).every((value) => typeof value !== "string" || (value.length >= 1 && value.length <= 500))).toBe(true);
+  });
+
+  test("reports checkout_failed when Polar rejects the payload", async () => {
+    const events: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "https://polar.fixture/v1/checkouts") {
+        return Response.json({ error: "RequestValidationError", detail: [{ type: "string_too_short", loc: ["body", "metadata", "checkout_attempt_id"] }] }, { status: 422 });
+      }
+      if (String(input) === "https://us.i.posthog.com/capture/") {
+        events.push(JSON.parse(String(init?.body)).event);
+        return Response.json({ status: 1 });
+      }
+      throw new Error("Unexpected network request in isolated checkout test");
+    }) as typeof fetch;
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await worker.fetch(checkoutRequest({ checkout_attempt_id: "attempt-123" }), environment());
+      expect(result.status).toBe(502);
+      const body = await result.json() as { reason?: string };
+      expect(body.reason).toBe("polar_metadata_rejected");
+      expect(events).toContain("checkout_failed");
+      const failure = events.filter((eventName) => eventName === "checkout_failed");
+      expect(failure.length).toBeGreaterThan(0);
+    } finally { errorSpy.mockRestore(); }
   });
 
   test("keeps authentication and account ownership checks", async () => {

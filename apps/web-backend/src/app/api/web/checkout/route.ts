@@ -3,12 +3,12 @@
 // tenant id is attached as metadata so the webhook can apply the plan on success.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { buildCheckoutBody, isBuilderPlanId, isValidBillingUrl, resolveBuilderPlan } from "@/domain/billing";
+import { CheckoutPayloadError, buildCheckoutBody, checkoutFailureReason, isBuilderPlanId, isValidBillingUrl, resolveBuilderPlan } from "@/domain/billing";
 import { captureServerEvent } from "@/lib/analytics";
 import { requireDashboardSession } from "@/lib/dashboardAuth";
 import { publicUrl } from "@/lib/requestOrigin";
 import { getRepo } from "@/db";
-import { logBillingFailure, recordCheckoutStartedWithoutBlockingPayment } from "@/lib/billingDiagnostics";
+import { captureCheckoutFailed, logBillingFailure, recordCheckoutStartedWithoutBlockingPayment } from "@/lib/billingDiagnostics";
 import { validateBillingEnvironment } from "@/domain/billingEnvironment";
 
 export const runtime = "nodejs";
@@ -42,16 +42,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       requested_plan: payload.plan ?? "starter",
       source_surface: "web_backend",
     }, session.workosUserId);
+    await captureCheckoutFailed({ reason: "billing_not_configured", sourceSurface: "web_backend", distinctId: session.workosUserId, plan: payload.plan ?? "starter" });
     return NextResponse.json({ error: "billing not configured" }, { status: 500 });
   }
 
-  const body = buildCheckoutBody({
-    productId: plan.productId,
-    tenantId,
-    plan: plan.id,
-    planCapSeconds: plan.capSeconds,
-    successUrl: publicUrl(request, "/dashboard").toString(),
-  });
+  let body: Record<string, unknown>;
+  try {
+    body = buildCheckoutBody({
+      productId: plan.productId,
+      tenantId,
+      plan: plan.id,
+      planCapSeconds: plan.capSeconds,
+      successUrl: publicUrl(request, "/dashboard").toString(),
+    });
+  } catch (error) {
+    if (error instanceof CheckoutPayloadError) {
+      await captureCheckoutFailed({ reason: error.reason, sourceSurface: "web_backend", distinctId: session.workosUserId, plan: plan.id });
+      return NextResponse.json({ error: "checkout creation failed", reason: error.reason }, { status: 400 });
+    }
+    throw error;
+  }
   await captureServerEvent("dashboard_checkout_started", {
     tenant_id: tenantId,
     account_email: session.email ?? undefined,
@@ -76,19 +86,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       plan: plan.id,
       source_surface: "web_backend",
     }, session.workosUserId);
+    await captureCheckoutFailed({ reason: "provider_network_error", sourceSurface: "web_backend", distinctId: session.workosUserId, plan: plan.id });
     return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
   }
   if (!response.ok) {
+    const providerBody = await response.text();
+    const reason = checkoutFailureReason(response.status, providerBody);
     logBillingFailure({ surface: "builder_checkout", status: response.status, reason: "provider_non_2xx" });
     await captureServerEvent("dashboard_checkout_failed", {
       tenant_id: tenantId,
       account_email: session.email ?? undefined,
       status: response.status,
-      reason: "polar_non_2xx",
+      reason,
       plan: plan.id,
       source_surface: "web_backend",
     }, session.workosUserId);
-    return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+    await captureCheckoutFailed({ reason, status: response.status, sourceSurface: "web_backend", distinctId: session.workosUserId, plan: plan.id });
+    return NextResponse.json({ error: "checkout creation failed", reason }, { status: 502 });
   }
 
   let checkout: { url?: unknown; checkout_url?: unknown };
@@ -96,20 +110,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     checkout = (await response.json()) as { url?: unknown; checkout_url?: unknown };
   } catch {
     logBillingFailure({ surface: "builder_checkout", status: response.status, reason: "provider_invalid_json" });
-    return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+    await captureCheckoutFailed({ reason: "provider_invalid_json", status: response.status, sourceSurface: "web_backend", distinctId: session.workosUserId, plan: plan.id });
+    return NextResponse.json({ error: "checkout creation failed", reason: "provider_invalid_json" }, { status: 502 });
   }
   if (!checkout || typeof checkout !== "object" || Array.isArray(checkout)) {
     logBillingFailure({ surface: "builder_checkout", status: response.status, reason: "provider_missing_url" });
-    return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+    await captureCheckoutFailed({ reason: "provider_missing_url", status: response.status, sourceSurface: "web_backend", distinctId: session.workosUserId, plan: plan.id });
+    return NextResponse.json({ error: "checkout creation failed", reason: "provider_missing_url" }, { status: 502 });
   }
   const checkoutUrl = checkout.url ?? checkout.checkout_url;
   if (typeof checkoutUrl !== "string") {
     logBillingFailure({ surface: "builder_checkout", status: response.status, reason: "provider_missing_url" });
-    return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+    await captureCheckoutFailed({ reason: "provider_missing_url", status: response.status, sourceSurface: "web_backend", distinctId: session.workosUserId, plan: plan.id });
+    return NextResponse.json({ error: "checkout creation failed", reason: "provider_missing_url" }, { status: 502 });
   }
   if (!isValidBillingUrl(checkoutUrl)) {
     logBillingFailure({ surface: "builder_checkout", status: response.status, reason: "provider_invalid_url" });
-    return NextResponse.json({ error: "checkout creation failed" }, { status: 502 });
+    await captureCheckoutFailed({ reason: "provider_invalid_url", status: response.status, sourceSurface: "web_backend", distinctId: session.workosUserId, plan: plan.id });
+    return NextResponse.json({ error: "checkout creation failed", reason: "provider_invalid_url" }, { status: 502 });
   }
   await recordCheckoutStartedWithoutBlockingPayment(() => getRepo().recordTenantCheckoutStarted(tenantId));
   await captureServerEvent("dashboard_checkout_url_created", {

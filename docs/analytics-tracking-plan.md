@@ -13,7 +13,7 @@ Current implementation status:
 - Cloudflare Worker: PostHog silent-failure events implemented for backend drift and checkout failures.
 - Web dashboard/backend: env-gated PostHog + GA4 scaffolding and server-side dashboard/API events.
 - Web SDK: `Skilly.identify()` exists as the public API; tenant/end-user analytics should be wired through this surface.
-- Marketing site: implemented in `/Users/engmsaleh/Repos/skilly-web` as an Astro/Netlify site. It uses the same PostHog project as the Mac app, GA4 for acquisition/conversion reporting, and the Worker checkout redirect `tryskilly.app/checkout-success?uid=<WorkOS user id>` to identify checkout success with the same WorkOS user ID.
+- Marketing site: implemented in `/Users/engmsaleh/Repos/skilly-web` as an Astro/Netlify site. It uses the same PostHog project as the Mac app, GA4 for acquisition/conversion reporting, and the Worker checkout redirect `tryskilly.app/checkout-success/?uid=<WorkOS user id>` to identify checkout success with the same WorkOS user ID.
 
 ## Identity Model
 
@@ -94,6 +94,7 @@ Allowed:
 | `skilly_checkout_url_created` | Mac app | Polar returned a checkout URL | `checkout_attempt_id`, `checkout_id`, product/plan context |
 | `skilly_checkout_url_opened` | Mac app | Browser open was attempted | `checkout_attempt_id`, `checkout_id`, `did_open`, product/plan context |
 | `skilly_checkout_failed` | Mac app | Checkout failed before Polar completion | `checkout_attempt_id`, `checkout_id`, `reason`, `http_status`, product/plan context |
+| `checkout_failed` | Mac app, Studio, Worker | Checkout could not be completed. Fired beside the surface-specific checkout events. | `reason` (`missing_auth_state`, `auth_state_mismatch`, `auth_state_expired`, `session_expired`, `polar_metadata_rejected`, `polar_validation_error`, `polar_checkout_expired`, `polar_checkout_failed`), `status` or `http_status`, `source_surface` |
 | `skilly_checkout_expired` | Worker webhook | Polar checkout expired without payment | `checkout_attempt_id`, `checkout_id`, product/plan context |
 | `skilly_checkout_provider_status` | Worker webhook | Polar checkout reached confirmed, succeeded, or failed | `checkout_attempt_id`, `checkout_id`, `reason`, product/plan context |
 | `skilly_subscription_activated` | Mac app | Subscription active | `user_id` |
@@ -126,7 +127,7 @@ Current rules:
 - Preserve UTMs in PostHog super-properties.
 - Send lead email to PostHog only when the user explicitly submits it.
 - Mirror key conversion events to GA4 through `window.skillyTrack()`, with PII stripped before calling `gtag`.
-- On `/checkout-success?uid=...`, call `posthog.identify(uid)` before firing `web_checkout_completed`, then remove `uid` from the URL.
+- On `/checkout-success/?uid=...`, call `posthog.identify(uid)` before firing `web_checkout_completed`, then remove `uid` from the URL.
 - Keep privacy/FAQ/trust copy aligned with first-party analytics storage and lead attribution.
 
 ## Environment Variables
