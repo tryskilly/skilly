@@ -25,7 +25,7 @@ final class SkillyNotificationManager {
         markTrial80NotificationSent()
         sendNotification(
             title: "Trial Ending Soon",
-            body: "You have 3 minutes left in your free trial. Subscribe to keep learning.",
+            body: "You have 3 minutes left on your 15-minute trial. Subscribe to keep learning.",
             identifier: "trial_80_warning"
         )
     }

@@ -16,7 +16,7 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
           <Link href="/dashboard" className="flex items-center gap-2 text-sm font-bold"><LogoMark size={26} />Skilly Studio</Link>
           <span className="text-fg-subtle" aria-hidden="true">/</span>
           <span className="text-sm font-semibold">{tenant?.name ?? "Your workspace"}</span>
-          {tenant?.usageCapSeconds === 0 && <StatusPill tone="amber" label="Free · test mode" />}
+          {tenant?.usageCapSeconds === 0 && <StatusPill tone="amber" label="Test mode" />}
         </div>
         <div className="flex items-center gap-4"><Link href="/dashboard/support" className="text-xs text-fg-muted hover:text-fg">Help</Link><AccountChip email={session.email ?? null} role={session.role} /></div>
       </header>

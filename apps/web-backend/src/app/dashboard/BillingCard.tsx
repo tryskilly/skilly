@@ -28,7 +28,7 @@ export function BillingCard({ capSeconds, plans }: { capSeconds: number; plans: 
     ? currentPlan
       ? `${currentPlan.name} · ${currentPlan.minutes.toLocaleString()} min / month`
       : `${Math.round(capSeconds / 60).toLocaleString()} min / month`
-    : "Free (no paid plan)";
+    : "Test mode (no paid plan)";
 
   function onManageClick(): void {
     if (hasPlan) {

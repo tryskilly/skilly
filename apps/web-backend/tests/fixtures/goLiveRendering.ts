@@ -87,7 +87,7 @@ const recommendedPlan = getBillingPlanOptions(process.env)[1];
 assert(recommendedPlan);
 assert(waitingHtml.includes(`Go live with ${recommendedPlan.name} · $${recommendedPlan.priceMonthly}/mo`));
 assert(waitingHtml.includes("Recommended"));
-assert(waitingHtml.includes("Stay on Free") === false);
+assert(waitingHtml.includes("Stay in test mode") === false);
 assert(waitingHtml.includes("Test mode only. Visitors can&#x27;t see Skilly."));
 assert(waitingHtml.includes("You&#x27;ll go live as soon as the script is detected and the plan is active."));
 assert(waitingHtml.includes('data-analytics-event="dashboard_checkout_clicked"'));
@@ -250,7 +250,7 @@ assert(paidHtml.includes('data-analytics-event="dashboard_portal_clicked"'));
 assert(!paidHtml.includes("Go live with"));
 assert(!paidHtml.includes('data-analytics-event="dashboard_checkout_clicked"'));
 
-// On a plan the test-mode banner would contradict the sidebar's "Paid" card, so it only shows on Free.
+// On a plan the test-mode banner would contradict the sidebar's "Paid" card, so it only shows in test mode.
 assert(!renderToStaticMarkup(await WidgetPage()).includes("Test mode"));
 await repo.setTenantUsageCap(tenantId, 0);
 const tryItHtml = renderToStaticMarkup(await WidgetPage());
@@ -297,7 +297,7 @@ assert.deepEqual([...navigation.matchAll(/data-analytics-label="([^"]+)"/g)].map
 assert(!navigation.includes("Tenant directory"));
 assert(shellHtml.includes("Book a free setup call"));
 assert(shellHtml.includes("Get to live"));
-assert(shellHtml.includes("Free · test mode · 0 min used"));
+assert(shellHtml.includes("Test mode · 0 min used"));
 const paidShellHtml = renderToStaticMarkup(createElement(AppShell, {
   ...shellProps, usedSecondsThisMonth: 60, usageCapSeconds: 24000,
 }));

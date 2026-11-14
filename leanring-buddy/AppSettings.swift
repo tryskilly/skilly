@@ -39,10 +39,11 @@ final class AppSettings: ObservableObject {
 
     // MARK: - Skilly — Bring Your Own Key (BYOK)
 
-    /// User-supplied OpenAI API key. When non-empty, the app bypasses the
-    /// Skilly worker relay and mints ephemeral Realtime sessions directly
-    /// against api.openai.com using this key. Stored in UserDefaults
-    /// (plaintext on disk). The user is billed by OpenAI for usage.
+    /// User-supplied OpenAI API key. Stored in UserDefaults (plaintext on disk).
+    /// OpenAI bills this key directly. FirstSessionPolicy decides when it is
+    /// used: the 15-minute trial stays on Skilly's hosted key even if this
+    /// is filled in. A key with no credit falls back to that trial while
+    /// time remains.
     @Published var openAIAPIKey: String {
         didSet { UserDefaults.standard.set(openAIAPIKey, forKey: "openAIAPIKey") }
     }
@@ -54,8 +55,9 @@ final class AppSettings: ObservableObject {
     }
 
     /// True when the user has provided their own OpenAI key.
-    /// Drives BYOK code paths: bypassing the relay, skipping trial gating,
-    /// and surfacing a "BYOK active" indicator in the UI.
+    /// Does not by itself choose the credential for a turn — see
+    /// FirstSessionPolicy.selectCredential. Still skips the local trial
+    /// exhaustion flag so a saved key can be used after the 15 minutes.
     var hasOwnAPIKey: Bool {
         !openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

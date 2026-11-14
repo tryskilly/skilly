@@ -110,7 +110,7 @@ export default async function SignupPage({
               <LogoMark size={40} />
               <div>
                 <h1 className="text-2xl font-bold tracking-[-0.035em] text-fg">Create your workspace</h1>
-                <p className="text-sm text-fg-muted">Free to start. No credit card.</p>
+                <p className="text-sm text-fg-muted">No credit card to start.</p>
               </div>
             </div>
 

@@ -121,6 +121,15 @@ final class CompanionManager: ObservableObject {
     /// Captured when the Realtime connection is opened; settings changes during
     /// a live session must not reclassify its usage as BYOK or hosted.
     private var currentRealtimeSessionUsesBYOK: Bool?
+    /// The saved key already came back with no credit. While trial time
+    /// remains, the next connect uses the hosted key instead.
+    private var userKeyQuotaFailed = false
+    private var firstSessionFunnelState = FirstSessionFunnelState()
+    private var didRetryTextPromptOnHostedFallback = false
+    /// Shown in the panel and beside the cursor when a turn cannot speak.
+    @Published var recoverableSessionNotice: String?
+    @Published private(set) var hasAskedFirstQuestion = false
+    @Published private(set) var hasSuccessfulSpokenAnswer = false
 
     private var shortcutTransitionCancellable: AnyCancellable?
     // MARK: - Skilly — Escape key cancel
@@ -306,7 +315,7 @@ final class CompanionManager: ObservableObject {
     /// animation and returns to cursor-following mode.
     /// Finishes first-run setup: dismisses the panel and shows the cursor
     /// overlay directly — no intro music, welcome animation, or intro video.
-    func triggerOnboarding() {
+    func triggerOnboarding(shouldPresentGuidedPrompt: Bool = true) {
         // Post notification so the panel manager can dismiss the panel
         NotificationCenter.default.post(name: .skillyDismissPanel, object: nil)
 
@@ -315,6 +324,9 @@ final class CompanionManager: ObservableObject {
         hasCompletedOnboarding = true
 
         SkillyAnalytics.trackOnboardingStarted()
+        if shouldPresentGuidedPrompt {
+            presentGuidedFirstQuestionPromptIfNeeded()
+        }
 
         overlayWindowManager.hasShownOverlayBefore = true
         overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
@@ -465,6 +477,7 @@ final class CompanionManager: ObservableObject {
             SkillyAnalytics.trackAllPermissionsGranted()
             if hasCompletedOnboarding {
                 startRealtimeSessionPrewarmIfNeeded()
+                presentGuidedFirstQuestionPromptIfNeeded()
             }
         }
     }
@@ -695,7 +708,204 @@ final class CompanionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] authenticatedUserID in
                 self?.conversationHistoryStore.activateUser(authenticatedUserID)
+                self?.loadFirstSessionFunnel(userId: authenticatedUserID)
             }
+    }
+
+    // MARK: - Skilly — First spoken answer
+
+    private func loadFirstSessionFunnel(userId: String?) {
+        let scope = userId ?? "signed_out"
+        let defaults = UserDefaults.standard
+        firstSessionFunnelState = FirstSessionFunnelState(
+            hasAskedFirstQuestion: defaults.bool(forKey: "first_question_asked_\(scope)"),
+            hasSuccessfulSpokenAnswer: defaults.bool(forKey: "first_answer_succeeded_\(scope)"),
+            hasRecordedFirstAnswerFailure: defaults.bool(forKey: "first_answer_failed_\(scope)")
+        )
+        hasAskedFirstQuestion = firstSessionFunnelState.hasAskedFirstQuestion
+        hasSuccessfulSpokenAnswer = firstSessionFunnelState.hasSuccessfulSpokenAnswer
+    }
+
+    private func persistFirstSessionFunnel() {
+        let scope = AuthManager.shared.currentUser?.id ?? "signed_out"
+        let defaults = UserDefaults.standard
+        defaults.set(firstSessionFunnelState.hasAskedFirstQuestion, forKey: "first_question_asked_\(scope)")
+        defaults.set(firstSessionFunnelState.hasSuccessfulSpokenAnswer, forKey: "first_answer_succeeded_\(scope)")
+        defaults.set(firstSessionFunnelState.hasRecordedFirstAnswerFailure, forKey: "first_answer_failed_\(scope)")
+        hasAskedFirstQuestion = firstSessionFunnelState.hasAskedFirstQuestion
+        hasSuccessfulSpokenAnswer = firstSessionFunnelState.hasSuccessfulSpokenAnswer
+    }
+
+    private func currentSkillIdForFunnel() -> String? {
+        if let activeSkillId = skillManager?.activeSkill?.metadata.id {
+            return activeSkillId
+        }
+        return FirstSessionPolicy.guidedQuestions(
+            forFrontmostBundleId: skillManager?.frontmostAppBundleId
+        )?.skillId
+    }
+
+    private func noteFirstQuestionAsked(source: FirstQuestionSource) {
+        guard let event = FirstSessionFunnel.recordQuestionAsked(
+            state: &firstSessionFunnelState,
+            source: source,
+            skillId: currentSkillIdForFunnel()
+        ) else { return }
+        persistFirstSessionFunnel()
+        if case .firstQuestionAsked(let source, let skillId) = event {
+            SkillyAnalytics.trackFirstQuestionAsked(source: source.rawValue, skillId: skillId)
+        }
+    }
+
+    private func noteFirstAnswerSucceeded() {
+        guard let event = FirstSessionFunnel.recordAnswerSucceeded(state: &firstSessionFunnelState) else { return }
+        persistFirstSessionFunnel()
+        if case .firstAnswerSucceeded = event {
+            SkillyAnalytics.trackFirstAnswerSucceeded(skillId: currentSkillIdForFunnel())
+        }
+    }
+
+    private func noteFirstAnswerFailed(reason: String) {
+        guard let event = FirstSessionFunnel.recordAnswerFailed(state: &firstSessionFunnelState, reason: reason) else { return }
+        persistFirstSessionFunnel()
+        if case .firstAnswerFailed(let reason) = event {
+            SkillyAnalytics.trackFirstAnswerFailed(reason: reason, skillId: currentSkillIdForFunnel())
+        }
+    }
+
+    func dismissRecoverableSessionNotice() {
+        recoverableSessionNotice = nil
+    }
+
+    private func credentialInput() -> RealtimeCredentialInput {
+        RealtimeCredentialInput(
+            hasUserOpenAIKey: AppSettings.shared.hasOwnAPIKey,
+            trialTimeIsExhausted: FirstSessionPolicy.trialTimeIsExhausted(
+                secondsUsed: TrialTracker.shared.totalSecondsUsed,
+                isAdmin: AdminAllowlist.isCurrentUserAdmin
+            ),
+            entitlementKind: EntitlementManager.shared.billingEntitlementKind,
+            requireBYOKSubscription: AppSettings.shared.requireBYOKSubscription,
+            userKeyQuotaFailed: userKeyQuotaFailed
+        )
+    }
+
+    private var trialStillAvailableForHostedFallback: Bool {
+        let input = credentialInput()
+        return !input.trialTimeIsExhausted && input.entitlementKind != .hostedActive && input.entitlementKind != .expired
+    }
+
+    /// Mint with the policy's path. A personal key that has no credit is
+    /// retried once on the hosted trial when that trial is still open.
+    private func connectRealtimeSession(systemPrompt: String, voiceName: String) async throws {
+        let failedPath = FirstSessionPolicy.selectCredential(credentialInput())
+        openAIRealtimeClient.requestedCredentialPath = failedPath
+        currentRealtimeSessionUsesBYOK = failedPath == .userKey
+        do {
+            try await openAIRealtimeClient.connect(systemPrompt: systemPrompt, voiceName: voiceName)
+        } catch {
+            switch await fallbackToHostedTrialIfNeeded(after: error, failedPath: failedPath, systemPrompt: systemPrompt, voiceName: voiceName) {
+            case .recovered:
+                return
+            case .failureAlreadyPresented:
+                throw error
+            case .notApplicable:
+                presentRealtimeFailure(error, failedPath: failedPath, countsAsAnswerFailure: currentTurnStartTime != nil)
+                throw error
+            }
+        }
+    }
+
+    private enum HostedTrialFallbackResult {
+        case notApplicable
+        case recovered
+        case failureAlreadyPresented
+    }
+
+    private func fallbackToHostedTrialIfNeeded(
+        after error: Error,
+        failedPath: RealtimeCredentialPath,
+        systemPrompt: String,
+        voiceName: String
+    ) async -> HostedTrialFallbackResult {
+        guard case OpenAIRealtimeClient.OpenAIRealtimeError.quotaExhausted = error else { return .notApplicable }
+        let recovery = FirstSessionPolicy.quotaRecovery(
+            failedPath: failedPath,
+            trialStillAvailable: trialStillAvailableForHostedFallback
+        )
+        guard recovery.shouldFallBackToHostedTrial else { return .notApplicable }
+        userKeyQuotaFailed = true
+        showRecoverableNotice(recovery.userMessage)
+        if currentTurnStartTime != nil {
+            noteFirstAnswerFailed(reason: recovery.analyticsReason)
+        }
+        openAIRealtimeClient.disconnect()
+        let hostedPath = FirstSessionPolicy.selectCredential(credentialInput())
+        guard hostedPath == .hostedTrial else { return .failureAlreadyPresented }
+        openAIRealtimeClient.requestedCredentialPath = hostedPath
+        currentRealtimeSessionUsesBYOK = false
+        do {
+            try await openAIRealtimeClient.connect(systemPrompt: systemPrompt, voiceName: voiceName)
+            return .recovered
+        } catch {
+            presentRealtimeFailure(error, failedPath: hostedPath, countsAsAnswerFailure: currentTurnStartTime != nil)
+            return .failureAlreadyPresented
+        }
+    }
+
+    private func presentRealtimeFailure(
+        _ error: Error,
+        failedPath: RealtimeCredentialPath,
+        countsAsAnswerFailure: Bool
+    ) {
+        if case OpenAIRealtimeClient.OpenAIRealtimeError.accessBlocked = error {
+            if countsAsAnswerFailure {
+                let code: String
+                if case OpenAIRealtimeClient.OpenAIRealtimeError.accessBlocked(let blockedCode) = error {
+                    code = blockedCode
+                } else {
+                    code = "access_blocked"
+                }
+                noteFirstAnswerFailed(reason: code)
+            }
+            return
+        }
+
+        let message: String
+        let reason: String
+        if case OpenAIRealtimeClient.OpenAIRealtimeError.quotaExhausted = error {
+            let recovery = FirstSessionPolicy.quotaRecovery(
+                failedPath: failedPath,
+                trialStillAvailable: trialStillAvailableForHostedFallback
+            )
+            message = recovery.userMessage
+            reason = recovery.analyticsReason
+        } else if case OpenAIRealtimeClient.OpenAIRealtimeError.authExpired = error {
+            message = "Your Skilly session expired. Sign in again, then ask your question once more."
+            reason = "auth_expired"
+        } else {
+            message = "Skilly couldn't start the tutor. Check your connection and try the question again."
+            reason = "connection_failed"
+        }
+        showRecoverableNotice(message)
+        if countsAsAnswerFailure {
+            noteFirstAnswerFailed(reason: reason)
+        }
+    }
+
+    private func showRecoverableNotice(_ message: String) {
+        recoverableSessionNotice = message
+        realtimeResponseBubbleText = message
+        isShowingRealtimeResponseBubble = true
+        NotificationCenter.default.post(name: .skillyRecoverableSessionFailure, object: nil)
+    }
+
+    private func presentGuidedFirstQuestionPromptIfNeeded() {
+        guard hasCompletedOnboarding, allPermissionsGranted, !hasAskedFirstQuestion else { return }
+        guard let guidedQuestions = FirstSessionPolicy.guidedQuestions(
+            forFrontmostBundleId: skillManager?.frontmostAppBundleId
+        ), let firstQuestion = guidedQuestions.questions.first else { return }
+        startOnboardingPromptStream(message: "Try asking: \(firstQuestion)")
     }
 
     private func startRealtimeSessionPrewarmIfNeeded() {
@@ -704,9 +914,8 @@ final class CompanionManager: ObservableObject {
 
         let configuredVoiceName = AppSettings.shared.voiceName
         let currentSystemPrompt = composedSystemPrompt
-        currentRealtimeSessionUsesBYOK = AppSettings.shared.hasOwnAPIKey
         prewarmConnectionTask = Task { @MainActor in
-            try await openAIRealtimeClient.connect(
+            try await connectRealtimeSession(
                 systemPrompt: currentSystemPrompt,
                 voiceName: configuredVoiceName
             )
@@ -762,8 +971,7 @@ final class CompanionManager: ObservableObject {
 
         if !openAIRealtimeClient.isConnected {
             hasReportedHostedUsageInSession = false
-            currentRealtimeSessionUsesBYOK = AppSettings.shared.hasOwnAPIKey
-            try await openAIRealtimeClient.connect(
+            try await connectRealtimeSession(
                 systemPrompt: currentSystemPrompt,
                 voiceName: configuredVoiceName
             )
@@ -1273,7 +1481,10 @@ final class CompanionManager: ObservableObject {
     }
 
     @discardableResult
-    func submitTextPrompt(_ untrimmedTextPrompt: String) async -> Bool {
+    func submitTextPrompt(
+        _ untrimmedTextPrompt: String,
+        source: FirstQuestionSource = .typed
+    ) async -> Bool {
         let textPrompt = untrimmedTextPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !textPrompt.isEmpty, canSubmitTextPrompt else { return false }
 
@@ -1329,6 +1540,7 @@ final class CompanionManager: ObservableObject {
                 screenshots: realtimeScreenshotInputs
             )
             SkillyAnalytics.trackUserMessageSent(transcript: textPrompt)
+            noteFirstQuestionAsked(source: source)
             SkillyAnalytics.trackTextPromptSubmitted(
                 characterCount: textPrompt.count,
                 screenCount: realtimeScreenshotInputs.count
@@ -1342,7 +1554,9 @@ final class CompanionManager: ObservableObject {
             currentTurnUserTranscript = nil
             currentTurnAssistantAudioData = Data()
             voiceState = .idle
-            clearRealtimeResponseBubble()
+            if recoverableSessionNotice == nil {
+                clearRealtimeResponseBubble()
+            }
             resetRustRealtimeTracking()
             SkillyAnalytics.trackTextPromptFailed(reason: "turn_setup_failed")
 
@@ -1536,7 +1750,9 @@ final class CompanionManager: ObservableObject {
                     message: error.localizedDescription
                 )
                 voiceState = .idle
-                clearRealtimeResponseBubble()
+                if recoverableSessionNotice == nil {
+                    clearRealtimeResponseBubble()
+                }
                 resetRustRealtimeTracking()
 
                 handleHostedAccessBlock(error)
@@ -1751,6 +1967,7 @@ final class CompanionManager: ObservableObject {
             lastTranscript = transcript
             currentTurnUserTranscript = transcript
             SkillyAnalytics.trackUserMessageSent(transcript: transcript)
+            noteFirstQuestionAsked(source: .voice)
 
         case .responseDone(let usage):
             // MARK: - Skilly — Runtime recovery for tool-call-only responses
@@ -1797,8 +2014,31 @@ final class CompanionManager: ObservableObject {
             if let turnStart = currentTurnStartTime {
                 let turnDurationSeconds = Date().timeIntervalSince(turnStart)
                 recordSessionSecondsIfNeeded(turnDurationSeconds, usage: usage, isTurnReport: true)
-                // Fire the first-turn milestone on the very first trial turn
-                TrialTracker.shared.recordFirstTurn()
+                // A spoken answer is audio the user can hear. An empty
+                // response.done used to count as the first turn and open
+                // the upgrade card before anything was said.
+                if didReceiveAnyAudioChunkForCurrentTurn {
+                    noteFirstAnswerSucceeded()
+                    TrialTracker.shared.recordFirstTurn()
+                    let trialTimeIsExhausted = FirstSessionPolicy.trialTimeIsExhausted(
+                        secondsUsed: TrialTracker.shared.totalSecondsUsed,
+                        isAdmin: AdminAllowlist.isCurrentUserAdmin
+                    )
+                    let isTrialLike: Bool
+                    switch EntitlementManager.shared.status {
+                    case .trial, .none:
+                        isTrialLike = true
+                    default:
+                        isTrialLike = false
+                    }
+                    if !AdminAllowlist.isCurrentUserAdmin && FirstSessionPolicy.shouldShowUpgradePrompt(
+                        hasSuccessfulSpokenAnswer: hasSuccessfulSpokenAnswer,
+                        trialTimeIsExhausted: trialTimeIsExhausted,
+                        isTrialLike: isTrialLike
+                    ) {
+                        NotificationCenter.default.post(name: .trialFirstTurnCompleted, object: nil)
+                    }
+                }
                 // Check for 80% warning thresholds after each recording
                 SkillyNotificationManager.shared.checkAndSendTrial80PercentWarning()
                 SkillyNotificationManager.shared.checkAndSendUsage80PercentWarning()
@@ -1944,12 +2184,15 @@ final class CompanionManager: ObservableObject {
             clearRealtimeResponseBubble()
             resetRustRealtimeTracking()
 
-        case .error(let message):
+        case .error(let message, let code):
             appendRustRealtimeEvent(type: .sessionError, message: message)
             // MARK: - Skilly — Debug logging (stripped in release)
             #if DEBUG
             print("⚠️ OpenAI Realtime error: \(message)")
             #endif
+            let failedPath = openAIRealtimeClient.requestedCredentialPath
+            let turnWasInProgress = currentTurnStartTime != nil
+            let textToRetry = currentTurnInputMode == .text ? currentTurnUserTranscript : nil
             // Stop Live Tutor if active — the WebSocket is dead and the
             // audio tap would pump chunks into a disconnected client.
             if isLiveTutorModeActive {
@@ -1961,8 +2204,33 @@ final class CompanionManager: ObservableObject {
             currentTurnAssistantAudioData = Data()
             currentTurnStartTime = nil
             voiceState = .idle
-            clearRealtimeResponseBubble()
             resetRustRealtimeTracking()
+
+            if FirstSessionPolicy.isQuotaFailure(errorCode: code, errorMessage: message) {
+                let recovery = FirstSessionPolicy.quotaRecovery(
+                    failedPath: failedPath,
+                    trialStillAvailable: trialStillAvailableForHostedFallback
+                )
+                showRecoverableNotice(recovery.userMessage)
+                if turnWasInProgress {
+                    noteFirstAnswerFailed(reason: recovery.analyticsReason)
+                }
+                openAIRealtimeClient.disconnect()
+                if recovery.shouldFallBackToHostedTrial {
+                    userKeyQuotaFailed = true
+                    if let textToRetry, !didRetryTextPromptOnHostedFallback {
+                        didRetryTextPromptOnHostedFallback = true
+                        Task { @MainActor in
+                            await self.submitTextPrompt(textToRetry, source: .typed)
+                        }
+                    } else {
+                        startRealtimeSessionPrewarmIfNeeded()
+                    }
+                }
+            } else if turnWasInProgress {
+                showRecoverableNotice("Skilly couldn't finish that answer. Try the question again.")
+                noteFirstAnswerFailed(reason: code.isEmpty ? "realtime_error" : code)
+            }
         }
     }
 
@@ -1970,7 +2238,9 @@ final class CompanionManager: ObservableObject {
         guard isWaitingForRealtimeAudioQueueDrain else { return }
         isWaitingForRealtimeAudioQueueDrain = false
         voiceState = .idle
-        clearRealtimeResponseBubble()
+        if recoverableSessionNotice == nil {
+            clearRealtimeResponseBubble()
+        }
         scheduleTransientHideIfNeeded()
         resetRustRealtimeTracking()
         if !hasEndedAssistantSpeechForCurrentTurn {
@@ -2085,8 +2355,7 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func startOnboardingPromptStream() {
-        let message = "press control + option and introduce yourself"
+    private func startOnboardingPromptStream(message: String = "press control + option and introduce yourself") {
         onboardingPromptText = ""
         showOnboardingPrompt = true
         onboardingPromptOpacity = 0.0

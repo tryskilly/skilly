@@ -53,9 +53,9 @@ export function MacFollowUpActions({ userId, customerName }: { userId: string; c
       <ConfirmFollowUpAction
         action={compMacPlanAction}
         userId={userId}
-        label="Give 30 free minutes"
-        title="Give 30 free minutes?"
-        body={`Give ${customer} 30 minutes of Skilly at no charge, usable within the next 30 days. When the minutes run out, Skilly asks them to upgrade. A later Polar subscription replaces this offer.`}
+        label="Give 30 minutes"
+        title="Give 30 minutes?"
+        body={`Give ${customer} 30 minutes of Skilly, usable within the next 30 days. When the minutes run out, Skilly asks them to upgrade. A later Polar subscription replaces this offer.`}
       />
     </div>
   );

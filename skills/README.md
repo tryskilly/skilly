@@ -21,7 +21,7 @@ Every `SKILL.md` is plain Markdown and stands on its own. Open the file on GitHu
 
 ### Use them with Skilly (Mac companion app)
 
-Install [Skilly](https://tryskilly.app) (free 15-minute trial, no credit card). It reads these `SKILL.md` files at runtime and turns them into a live voice tutor that watches your screen and walks you through each lesson out loud. The same Markdown you can read here is what powers the tutor.
+Install [Skilly](https://tryskilly.app) (15-minute trial, no credit card). It reads these `SKILL.md` files at runtime and turns them into a live voice tutor that watches your screen and walks you through each lesson out loud. The same Markdown you can read here is what powers the tutor.
 
 ### Author your own
 

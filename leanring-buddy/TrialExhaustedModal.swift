@@ -19,11 +19,11 @@ struct TrialExhaustedModal: View {
                 .pointerCursor()
             }
 
-            Text("Free Trial Ended")
+            Text("Trial ended")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(DS.Colors.textPrimary)
 
-            Text("You've used all 15 minutes of your free trial. Subscribe to keep learning with Skilly.")
+            Text("You've used all 15 minutes of your trial. Subscribe to keep learning with Skilly.")
                 .font(.system(size: 13))
                 .foregroundColor(DS.Colors.textSecondary)
                 .lineSpacing(2)

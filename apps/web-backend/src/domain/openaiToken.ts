@@ -28,10 +28,46 @@ export class TokenMintError extends Error {
   constructor(
     message: string,
     public readonly upstreamStatus: number,
+    public readonly quotaExhausted = false,
   ) {
     super(message);
     this.name = "TokenMintError";
   }
+}
+
+/** OpenAI's "no credits" family. Matched on code or message so a renamed code still counts. */
+export function isOpenAIQuotaFailure(status: number, bodyText: string): boolean {
+  const lowered = bodyText.toLowerCase();
+  if (
+    lowered.includes("insufficient_quota") ||
+    lowered.includes("credit_balance_exhausted") ||
+    lowered.includes("no credits remaining") ||
+    lowered.includes("exceeded your current quota") ||
+    lowered.includes("billing_hard_limit_reached")
+  ) {
+    return true;
+  }
+  return status === 402;
+}
+
+/**
+ * Hosted trial keys, in the order a Mac session should try them.
+ * A key that has no credit is skipped for the next candidate. Values are
+ * trimmed and de-duplicated. The raw key never leaves this function's caller.
+ */
+export function hostedOpenAIKeyCandidates(environment: {
+  OPENAI_API_KEY_MAC?: string;
+  OPENAI_API_KEY?: string;
+}): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const value of [environment.OPENAI_API_KEY_MAC, environment.OPENAI_API_KEY]) {
+    const trimmed = value?.trim() ?? "";
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    candidates.push(trimmed);
+  }
+  return candidates;
 }
 
 export async function mintRealtimeToken(options: MintOptions): Promise<EphemeralToken> {
@@ -48,7 +84,12 @@ export async function mintRealtimeToken(options: MintOptions): Promise<Ephemeral
   });
 
   if (!response.ok) {
-    throw new TokenMintError(`OpenAI client_secrets returned ${response.status}`, response.status);
+    const bodyText = await response.text();
+    throw new TokenMintError(
+      `OpenAI client_secrets returned ${response.status}`,
+      response.status,
+      isOpenAIQuotaFailure(response.status, bodyText),
+    );
   }
 
   const payload = (await response.json()) as {
@@ -65,4 +106,34 @@ export async function mintRealtimeToken(options: MintOptions): Promise<Ephemeral
   const expiresAt = payload.expires_at ?? payload.client_secret?.expires_at ?? null;
 
   return { clientSecret, expiresAt, model };
+}
+
+/** Try each hosted key. A no-credit key is not the end of the trial if another key is configured. */
+export async function mintHostedRealtimeToken(options: {
+  apiKeys: string[];
+  model?: string;
+  fetchImpl?: FetchLike;
+}): Promise<EphemeralToken> {
+  if (options.apiKeys.length === 0) {
+    throw new TokenMintError("OpenAI API key not configured", 500, false);
+  }
+
+  let lastQuotaError: TokenMintError | null = null;
+  for (const apiKey of options.apiKeys) {
+    try {
+      return await mintRealtimeToken({
+        apiKey,
+        model: options.model,
+        fetchImpl: options.fetchImpl,
+      });
+    } catch (error) {
+      if (error instanceof TokenMintError && error.quotaExhausted) {
+        lastQuotaError = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastQuotaError ?? new TokenMintError("OpenAI API key not configured", 500, false);
 }
