@@ -42,7 +42,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: access.code, code: access.code }, { status: access.status });
   }
 
-  const apiKeys = hostedOpenAIKeyCandidates(process.env);
+  const apiKeys = hostedOpenAIKeyCandidates({
+    OPENAI_API_KEY_MAC: process.env.OPENAI_API_KEY_MAC,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  });
   if (apiKeys.length === 0) {
     return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
   }

@@ -67,7 +67,10 @@ enum FirstSessionPolicy {
             return .hostedTrial
         }
 
-        if input.entitlementKind == .byokActive && input.hasUserOpenAIKey && !input.userKeyQuotaFailed {
+        // A paid BYOK plan keeps the user's key once the hosted trial cannot
+        // take the turn. A key that already reported no credit still stays
+        // here so we do not send them to a trial that is already used up.
+        if input.entitlementKind == .byokActive && input.hasUserOpenAIKey {
             return .userKey
         }
 
@@ -76,7 +79,7 @@ enum FirstSessionPolicy {
         }
 
         let byokGateBlocksSavedKey = input.requireBYOKSubscription && input.entitlementKind != .byokActive
-        if input.hasUserOpenAIKey && !input.userKeyQuotaFailed && !byokGateBlocksSavedKey {
+        if input.hasUserOpenAIKey && !byokGateBlocksSavedKey {
             return .userKey
         }
 
