@@ -4,8 +4,9 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { getRepo } from "@/db";
-import { interpretPersonalSubscriptionEvent, interpretSubscriptionEvent, verifyWebhookSignature, isWebhookTimestampFresh } from "@/domain/billing";
+import { interpretCheckoutFailure, interpretPersonalSubscriptionEvent, interpretSubscriptionEvent, verifyWebhookSignature, isWebhookTimestampFresh } from "@/domain/billing";
 import { captureServerEvent } from "@/lib/analytics";
+import { captureCheckoutFailed } from "@/lib/billingDiagnostics";
 import { sendPastDueEmail } from "@/lib/billingEmail";
 import { upsertMacEntitlement } from "@/lib/macSession";
 import { validateBillingEnvironment } from "@/domain/billingEnvironment";
@@ -122,6 +123,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   }
 
+  const checkoutFailure = interpretCheckoutFailure(event);
+  if (checkoutFailure) {
+    await captureCheckoutFailed({
+      reason: checkoutFailure.reason,
+      sourceSurface: "polar_webhook",
+      distinctId: checkoutFailure.userId || undefined,
+    });
+  }
+
   if (personalUpdate) {
     await upsertMacEntitlement({
       userId: personalUpdate.userId,
@@ -135,6 +145,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       providerEventAt: personalUpdate.providerEventAt ?? providerEventAt,
       providerEventId: personalUpdate.providerEventId ?? request.headers.get("webhook-id"),
       providerEventState: personalUpdate.status,
+      preserveExistingPeriod: personalUpdate.preserveExistingPeriod,
     });
     await captureServerEvent("mac_personal_plan_updated", {
       workos_user_id: personalUpdate.userId,
